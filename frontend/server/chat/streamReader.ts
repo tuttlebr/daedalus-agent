@@ -227,6 +227,7 @@ export async function startBackgroundStreamReader(
     stream: true,
     additional_props: {
       ...(jobRequest.additionalProps || {}),
+      context_workflow_id: jobId,
       enableIntermediateSteps: true,
     },
     stream_options: { include_usage: true },

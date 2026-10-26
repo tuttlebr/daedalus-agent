@@ -72,6 +72,9 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
             },
             body,
         )),
+        Err(error) if error.is::<hindsight::PolicyError>() => {
+            respond(crate::memory_api::upstream(error, false))
+        }
         Err(_) => {
             // Upstream bodies, credentials, and profile contents are private.
             tracing::warn!(event = "profile_import_failed");
@@ -551,6 +554,7 @@ mod tests {
     #[tokio::test]
     async fn replacement_deletes_old_profile_only_after_confirmed_retention() {
         use crate::memory_api::tests::peers;
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
         fn confirmed(call: &Value, _: usize) -> Value {
             match (call["method"].as_str().unwrap(), call["query"].as_str()) {
                 ("GET", Some(query)) if query.contains("offset=0") => json!({"items":
@@ -563,7 +567,7 @@ mod tests {
         let body =
             json!({"mode":"replace","entries":[{"label":"Name","memory":"Synthetic Alice"}]});
         let (base, calls, peer) = peers::hindsight(confirmed).await;
-        let app = peers::app(&base, "redis://127.0.0.1:1");
+        let app = peers::app(&base, &redis);
         assert_eq!(
             peers::send(&app, "POST", "/v1/profile/import", Some(body.clone())).await,
             (
@@ -616,7 +620,7 @@ mod tests {
             },
         ] {
             let (base, calls, peer) = peers::hindsight(reply).await;
-            let app = peers::app(&base, "redis://127.0.0.1:1");
+            let app = peers::app(&base, &redis);
             assert_eq!(
                 peers::send(&app, "POST", "/v1/profile/import", Some(body.clone())).await,
                 (500, json!({"detail":"Profile import failed."}))
@@ -635,7 +639,7 @@ mod tests {
         // Appends are queued without inventory or deletion.
         let (base, calls, peer) =
             peers::hindsight(|_, _| json!({"operation_id":" operation-1 "})).await;
-        let app = peers::app(&base, "redis://127.0.0.1:1");
+        let app = peers::app(&base, &redis);
         let append = json!({"entries":[{"label":"Name","memory":"Synthetic Alice"}]});
         assert_eq!(
             peers::send(&app, "POST", "/v1/profile/import", Some(append)).await,
@@ -650,6 +654,7 @@ mod tests {
         assert_eq!(calls[0]["method"], "POST");
         assert_eq!(calls[0]["body"]["async"], true);
         peer.abort();
+        policy_store.abort();
     }
 
     #[test]

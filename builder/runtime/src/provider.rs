@@ -15,6 +15,36 @@ use rig_core::wire::{Decoder, Descriptor, Encoded, Flow, Mode, Out, Wire, WireEv
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+/// Direct isolated transport never follows a provider redirect or delegates
+/// context to an ambient HTTP proxy. Retries are owned by the runtime and keep
+/// this same client and registered endpoint.
+pub fn isolated_client(
+    config: rig_core::providers::openai::OpenAIConfig,
+) -> anyhow::Result<rig_core::providers::openai::OpenAI> {
+    Ok(config.connect(rig_reqwest::ReqwestClient::from(isolated_http_client()?)))
+}
+
+pub fn isolated_http_client() -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .no_proxy()
+        .build()
+        .map_err(|_| anyhow::anyhow!("Isolated provider transport unavailable"))
+}
+
+/// Provider/session identity for one isolated context. The authenticated user,
+/// run, task and versioned context policy all participate; raw identities never
+/// leave the runtime. A changed policy or task cannot resume an old session.
+pub fn isolated_affinity_key(user: &str, run: &str, task: &str, policy: &str) -> String {
+    let mut hash = Sha256::new();
+    for part in ["daedalus-isolated-v1", user, run, task, policy] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
+}
+
 /// Opaque OpenAI-compatible `user` value for provider prompt-cache affinity.
 /// Conversation IDs are scoped by authenticated user. Requests without a
 /// conversation use their run ID, so unrelated runs never share a fixed key.
@@ -71,17 +101,50 @@ pub fn stream_decode_error(error: &ProviderError) -> bool {
 }
 
 #[derive(Clone)]
-pub struct CompatibleOpenAi(pub OpenAiWire, pub Option<http::HeaderValue>);
+pub struct CompatibleOpenAi {
+    wire: OpenAiWire,
+    session: Option<http::HeaderValue>,
+    isolated: Option<IsolatedBinding>,
+}
+
+#[derive(Clone)]
+struct IsolatedBinding {
+    endpoint: String,
+    model: String,
+    affinity: String,
+}
 
 impl CompatibleOpenAi {
     /// Routing affinity is scoped like provider cache affinity, but sent as a
     /// gateway header. Keep it on this run's wire rather than a shared client.
     pub fn for_session(wire: OpenAiWire, user: &str, conversation: &str, run_id: &str) -> Self {
         let key = cache_affinity_key(user, conversation, run_id);
-        Self(
+        Self {
             wire,
-            Some(key.parse().expect("SHA-256 hex is a valid header")),
-        )
+            session: Some(key.parse().expect("SHA-256 hex is a valid header")),
+            isolated: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_isolated_session(
+        wire: OpenAiWire,
+        user: &str,
+        run: &str,
+        task: &str,
+        policy: &str,
+        endpoint: &str,
+        model: &str,
+    ) -> Self {
+        Self {
+            wire,
+            session: None,
+            isolated: Some(IsolatedBinding {
+                endpoint: endpoint.trim_end_matches('/').to_owned(),
+                model: model.to_owned(),
+                affinity: isolated_affinity_key(user, run, task, policy),
+            }),
+        }
     }
 }
 
@@ -92,12 +155,83 @@ impl Wire for CompatibleOpenAi {
     type Decoder<'id> = CompatibleDecoder<'id>;
 
     fn describe(&self) -> Descriptor<'_> {
-        self.0.describe()
+        self.wire.describe()
     }
 
-    fn encode(&self, request: CompletionRequest, mode: Mode) -> Result<Encoded, EncodeError> {
-        let mut encoded = self.0.encode(request, mode)?;
-        if let Some(session) = &self.1 {
+    fn encode(&self, mut request: CompletionRequest, mode: Mode) -> Result<Encoded, EncodeError> {
+        if let Some(binding) = &self.isolated {
+            if request
+                .model
+                .as_ref()
+                .is_some_and(|model| model != &binding.model)
+            {
+                return Err(EncodeError::request("Isolated provider model mismatch"));
+            }
+            request.model = Some(binding.model.clone());
+            request.record_telemetry_content = false;
+            let params = request.additional_params.get_or_insert_with(|| json!({}));
+            let Some(params) = params.as_object_mut() else {
+                return Err(EncodeError::request("Invalid isolated provider parameters"));
+            };
+            // An allowlist keeps remote continuation IDs, conversation state,
+            // arbitrary provider metadata and caller cache keys out by default.
+            if params.keys().any(|key| {
+                ![
+                    "store",
+                    "parallel_tool_calls",
+                    "truncation",
+                    "user",
+                    "reasoning",
+                    "reasoning_effort",
+                    "reasoning_history",
+                    "chat_template_kwargs",
+                    "thinking_token_budget",
+                ]
+                .contains(&key.as_str())
+            }) {
+                return Err(EncodeError::request(
+                    "Forbidden isolated provider parameter",
+                ));
+            }
+            if let Some(budget) = params.get("thinking_token_budget") {
+                if !matches!(self.wire, OpenAiWire::Chat(_)) {
+                    return Err(EncodeError::request(
+                        "Isolated thinking token budget requires Chat route",
+                    ));
+                }
+                if !crate::routing::valid_thinking_token_budget(budget) {
+                    return Err(EncodeError::request(
+                        "Invalid isolated thinking token budget",
+                    ));
+                }
+            }
+            if let Some(options) = params.get("chat_template_kwargs") {
+                if !matches!(self.wire, OpenAiWire::Chat(_)) {
+                    return Err(EncodeError::request(
+                        "Isolated chat template options require Chat route",
+                    ));
+                }
+                if !crate::routing::valid_chat_template_kwargs(options) {
+                    return Err(EncodeError::request(
+                        "Invalid isolated Chat template options",
+                    ));
+                }
+            }
+            params.insert("store".to_owned(), json!(false));
+            params.insert("user".to_owned(), json!(binding.affinity));
+        }
+        let mut encoded = self.wire.encode(request, mode)?;
+        if let Some(binding) = &self.isolated {
+            let suffix = if matches!(self.wire, OpenAiWire::Responses(_)) {
+                "responses"
+            } else {
+                "chat/completions"
+            };
+            if encoded.request.uri().to_string() != format!("{}/{suffix}", binding.endpoint) {
+                return Err(EncodeError::request("Isolated provider endpoint mismatch"));
+            }
+        }
+        if let Some(session) = &self.session {
             encoded
                 .request
                 .headers_mut()
@@ -108,9 +242,9 @@ impl Wire for CompatibleOpenAi {
 
     fn decoder<'id>(&self) -> Self::Decoder<'id> {
         CompatibleDecoder {
-            inner: self.0.decoder(),
+            inner: self.wire.decoder(),
             metadata: RefCell::new(EnvelopeMetadata::default()),
-            responses: matches!(self.0, OpenAiWire::Responses(_)),
+            responses: matches!(self.wire, OpenAiWire::Responses(_)),
         }
     }
 }
@@ -294,13 +428,14 @@ mod tests {
     }
 
     fn wire() -> CompatibleOpenAi {
-        CompatibleOpenAi(
-            OpenAiWire::new(
+        CompatibleOpenAi {
+            wire: OpenAiWire::new(
                 OpenAIConfig::new("fixture").with_route(Route::Responses),
                 "fixture",
             ),
-            None,
-        )
+            session: None,
+            isolated: None,
+        }
     }
 
     #[test]
@@ -337,6 +472,309 @@ mod tests {
                 previous = Some(key);
             }
         }
+    }
+
+    #[test]
+    fn isolated_sessions_never_reuse_user_run_task_or_policy_context() {
+        let key = isolated_affinity_key("alice-private", "run-private", "task", "v1");
+        assert_eq!(
+            key,
+            isolated_affinity_key("alice-private", "run-private", "task", "v1")
+        );
+        assert_eq!(key.len(), 64);
+        assert!(!key.contains("private"));
+        for (user, run, task, policy) in [
+            ("bob", "run-private", "task", "v1"),
+            ("alice-private", "other-run", "task", "v1"),
+            ("alice-private", "run-private", "coordinator", "v1"),
+            ("alice-private", "run-private", "task", "v2"),
+        ] {
+            assert_ne!(key, isolated_affinity_key(user, run, task, policy));
+        }
+    }
+
+    fn isolated_wire(route: Route, endpoint: &str) -> CompatibleOpenAi {
+        CompatibleOpenAi::for_isolated_session(
+            OpenAiWire::new(
+                OpenAIConfig::new("fixture")
+                    .with_base_url("http://127.0.0.1:9000/v1")
+                    .with_route(route),
+                "registered-model",
+            ),
+            "alice-private",
+            "run",
+            "task",
+            "v1",
+            endpoint,
+            "registered-model",
+        )
+    }
+
+    #[test]
+    fn isolated_wire_binds_destination_and_overrides_untrusted_session_affinity() {
+        for route in [Route::Responses, Route::Chat] {
+            let wire = isolated_wire(route, "http://127.0.0.1:9000/v1");
+            let encoded = wire
+                .encode(
+                    CompletionRequest::new("public input").additional_params(json!({
+                        "store":true,"user":"private-account-id"
+                    })),
+                    Mode::Unary,
+                )
+                .unwrap();
+            let rig_core::wire::Body::Bytes(body) = encoded.request.body() else {
+                panic!()
+            };
+            let body: Value = serde_json::from_slice(body).unwrap();
+            assert_eq!(body["store"], false);
+            assert_eq!(
+                body["user"],
+                isolated_affinity_key("alice-private", "run", "task", "v1")
+            );
+            assert_eq!(body["model"], "registered-model");
+            assert!(
+                !encoded
+                    .request
+                    .headers()
+                    .contains_key("x-switchyard-session-id")
+            );
+            assert_eq!(encoded.request.headers()["authorization"], "Bearer fixture");
+            assert!(
+                !String::from_utf8_lossy(body.to_string().as_bytes())
+                    .contains("private-account-id")
+            );
+            assert!(
+                isolated_wire(route, "https://cloud.example/v1")
+                    .encode(CompletionRequest::new("private"), Mode::Unary)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn isolated_wire_rejects_continuations_policy_forgery_and_hidden_state() {
+        let wire = isolated_wire(Route::Responses, "http://127.0.0.1:9000/v1");
+        for forbidden in [
+            "previous_response_id",
+            "conversation",
+            "metadata",
+            "prompt_cache_key",
+            "headers",
+            "model",
+            "input",
+            "instructions",
+            "destination_policy",
+        ] {
+            let request = CompletionRequest::new("public input")
+                .additional_params(json!({forbidden:"PRIVATE-MARKER"}));
+            let error = wire.encode(request, Mode::Unary).unwrap_err().to_string();
+            assert!(!error.contains("PRIVATE-MARKER"));
+        }
+        let mut request = CompletionRequest::new("private");
+        request.model = Some("cloud-model".into());
+        assert!(wire.encode(request, Mode::Unary).is_err());
+    }
+
+    #[test]
+    fn isolated_chat_preserves_numeric_thinking_budget_and_existing_output_cap() {
+        let wire = isolated_wire(Route::Chat, "http://127.0.0.1:9000/v1");
+        for mode in [Mode::Streaming, Mode::Unary] {
+            for (tokens, output_cap) in [(0, 8192), (256, 8192), (8192, 8192), (256, 2048)] {
+                let mut request =
+                    CompletionRequest::new("private local input").additional_params(json!({
+                        "thinking_token_budget":tokens,
+                        "chat_template_kwargs":{"enable_thinking":true},
+                    }));
+                request.max_tokens = Some(output_cap);
+                let encoded = wire.encode(request, mode).unwrap();
+                let rig_core::wire::Body::Bytes(payload) = encoded.request.body() else {
+                    panic!()
+                };
+                let body: Value = serde_json::from_slice(payload).unwrap();
+                assert_eq!(body["thinking_token_budget"].as_u64(), Some(tokens));
+                assert_eq!(body["chat_template_kwargs"]["enable_thinking"], true);
+                assert_eq!(body["max_tokens"], output_cap);
+                assert_eq!(body["model"], "registered-model");
+                assert_eq!(body["store"], false);
+                assert!(body.get("previous_response_id").is_none());
+                assert!(body.get("metadata").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_responses_rejects_even_valid_thinking_budgets() {
+        let wire = isolated_wire(Route::Responses, "http://127.0.0.1:9000/v1");
+        for mode in [Mode::Streaming, Mode::Unary] {
+            for tokens in [0, 256, 8192] {
+                let mut request =
+                    CompletionRequest::new("private local input").additional_params(json!({
+                        "thinking_token_budget":tokens,
+                        "chat_template_kwargs":{"enable_thinking":true},
+                    }));
+                request.max_tokens = Some(8192);
+                let error = wire.encode(request, mode).unwrap_err().to_string();
+                assert!(error.contains("requires Chat route"));
+                assert!(!error.contains("private local input"));
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_chat_preserves_boolean_medium_effort_without_changing_caps() {
+        let wire = isolated_wire(Route::Chat, "http://127.0.0.1:9000/v1");
+        for mode in [Mode::Streaming, Mode::Unary] {
+            for medium in [false, true] {
+                for output_cap in [2048, 8192] {
+                    let mut request = CompletionRequest::new("private local input")
+                        .additional_params(json!({"chat_template_kwargs":{
+                            "enable_thinking":true,"medium_effort":medium
+                        }}));
+                    request.max_tokens = Some(output_cap);
+                    let encoded = wire.encode(request, mode).unwrap();
+                    let rig_core::wire::Body::Bytes(payload) = encoded.request.body() else {
+                        panic!()
+                    };
+                    let body: Value = serde_json::from_slice(payload).unwrap();
+                    assert_eq!(
+                        body["chat_template_kwargs"]["enable_thinking"].as_bool(),
+                        Some(true)
+                    );
+                    assert_eq!(
+                        body["chat_template_kwargs"]["medium_effort"].as_bool(),
+                        Some(medium)
+                    );
+                    assert_eq!(body["max_tokens"], output_cap);
+                    assert_eq!(body["model"], "registered-model");
+                    assert_eq!(body["store"], false);
+                    assert!(body.get("thinking_token_budget").is_none());
+                    assert!(body.get("metadata").is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_wire_rejects_unsupported_or_forged_chat_template_options() {
+        for route in [Route::Responses, Route::Chat] {
+            let wire = isolated_wire(route, "http://127.0.0.1:9000/v1");
+            for options in [
+                Value::Null,
+                json!([]),
+                json!(true),
+                json!({}),
+                json!({"medium_effort":true}),
+                json!({"enable_thinking":"PRIVATE-MARKER"}),
+                json!({"enable_thinking":1}),
+                json!({"enable_thinking":true,"medium_effort":"PRIVATE-MARKER"}),
+                json!({"enable_thinking":true,"medium_effort":1}),
+                json!({"enable_thinking":true,"medium_effort":null}),
+                json!({"enable_thinking":true,"metadata":"PRIVATE-MARKER"}),
+                json!({"enable_thinking":true,"reasoning_effort":"efficient"}),
+            ] {
+                let error = wire
+                    .encode(
+                        CompletionRequest::new("private local input")
+                            .additional_params(json!({"chat_template_kwargs":options})),
+                        Mode::Streaming,
+                    )
+                    .unwrap_err()
+                    .to_string();
+                assert!(!error.contains("PRIVATE-MARKER"));
+            }
+        }
+        let wire = isolated_wire(Route::Responses, "http://127.0.0.1:9000/v1");
+        for options in [
+            json!({"enable_thinking":false}),
+            json!({"enable_thinking":true,"medium_effort":true}),
+        ] {
+            for mode in [Mode::Streaming, Mode::Unary] {
+                assert!(
+                    wire.encode(
+                        CompletionRequest::new("private local input")
+                            .additional_params(json!({"chat_template_kwargs":options.clone()})),
+                        mode
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_wire_rejects_invalid_thinking_budget_before_encoding() {
+        for route in [Route::Chat, Route::Responses] {
+            let wire = isolated_wire(route, "http://127.0.0.1:9000/v1");
+            for invalid in [
+                json!(-1),
+                json!(0.0),
+                json!(256.0),
+                json!(256.5),
+                json!("PRIVATE-MARKER"),
+                json!({"PRIVATE-MARKER":256}),
+                json!([256]),
+                json!(true),
+                Value::Null,
+                json!(8193),
+                json!(u64::MAX),
+            ] {
+                let request = CompletionRequest::new("private local input")
+                    .additional_params(json!({"thinking_token_budget":invalid}));
+                let error = wire.encode(request, Mode::Unary).unwrap_err().to_string();
+                assert!(!error.contains("PRIVATE-MARKER"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn isolated_transport_does_not_follow_provider_redirects() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let captured = Arc::new(AtomicUsize::new(0));
+        let external_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let external_addr = external_listener.local_addr().unwrap();
+        let count = captured.clone();
+        let external = tokio::spawn(async move {
+            axum::serve(
+                external_listener,
+                axum::Router::new().fallback(move || {
+                    let count = count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        "unexpected"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        let local_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = local_listener.local_addr().unwrap();
+        let local = tokio::spawn(async move {
+            axum::serve(
+                local_listener,
+                axum::Router::new().fallback(move || async move {
+                    (
+                        http::StatusCode::TEMPORARY_REDIRECT,
+                        [("location", format!("http://{external_addr}/v1/responses"))],
+                    )
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        let client = isolated_client(
+            OpenAIConfig::new("fixture").with_base_url(format!("http://{local_addr}/v1")),
+        )
+        .unwrap();
+        let model = client.responses("fixture");
+        let result = model.call(CompletionRequest::new("PRIVATE-MARKER")).await;
+        assert!(result.is_err());
+        assert_eq!(captured.load(Ordering::SeqCst), 0);
+        local.abort();
+        external.abort();
     }
 
     #[test]

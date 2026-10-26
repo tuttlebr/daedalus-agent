@@ -951,6 +951,16 @@ llms:
 workflow:
   _type: daedalus_rust_agent
   llm_name: tool_calling_llm
+  # Opt in only after configuring verified direct provider endpoints and passing
+  # the context-isolation evaluation/rollout gates. The enabled runtime overrides
+  # request/skill profile promotions for the coordinator; capability preferences
+  # cannot export its context. See docs/context-isolation.md.
+  context_isolation:
+    enabled: false
+    policy_version: context-isolation-v1
+    coordinator: local
+    destinations: {}
+    worker_profiles: {}
   model_routes:
     deep: ${DAEDALUS_LLM_DEEP_MODEL:-daedalus/deep}
     deep_max: ${DAEDALUS_LLM_DEEP_MAX_MODEL:-daedalus/max}

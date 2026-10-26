@@ -58,6 +58,17 @@ RESERVED_ENV_NAMES = frozenset(
 RESERVED_ENV_PREFIXES = ("DYLD_", "LD_")
 
 
+def _internal_http_client(**kwargs) -> httpx.AsyncClient:
+    # Private editions and workspace contents must reach the configured
+    # internal service directly. Preserve the existing TLS CA environment
+    # while excluding ambient HTTP proxy routing.
+    return httpx.AsyncClient(
+        trust_env=False,
+        verify=httpx.create_ssl_context(trust_env=True),
+        **kwargs,
+    )
+
+
 def _validate_base_url(value: str) -> str:
     normalized = value.strip().rstrip("/")
     parsed = urlsplit(normalized)
@@ -745,7 +756,7 @@ async def _publish_artifact(
         "x-daedalus-artifact-path-b64": _base64url(source_path),
     }
     try:
-        async with httpx.AsyncClient() as client:
+        async with _internal_http_client() as client:
             response = await _request_with_retry(
                 client,
                 "POST",
@@ -881,7 +892,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
             )
 
         try:
-            async with httpx.AsyncClient(base_url=config.base_url) as client:
+            async with _internal_http_client(base_url=config.base_url) as client:
                 capabilities = await _discover(
                     client, force=operation == "list_commands"
                 )

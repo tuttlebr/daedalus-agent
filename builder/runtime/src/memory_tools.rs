@@ -469,8 +469,9 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let task = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
         let config = Config::new(json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},"workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
-            [("HINDSIGHT_API_URL".into(),base),("HINDSIGHT_API_KEY".into(),"synthetic-hindsight".into()),("REDIS_URL".into(),"redis://127.0.0.1:1".into())].into()).unwrap();
+            [("HINDSIGHT_API_URL".into(),base),("HINDSIGHT_API_KEY".into(),"synthetic-hindsight".into()),("REDIS_URL".into(),redis)].into()).unwrap();
         let tools = Tools::new(&config).unwrap();
         let mut headers: HeaderMap = [
             ("x-user-id", "synthetic-alice"),
@@ -505,6 +506,7 @@ mod tests {
             calls.lock().await.clear();
         }
         task.abort();
+        policy_store.abort();
     }
 
     #[test]

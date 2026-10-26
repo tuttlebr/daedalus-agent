@@ -26,7 +26,7 @@ TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
 RUNTIME_IMAGE ?= daedalus:runtime-check
-RUNTIME_REDIS_IMAGE ?=
+RUNTIME_REDIS_IMAGE ?= redis:7.4-alpine
 MIGRATION_BASELINE_SHA := 7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b
 MIGRATION_BASELINE_IMAGE ?= daedalus:migration-baseline-7dc4e1d
 MIGRATION_MINIMAL_IMAGE ?= daedalus:rust-minimal-check
@@ -75,6 +75,7 @@ rust-coverage: ## instrument Rust tests and retain LCOV evidence
 runtime: rust-check ## build Rust and exercise the deployable backend over HTTP
 	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
 	uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image $(RUNTIME_IMAGE) $(if $(RUNTIME_REDIS_IMAGE),--redis-image $(RUNTIME_REDIS_IMAGE))
+	uv run --no-project --python 3.12 --with httpx --with pyyaml --with redis python builder/context_isolation_http_check.py --image $(RUNTIME_IMAGE) --redis-image $(or $(RUNTIME_REDIS_IMAGE),redis:7.4-alpine) --report .cache/context-isolation/http-capture.json
 
 migration-baseline: ## rebuild a retained source baseline when no immutable image override is supplied
 	@if [ "$(MIGRATION_BASELINE_IMAGE)" = "daedalus:migration-baseline-7dc4e1d" ]; then \
@@ -143,6 +144,7 @@ migration-benchmark: ## frozen synthetic performance gates; run on an idle host 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
 	cd builder && uv run --no-project --active python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
+	cd builder && uv run --no-project --active python -m unittest discover -s ../tools/context-isolation-eval/tests -p 'test_*.py'
 
 test-integration: ## Python + frontend persistence tests vs real Redis  (CI job: builder-integration)
 	@set -eu; \
@@ -192,6 +194,7 @@ docker: ## validate all shipped image references, build and scan runtime images
 		docker compose config --quiet; \
 		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)"; \
+		uv run --no-project --python 3.12 --with httpx --with pyyaml --with redis python builder/context_isolation_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)" --report .cache/context-isolation/http-capture.json; \
 		for service in backend frontend redis; do \
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \

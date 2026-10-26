@@ -13,6 +13,7 @@ COPY runtime/Cargo.toml runtime/Cargo.lock ./
 COPY runtime/src ./src
 COPY runtime/resources ./resources
 COPY runtime/tests ./tests
+COPY --from=skills daily-summary/references/edition-policy.json /skills/daily-summary/references/edition-policy.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/runtime/target,sharing=locked \
     cargo test --locked && cargo build --release --locked && \

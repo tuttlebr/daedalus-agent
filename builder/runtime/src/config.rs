@@ -225,6 +225,17 @@ impl Config {
     pub fn variable(&self, key: &str, default: &str) -> String {
         self.env.get(key).cloned().unwrap_or_else(|| default.into())
     }
+    /// Operator attestation for this service's complete LOCAL TEXT processing
+    /// chain. This does not attest vision processing or a model alias name.
+    pub fn hindsight_local_text_origin(&self) -> Result<Option<String>> {
+        let value = self.variable("DAEDALUS_HINDSIGHT_LOCAL_TEXT_ORIGIN", "");
+        if value.trim().is_empty() {
+            return Ok(None);
+        }
+        crate::hindsight::local_origin(&value)
+            .map(Some)
+            .ok_or_else(|| anyhow!("Invalid Hindsight local text processing origin"))
+    }
     pub fn workflow(&self) -> &Value {
         &self.raw["workflow"]
     }
@@ -246,6 +257,7 @@ impl Config {
         &self.raw["llms"][self.workflow()["llm_name"].as_str().unwrap_or("")]
     }
     fn validate(&self) -> Result<()> {
+        self.hindsight_local_text_origin()?;
         let workflow = self.workflow();
         if workflow["_type"] != "daedalus_rust_agent" {
             bail!("workflow._type must be daedalus_rust_agent");
@@ -450,6 +462,7 @@ impl Config {
                 bail!("Invalid model_routes");
             }
         }
+        let isolated = crate::routing::IsolationConfig::from_config(self)?.is_some();
         for field in ["request_model_profiles", "skill_model_profiles"] {
             let mappings = workflow
                 .get(field)
@@ -459,7 +472,7 @@ impl Config {
             for (key, value) in mappings {
                 if (field == "request_model_profiles" && key != "daily_summary")
                     || !["default", "deep"].iter().any(|s| value == s)
-                    || (value == "deep" && !routes.contains_key("deep"))
+                    || (!isolated && value == "deep" && !routes.contains_key("deep"))
                 {
                     bail!("Invalid automatic model mapping");
                 }

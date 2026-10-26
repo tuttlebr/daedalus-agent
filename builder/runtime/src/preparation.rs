@@ -155,6 +155,15 @@ pub fn profile(query: &str, autonomy: bool) -> &'static str {
     }
 }
 
+pub fn private_sources_allowed(policy: &Value) -> bool {
+    !policy["disabledSources"]
+        .as_array()
+        .is_some_and(|sources| sources.iter().any(|source| source == "workspace_data"))
+        && policy["enabledSources"].as_array().is_none_or(|sources| {
+            sources.is_empty() || sources.iter().any(|source| source == "workspace_data")
+        })
+}
+
 pub fn clock_schema(name: &str, raw: &Value) -> Value {
     let description = raw
         .get("description")
@@ -202,6 +211,13 @@ pub fn base_prepare(
         bail!("additional_props must be an object");
     }
     let requested = additional.get("model_profile");
+    if additional.get("context_workflow_id").is_some_and(|value| {
+        value
+            .as_str()
+            .is_none_or(|id| uuid::Uuid::parse_str(id).is_err())
+    }) {
+        bail!("Invalid context workflow identity");
+    }
     if requested.is_some_and(|p| {
         serde_json::from_value::<crate::protocol::ModelProfile>(p.clone()).is_err()
     }) {
@@ -220,7 +236,8 @@ pub fn base_prepare(
         .and_then(Value::as_str)
         .or_else(|| workflow["request_model_profiles"][request_profile].as_str())
         .unwrap_or("default");
-    if effective != "default" && !routes.contains_key(effective) {
+    let isolation = crate::routing::IsolationConfig::from_config(config)?;
+    if isolation.is_none() && effective != "default" && !routes.contains_key(effective) {
         bail!("Requested model profile is not configured");
     }
     let mut model = config.main_model().clone();
@@ -251,8 +268,15 @@ pub fn base_prepare(
             autonomous_model = true;
         }
     }
-    if !autonomous_model && effective != "default" {
+    if isolation.is_none() && !autonomous_model && effective != "default" {
         model["model_name"] = json!(routes[effective]);
+    }
+    // Resolve privacy before memory loading or capability promotion. Legacy
+    // client metadata cannot select or widen the trusted endpoint registry.
+    if let Some(isolation) = isolation {
+        let route = isolation.resolve_coordinator(effective)?;
+        model = serde_json::to_value(route.model)?;
+        explicit = true;
     }
     let prepared = PreparedRun {
         model: ModelConfig {
@@ -435,6 +459,17 @@ impl Preparation {
         let autonomy =
             header(headers, "x-daedalus-execution-scope").eq_ignore_ascii_case("autonomy");
         let (mut prepared, query) = base_prepare(&self.config, body, autonomy)?;
+        let protected = crate::routing::IsolationConfig::from_config(&self.config)?.is_some();
+        crate::context_state::enforce(
+            &self.config,
+            header(headers, "x-user-id"),
+            header(headers, "x-conversation-id"),
+            body["additional_props"]["context_workflow_id"]
+                .as_str()
+                .unwrap_or_else(|| header(headers, "x-run-id")),
+            protected,
+        )
+        .await?;
         let workflow = self.config.workflow();
         let selected = names(workflow.get(
             if prepared.daily_summary && workflow.get("daily_summary_tools").is_some() {
@@ -447,7 +482,14 @@ impl Preparation {
         // this request so cancellation or a catalogue failure drops all work.
         let (tools, context) = tokio::try_join!(
             self.prepare_tools(http, tools_url, headers, body, &selected),
-            self.prepare_memory(headers, &query, autonomy),
+            async {
+                if private_sources_allowed(&body["additional_props"]["sourcePolicy"]) {
+                    self.prepare_memory(headers, &query, autonomy, protected)
+                        .await
+                } else {
+                    Ok(None)
+                }
+            },
         )?;
         prepared.tools = tools;
         if let Some(context) = context
@@ -576,6 +618,7 @@ impl Preparation {
         headers: &HeaderMap,
         query: &str,
         autonomy: bool,
+        protected: bool,
     ) -> Result<Option<String>> {
         if !autonomy {
             let budget = self
@@ -586,10 +629,13 @@ impl Preparation {
                 .max(0.1);
             let user = header(headers, "x-user-id");
             let conversation = header(headers, "x-conversation-id");
-            match tokio::time::timeout(
-                Duration::from_secs_f64(budget.min(3600.)),
-                self.memory.context(user, conversation, query),
-            )
+            match tokio::time::timeout(Duration::from_secs_f64(budget.min(3600.)), async {
+                if protected {
+                    self.memory.read_only_context(user, query).await
+                } else {
+                    self.memory.context(user, conversation, query).await
+                }
+            })
             .await
             {
                 Ok(Ok(context)) if !context.is_empty() => {
@@ -617,7 +663,7 @@ mod tests {
     use axum::{Json, Router, extract::State, http::Uri, routing::post};
     use tokio::sync::Barrier;
 
-    fn configuration(base: &str) -> Config {
+    fn configuration(base: &str, redis: &str) -> Config {
         Config::new(
             json!({
                 "llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
@@ -625,12 +671,179 @@ mod tests {
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["feed","clock"]}
             }),
             [
-                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("REDIS_URL".into(), redis.into()),
                 ("HINDSIGHT_API_URL".into(), base.into()),
                 ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
                 ("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "30".into()),
             ].into(),
         ).unwrap()
+    }
+
+    fn protected_memory_configuration(base: &str, redis: &str) -> Config {
+        let mut registered_redis = reqwest::Url::parse(redis).unwrap();
+        registered_redis.set_username("").unwrap();
+        registered_redis.set_password(None).unwrap();
+        registered_redis.set_query(None);
+        registered_redis.set_fragment(None);
+        if registered_redis.port().is_none() {
+            registered_redis.set_port(Some(6379)).unwrap();
+        }
+        if matches!(registered_redis.path(), "" | "/") {
+            registered_redis.set_path("/0");
+        }
+        Config::new(
+            json!({
+                "llms":{"main":{"base_url":format!("{base}/v1"),"model_name":"local-fixture","api_type":"chat"}},
+                "functions":{"clock":{"_type":"current_datetime"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["clock"],
+                    "context_isolation":{"enabled":true,"policy_version":"memory-read-only-v1","coordinator":"local",
+                        "destinations":{"local":{"llm":"main","trust":"trusted_local","transport":"direct"}},
+                        "worker_profiles":{},"trusted_local_services":{"redis":registered_redis.as_str(),"hindsight":base}}}
+            }),
+            [
+                ("REDIS_URL".into(), redis.into()),
+                ("HINDSIGHT_API_URL".into(), base.into()),
+                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                ("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "0.1".into()),
+            ].into(),
+        ).unwrap()
+    }
+
+    /// Real HTTP rejects every bootstrap/generative endpoint, while Redis
+    /// supplies actual durable enrollment and an older session-cache entry.
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_preparation_reads_memory_and_fences_rollback_before_private_io() {
+        use axum::response::IntoResponse;
+        let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
+        let calls = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let router = Router::new().fallback(move |method: axum::http::Method, uri: Uri| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().await.push(format!("{method} {}", uri.path()));
+                if method == axum::http::Method::GET && uri.path().ends_with("/knowledge-base/search") {
+                    Json(json!({"results":[]})).into_response()
+                } else if method == axum::http::Method::POST && uri.path().ends_with("/memories/recall") {
+                    Json(json!({"results":[{"text":"Synthetic bounded memory fact","type":"world"}]})).into_response()
+                } else {
+                    axum::http::StatusCode::METHOD_NOT_ALLOWED.into_response()
+                }
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut config = protected_memory_configuration(&base, &redis);
+        config
+            .env
+            .insert("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "5".into());
+        let user = format!("memory-read-only-{}", uuid::Uuid::new_v4());
+        let conversation = uuid::Uuid::new_v4().to_string();
+        let store = crate::storage::Store::new(&config).unwrap();
+        store
+            .set(
+                &format!(
+                    "daedalus:memory:session:v1:{}:{}",
+                    crate::memory::digest(&[&crate::memory::bank_id(&user)]),
+                    crate::memory::digest(&[&conversation])
+                ),
+                &json!({"text":"Cached synthesis must not be reused","reflected_at":0}).to_string(),
+                60,
+            )
+            .await
+            .unwrap();
+        let preparation = Preparation::new(config.clone()).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", user.parse().unwrap());
+        headers.insert("x-conversation-id", conversation.parse().unwrap());
+        headers.insert(
+            "x-run-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        let body = json!({"messages":[{"role":"user","content":"Summarize my projects"}]});
+        let run = preparation
+            .prepare(&reqwest::Client::new(), &base, &headers, &body)
+            .await
+            .unwrap();
+        assert_eq!(run.messages.len(), 2);
+        assert!(
+            run.messages[0]
+                .content
+                .contains("Synthetic bounded memory fact")
+        );
+        assert!(
+            !run.messages[0]
+                .content
+                .contains("Cached synthesis must not be reused")
+        );
+        assert_eq!(run.model.base_url, format!("{base}/v1"));
+        let initial_calls = calls.lock().await.clone();
+        assert_eq!(initial_calls.len(), 2, "{initial_calls:?}");
+        assert!(
+            initial_calls[0].starts_with("GET ")
+                && initial_calls[0].ends_with("/knowledge-base/search")
+        );
+        assert!(
+            initial_calls[1].starts_with("POST ") && initial_calls[1].ends_with("/memories/recall")
+        );
+
+        let mut rollback = config.raw.clone();
+        rollback["workflow"]
+            .as_object_mut()
+            .unwrap()
+            .remove("context_isolation");
+        let rollback = Preparation::new(Config::new(rollback, config.env).unwrap()).unwrap();
+        headers.insert(
+            "x-conversation-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        assert!(
+            rollback
+                .prepare(&reqwest::Client::new(), &base, &headers, &body)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            *calls.lock().await,
+            initial_calls,
+            "enrolled rollback performed private IO"
+        );
+        peer.abort();
+    }
+
+    #[tokio::test]
+    async fn protected_optional_memory_timeout_has_no_legacy_fallback() {
+        let calls = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let router = Router::new().fallback(move |method: axum::http::Method, uri: Uri| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().await.push(format!("{method} {}", uri.path()));
+                std::future::pending::<Json<Value>>().await
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
+        let config = protected_memory_configuration(&base, &redis);
+        let preparation = Preparation::new(config).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "synthetic-alice".parse().unwrap());
+        let context = tokio::time::timeout(
+            Duration::from_secs(2),
+            preparation.prepare_memory(&headers, "Summarize my projects", false, true),
+        )
+        .await
+        .expect("optional memory must retain its deadline")
+        .unwrap();
+        assert!(context.is_none());
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].ends_with("/knowledge-base/search"));
+        peer.abort();
+        policy_store.abort();
     }
 
     #[tokio::test]
@@ -667,9 +880,11 @@ mod tests {
             .with_state(Arc::new(Barrier::new(2)));
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(configuration(&base)).unwrap();
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
+        let preparation = Preparation::new(configuration(&base, &redis)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        headers.insert("x-run-id", "fixture-run".parse().unwrap());
         let body = json!({"messages":[
             {"role":"user","content":"Earlier question"},
             {"role":"assistant","content":"Earlier answer"},
@@ -683,6 +898,7 @@ mod tests {
         .expect("memory and catalogue must proceed together")
         .unwrap();
         peer.abort();
+        policy_store.abort();
         assert_eq!(
             run.tools
                 .iter()
@@ -720,9 +936,11 @@ mod tests {
             .with_state(Arc::new(Barrier::new(2)));
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(configuration(&base)).unwrap();
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
+        let preparation = Preparation::new(configuration(&base, &redis)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        headers.insert("x-run-id", "fixture-run".parse().unwrap());
         let body = json!({"messages":[{"role":"user","content":"Review my project preferences"}]});
         let result = tokio::time::timeout(
             Duration::from_secs(5),
@@ -731,6 +949,7 @@ mod tests {
         .await
         .expect("catalogue failure must cancel pending memory preparation");
         peer.abort();
+        policy_store.abort();
         assert!(result.is_err());
     }
 
@@ -743,6 +962,7 @@ mod tests {
             post(std::future::pending::<Json<Value>>),
         );
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
         let config = Config::new(
             json!({
                 "llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
@@ -750,7 +970,7 @@ mod tests {
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["feed"]}
             }),
             [
-                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("REDIS_URL".into(), redis),
                 ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
             ]
             .into(),
@@ -759,6 +979,7 @@ mod tests {
         let preparation = Preparation::new(config).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        headers.insert("x-run-id", "fixture-run".parse().unwrap());
         let body = json!({"messages":[{"role":"user","content":"Read my feeds"}]});
         let started = tokio::time::Instant::now();
         // Without a total deadline, preparation waits for the run deadline.
@@ -769,13 +990,14 @@ mod tests {
         .await
         .expect("an unresponsive catalogue must end preparation at its own deadline");
         peer.abort();
+        policy_store.abort();
         assert!(result.is_err());
         assert!(started.elapsed() >= CATALOGUE_TIMEOUT);
     }
 
     /// Python catalogue plus one deferred group with initial tools and one
     /// eager group. All three need independent first-use network work.
-    fn discovery(base: &str) -> Config {
+    fn discovery(base: &str, redis: &str) -> Config {
         let server = json!({"url":format!("{base}/mcp")});
         Config::new(
             json!({
@@ -790,7 +1012,7 @@ mod tests {
                     "tools":["feed","lights","mail"]}
             }),
             [
-                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("REDIS_URL".into(), redis.into()),
                 ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
             ]
             .into(),
@@ -848,9 +1070,11 @@ mod tests {
             .with_state(barrier);
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(discovery(&base)).unwrap();
+        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
+        let preparation = Preparation::new(discovery(&base, &redis)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        headers.insert("x-run-id", "fixture-run".parse().unwrap());
         let body = json!({"messages":[{"role":"user","content":"Check my lights"}]});
         let run = tokio::time::timeout(
             Duration::from_secs(5),
@@ -860,6 +1084,7 @@ mod tests {
         .expect("independent catalogue sources must proceed together")
         .unwrap();
         peer.abort();
+        policy_store.abort();
         assert_eq!(
             run.tools
                 .iter()

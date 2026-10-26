@@ -56,6 +56,12 @@ actions. There is no durable checkpoint/resume of an in-flight Rust agent. See t
 [long-running workflow guide](long-running-workflows.md) for scheduling,
 context bounds and measurement commands.
 
+Opt-in [context isolation](context-isolation.md) retains local-only enrollment,
+bounded workflow budgets and completed read evidence in Redis. A new run can
+reuse that evidence after an interruption; it does not replay unfinished tools
+or resume a provider conversation. Legacy or unclassified incoming history
+stays local while the isolation feature is enabled.
+
 Finalization saves the conversation, then records that save, releases the
 conversation and chat slot, clears streaming state and publishes completion in
 one Redis commit, so a guard is never released before the save is recorded.
@@ -142,6 +148,7 @@ and configuration-aware evaluation, including promotion criteria.
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                        |
 | Configuration, model profiles, native tool ownership and inbound history | `builder/runtime/src/config.rs`, `preparation.rs`                                                  |
+| Private coordinator, bounded public workers and durable context policy   | `builder/runtime/src/context_isolation.rs`, `context_state.rs`, `public_worker.rs`, `routing.rs`   |
 | Public API ownership and run deadlines                                   | `builder/runtime/src/main.rs` and its route modules                                                |
 | MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                       |
 | Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                             |
@@ -228,7 +235,7 @@ at most once every 15 seconds. These keep the frontend's stream idle watchdog
 from treating a working model as disconnected. A provider that stops emitting
 events sends no comments, and model and whole-run deadlines still apply.
 
-Each model request includes an opaque `user` value for provider prompt-cache
+Outside isolation mode, each model request includes an opaque `user` value for provider prompt-cache
 affinity. It is a SHA-256 digest scoped to the authenticated user and conversation,
 stable across model rounds, retries, profile promotions, and later conversation
 turns. If no conversation ID is supplied, the run ID supplies that scope. The
@@ -246,6 +253,15 @@ follow-ups; a run without a conversation gets its own identity. Switchyard judge
 new user turns for the automatic profile and reuses that tier during tool
 continuations. Explicit profiles bypass the judge. Gateway state is in memory;
 missing state after restart defaults to the capable tier in our patched build.
+
+Isolation mode uses a separate direct-provider route contract. The coordinator
+is bound to a registered trusted local endpoint. Public workers receive fixed
+desk instructions and runtime-collected public sources; they have separate
+user/run/task/policy cache namespaces and no tools or coordinator history.
+Every retry keeps its registered destination. Unknown gateways, continuation
+IDs and model-supplied policy fields are rejected. See
+[configuration and rollout](context-isolation.md) for local service registration,
+shared budgets, the built-image capture check and safe rollback.
 
 See [runtime logs](operations.md#runtime-logs) to correlate model attempts,
 tool calls, and terminal events with a frontend job.

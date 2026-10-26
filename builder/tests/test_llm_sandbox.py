@@ -35,7 +35,7 @@ class FakeAsyncClient:
     responses = []
     last_base_url = None
 
-    def __init__(self, base_url=None):
+    def __init__(self, base_url=None, **kwargs):
         FakeAsyncClient.last_base_url = base_url
 
     async def __aenter__(self):
@@ -1011,3 +1011,51 @@ def test_failed_discovery_get_still_reports_its_retry():
     output = run(_run())
     assert len(FakeAsyncClient.calls) == 2
     assert output == "Error: Could not reach LLM sandbox after one transport retry."
+
+
+def test_private_sandbox_requests_ignore_ambient_http_proxy(monkeypatch):
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        received = {"sandbox": [], "proxy": []}
+
+        async def serve(reader, writer, kind):
+            request = await reader.readuntil(b"\r\n\r\n")
+            received[kind].append(request)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Connection: close\r\n\r\nOK"
+            )
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+        sandbox = await asyncio.start_server(
+            lambda reader, writer: serve(reader, writer, "sandbox"), "127.0.0.1", 0
+        )
+        proxy = await asyncio.start_server(
+            lambda reader, writer: serve(reader, writer, "proxy"), "127.0.0.1", 0
+        )
+        sandbox_port = sandbox.sockets[0].getsockname()[1]
+        proxy_url = f"http://127.0.0.1:{proxy.sockets[0].getsockname()[1]}"
+        for variable in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+            monkeypatch.setenv(variable, proxy_url)
+            monkeypatch.setenv(variable.lower(), proxy_url)
+        monkeypatch.setenv("NO_PROXY", "")
+        monkeypatch.setenv("no_proxy", "")
+        try:
+            async with mod._internal_http_client() as client:
+                response = await client.post(
+                    f"http://127.0.0.1:{sandbox_port}/v1/execute",
+                    json={"private_edition": "PRIVATE-SANDBOX-MARKER"},
+                )
+                assert response.status_code == 200
+            assert len(received["sandbox"]) == 1
+            assert received["proxy"] == []
+        finally:
+            sandbox.close()
+            proxy.close()
+            await sandbox.wait_closed()
+            await proxy.wait_closed()
+
+    run(_run())

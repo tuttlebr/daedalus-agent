@@ -9,6 +9,8 @@ mod authorization_tests;
 mod collection_api;
 mod collections;
 mod config;
+mod context_isolation;
+mod context_state;
 mod control;
 mod document_api;
 mod document_batch;
@@ -69,8 +71,10 @@ mod profile_import;
 mod protocol;
 mod provider;
 mod public_http;
+mod public_worker;
 mod reranker_order;
 mod response_policy;
+mod routing;
 mod storage;
 mod telemetry;
 mod tool_contracts;
@@ -419,6 +423,21 @@ async fn supervise(
             "Model response did not complete" => "Model response did not complete",
             "Model request timed out" => "Model request timed out",
             "Client disconnected" => "Client disconnected",
+            _ if failure.downcast_ref::<routing::PolicyError>().is_some() => {
+                "No permitted model destination is available; private context remains local"
+            }
+            _ if failure
+                .downcast_ref::<context_state::StateError>()
+                .is_some() =>
+            {
+                "Context isolation state could not be restored safely; private context remains local"
+            }
+            _ if failure
+                .downcast_ref::<context_isolation::IsolationError>()
+                .is_some() =>
+            {
+                "Context policy or shared workflow budget prevented this request; completed evidence remains local"
+            }
             _ if details.phase == "model_stream" && details.kind == "json" => {
                 "Model response could not be decoded; completed output has been preserved"
             }
@@ -779,6 +798,9 @@ async fn mcp_readiness(preparation: &preparation::Preparation, response: Respons
 async fn main() -> anyhow::Result<()> {
     logging::init();
     let http = reqwest::Client::builder()
+        // This client carries authenticated private requests only to local
+        // application components, never through an ambient outbound proxy.
+        .no_proxy()
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()?;

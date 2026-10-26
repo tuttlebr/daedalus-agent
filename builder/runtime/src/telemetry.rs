@@ -61,12 +61,30 @@ impl Telemetry {
             );
         }
         let timeout = raw["timeout"].as_f64().unwrap_or(3.).clamp(0.1, 30.);
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
+        let mut exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs_f64(timeout))
             .with_headers(headers)
-            .with_retry_policy(opentelemetry_otlp::RetryPolicy::default().with_max_retries(0))
+            .with_retry_policy(opentelemetry_otlp::RetryPolicy::default().with_max_retries(0));
+        if config.workflow()["context_isolation"]["enabled"] == true {
+            // The registry pins the exporter to a trusted local service. Keep
+            // proxy environment and redirects from changing that destination.
+            // Like OTLP's default client, build the blocking client off Tokio.
+            let client = std::thread::spawn(move || {
+                reqwest::blocking::Client::builder()
+                    .timeout(Duration::from_secs_f64(timeout))
+                    .redirect(reqwest::redirect::Policy::none())
+                    .retry(reqwest::retry::never())
+                    .no_proxy()
+                    .build()
+            })
+            .join()
+            .map_err(|_| anyhow!("Invalid telemetry configuration"))?
+            .map_err(|_| anyhow!("Invalid telemetry configuration"))?;
+            exporter = exporter.with_http_client(client);
+        }
+        let exporter = exporter
             .build()
             .map_err(|_| anyhow!("Invalid telemetry configuration"))?;
         let project = raw["project"]
@@ -166,7 +184,14 @@ pub fn finish(run: &mut RunSpan, outcome: &str, metrics: &Value) {
         "tool_calls",
         "input_tokens",
         "output_tokens",
+        "cached_tokens",
         "reported_usage_calls",
+        "reported_input_tokens",
+        "reported_output_tokens",
+        "reported_cached_tokens",
+        "reported_input_usage_calls",
+        "reported_output_usage_calls",
+        "reported_cached_usage_calls",
     ] {
         if let Some(value) = metrics[name].as_i64() {
             span.set_attribute(KeyValue::new(name, value));
@@ -180,6 +205,93 @@ mod tests {
     //! A local OTLP peer decodes the actual export; no private value may cross it.
     use axum::{Router, routing::post};
     use serde_json::json;
+
+    #[tokio::test]
+    async fn telemetry_omits_unknown_totals_and_exports_reported_usage_lower_bounds() {
+        use axum::{body::Bytes, extract::State};
+        use prost::Message;
+        use std::sync::{Arc, atomic::Ordering};
+        use tokio::sync::Mutex;
+        type Requests = Arc<Mutex<Vec<Vec<u8>>>>;
+        async fn collect(State(requests): State<Requests>, bytes: Bytes) -> &'static str {
+            requests.lock().await.push(bytes.to_vec());
+            ""
+        }
+        let requests = Requests::default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+        let app = Router::new()
+            .route("/v1/traces", post(collect))
+            .with_state(requests.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = crate::config::Config::new(
+            json!({
+                "telemetry":{"endpoint":endpoint},
+            "llms":{"main":{"base_url":"http://127.0.0.1:9000/v1","model_name":"fixture"}},
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","context_isolation":{
+                "enabled":true,"policy_version":"context-isolation-v1","coordinator":"local",
+                "destinations":{"local":{"llm":"main","trust":"trusted_local","transport":"direct"}},
+                "worker_profiles":{},"trusted_local_services":{"telemetry":endpoint,"redis":"redis://daedalus-redis.daedalus.svc.cluster.local:6379/0"}
+            }}
+            }),
+            Default::default(),
+        )
+        .unwrap();
+        let body = json!({"messages":[{"role":"user","content":"PRIVATE-CONTEXT"}]});
+        let (prepared, _) = crate::preparation::base_prepare(&config, &body, false).unwrap();
+        let telemetry = super::Telemetry::new(&config).unwrap().unwrap();
+        let selection = crate::preparation::ModelSelection::new(&config, &body, false, false);
+        let mut span = telemetry.start(&prepared, &selection);
+        let metrics = crate::control::Metrics::default();
+        metrics.model_calls.fetch_add(3, Ordering::Relaxed);
+        metrics.record_usage(Some(100), Some(20), Some(10));
+        metrics.record_usage(Some(50), None, None);
+        metrics.record_usage(None, None, None);
+        super::finish(&mut span, "failed", &metrics.snapshot());
+        telemetry.shutdown().await;
+        let requests = requests.lock().await;
+        assert!(!requests.is_empty());
+        let mut exported = 0;
+        for bytes in requests.iter() {
+            assert!(!String::from_utf8_lossy(bytes).contains("PRIVATE-CONTEXT"));
+            let export = opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest::decode(bytes.as_slice()).unwrap();
+            for span in export
+                .resource_spans
+                .into_iter()
+                .flat_map(|r| r.scope_spans)
+                .flat_map(|s| s.spans)
+            {
+                use opentelemetry_proto::tonic::common::v1::any_value::Value;
+                let attributes: std::collections::HashMap<_, _> = span
+                    .attributes
+                    .into_iter()
+                    .map(|a| (a.key, a.value.unwrap().value.unwrap()))
+                    .collect();
+                for unknown in ["input_tokens", "output_tokens", "cached_tokens"] {
+                    assert!(!attributes.contains_key(unknown), "{unknown}");
+                }
+                for (name, value) in [
+                    ("model_calls", 3),
+                    ("reported_usage_calls", 2),
+                    ("reported_input_tokens", 150),
+                    ("reported_output_tokens", 20),
+                    ("reported_cached_tokens", 10),
+                    ("reported_input_usage_calls", 2),
+                    ("reported_output_usage_calls", 1),
+                    ("reported_cached_usage_calls", 1),
+                ] {
+                    assert_eq!(
+                        attributes.get(name),
+                        Some(&Value::IntValue(value)),
+                        "{name}"
+                    );
+                }
+                exported += 1;
+            }
+        }
+        assert_eq!(exported, 1);
+        server.abort();
+    }
 
     #[tokio::test]
     async fn telemetry_exports_terminal_metrics_without_private_content() {

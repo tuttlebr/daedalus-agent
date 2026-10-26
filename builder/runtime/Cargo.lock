@@ -474,6 +474,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rig-core",
+ "rig-reqwest",
  "rmcp",
  "serde",
  "serde_json",
