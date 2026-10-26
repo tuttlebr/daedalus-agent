@@ -134,8 +134,14 @@ def _peers_class(base_class):
             max_output_tokens_per_attempt,
         ):
             super().__init__()
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            from private_memory_fixture import memory_pages, recall_records
+
             self.variant = variant
             self.case = case
+            self.memory_pages = memory_pages(case)
+            self.recalled_records = recall_records(case, workload["as_of"])
             self.workload = workload
             self.routes = routes
             self.budget = budget
@@ -389,25 +395,16 @@ def _peers_class(base_class):
                     if self.path.endswith("/knowledge-base/tree"):
                         return self.reply({"roots": []})
                     if "/knowledge-base/search?" in self.path:
-                        available = bool(
-                            peers.case.get("local_inputs", {}).get("memory")
-                        )
                         return self.reply(
                             {
-                                "results": [{"id": "synthetic-memory"}]
-                                if available
-                                else []
+                                "results": [
+                                    {"id": page["id"]} for page in peers.memory_pages
+                                ]
                             }
                         )
-                    if self.path.endswith("/knowledge-base/pages/synthetic-memory"):
-                        return self.reply(
-                            {
-                                "name": "Frozen synthetic personalization",
-                                "body": peers.case.get("local_inputs", {}).get(
-                                    "memory", ""
-                                ),
-                            }
-                        )
+                    for page in peers.memory_pages:
+                        if self.path.endswith("/knowledge-base/pages/" + page["id"]):
+                            return self.reply(page)
                     if self.path == "/health":
                         return self.reply({"status": "ok"})
                     return self.reply({"error": "unknown synthetic endpoint"}, 404)
@@ -425,20 +422,7 @@ def _peers_class(base_class):
                     if self.path.endswith("/reflect"):
                         return self.reply({"text": inputs.get("derived_summary", "")})
                     if self.path.endswith("/memories/recall"):
-                        text = inputs.get("memory", "")
-                        return self.reply(
-                            {
-                                "results": [
-                                    {
-                                        "text": text,
-                                        "type": "world",
-                                        "mentioned_at": peers.workload["as_of"],
-                                    }
-                                ]
-                                if text
-                                else []
-                            }
-                        )
+                        return self.reply({"results": peers.recalled_records})
                     return self.reply({})
 
                 def _mcp(self, body):

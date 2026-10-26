@@ -104,6 +104,10 @@ Protected automatic memory preparation performs bounded recall and reads of
 existing knowledge pages. It does not bootstrap a bank, create pages, read a
 synthesis cache, invoke reflection, or enqueue background generation. Missing
 memory is a source limitation; it never switches to the legacy preparation path.
+Automatic knowledge-page search uses at most the first 3,000 characters as its
+GET retrieval hint, keeping percent-encoded URLs within producer parser limits.
+The recall POST query and the coordinator's original input and attachments retain
+their complete authorized content.
 
 Hindsight's HTTP origin alone does not establish transitive locality. Before
 allowing protected text mutations, verify its main, retention, reflection,

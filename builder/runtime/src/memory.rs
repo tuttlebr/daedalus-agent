@@ -321,13 +321,17 @@ impl Memory {
         }
     }
     async fn pages(&self, user: &str, query: &str) -> Result<Vec<Value>> {
+        // This is a retrieval hint, not the coordinator's input. Bound the GET
+        // URL so long authorized context cannot overflow producer URL parsers;
+        // precise recall still receives the original query in its POST body.
+        let hint = clip(query, 3000);
         let response = self
             .request(
                 reqwest::Method::GET,
                 user,
                 "knowledge-base/search",
                 None,
-                &[("q", query), ("limit", "2")],
+                &[("q", &hint), ("limit", "2")],
             )
             .await?;
         let ids: Vec<_> = response["results"]
@@ -697,6 +701,46 @@ mod tests {
         )
         .unwrap();
         (Memory::new(&config).unwrap(), calls, server)
+    }
+
+    #[tokio::test]
+    async fn page_search_bounds_unicode_get_hint_without_changing_recall_query() {
+        let long = format!(
+            "What did I decide earlier? {} ORIGINAL_QUERY_END",
+            "界🙂?#%&=".repeat(1200)
+        );
+        for query in ["What did I decide earlier?", long.as_str()] {
+            let (memory, calls, peer) = read_only_peer(ReadReply::Pages).await;
+            memory
+                .read_only_context("synthetic-alice", query)
+                .await
+                .unwrap();
+            peer.abort();
+            let calls = calls.lock().await;
+            let search = calls
+                .iter()
+                .find(|call| {
+                    call["path"]
+                        .as_str()
+                        .unwrap()
+                        .ends_with("knowledge-base/search")
+                })
+                .unwrap();
+            let encoded = search["query"].as_str().unwrap();
+            // Even four-byte UTF-8 characters, fully percent-encoded, remain
+            // below the producer's 16-bit URL query-length boundary.
+            assert!(encoded.len() < 36_100, "{}", encoded.len());
+            let url = reqwest::Url::parse(&format!("http://fixture.invalid/?{encoded}")).unwrap();
+            let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(pairs["q"], query.chars().take(3000).collect::<String>());
+            assert_eq!(pairs["limit"], "2");
+            let recall = calls
+                .iter()
+                .find(|call| call["path"].as_str().unwrap().ends_with("memories/recall"))
+                .unwrap();
+            assert_eq!(recall["body"]["query"], query);
+            assert_eq!(recall["body"]["max_tokens"], 600);
+        }
     }
 
     #[tokio::test]

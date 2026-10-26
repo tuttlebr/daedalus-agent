@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -29,13 +30,30 @@ def text_digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _memory_payload(text: str) -> dict | None:
+    if not text.startswith("[MEMORY_CONTEXT]\n"):
+        return None
+    try:
+        value = json.loads(text.rpartition("\n")[2])
+    except (ValueError, RecursionError):
+        return None
+    return (
+        value
+        if isinstance(value, dict) and value.get("source") == "automatic_hindsight"
+        else None
+    )
+
+
 def text_fields(value: Any, path: str = "$", depth: int = 0):
     """Include decoded JSON tool envelopes without joining unrelated fragments."""
     if depth > 32:
         return
     if isinstance(value, str):
         yield path, value
-        if value.lstrip().startswith(("{", "[")):
+        memory = _memory_payload(value)
+        if memory is not None:
+            yield from text_fields(memory, path + ".[memory]", depth + 1)
+        elif value.lstrip().startswith(("{", "[")):
             try:
                 parsed = json.loads(value)
             except (ValueError, RecursionError):
@@ -72,6 +90,141 @@ def _presence(fields: list[tuple[str, str]], expected: str) -> dict:
                 "sha256": text_digest(expected),
             }
     return {"present": False, "sha256": text_digest(expected)}
+
+
+def _native_memory(body: dict):
+    """Only native automatic-memory user messages, not model-authored text."""
+    for key in ("input", "messages"):
+        messages = body.get(key, [])
+        if not isinstance(messages, list):
+            continue
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content", [])
+            parts = [content] if isinstance(content, str) else content
+            if not isinstance(parts, list):
+                continue
+            for part_index, part in enumerate(parts):
+                text = (
+                    part
+                    if isinstance(part, str)
+                    else part.get("text", "")
+                    if isinstance(part, dict)
+                    else ""
+                )
+                payload = _memory_payload(text) if isinstance(text, str) else None
+                if payload is not None:
+                    yield f"$.{key}[{index}].content[{part_index}]", payload
+
+
+def _private_source_presence(
+    body: dict, capture: dict, field: str, expected: str
+) -> dict:
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    from private_memory_fixture import PAGE_NAME, page_text
+
+    calls = capture.get("source_calls", [])
+    result = {"present": False, "sha256": text_digest(expected)}
+    for path, payload in _native_memory(body):
+        if field == "derived_summary":
+            recalled = any(
+                item.get("kind") == "memory"
+                and item.get("method") == "POST"
+                and str(item.get("path", "")).endswith("/memories/recall")
+                for item in calls
+                if isinstance(item, dict)
+            )
+            facts = payload.get("precise_facts", [])
+            if (
+                recalled
+                and isinstance(facts, list)
+                and any(
+                    isinstance(fact, dict)
+                    and fact.get("type") == "experience"
+                    and fact.get("text") == expected
+                    for fact in facts
+                )
+            ):
+                return {
+                    **result,
+                    "present": True,
+                    "field_path": path,
+                    "method": "existing_summary_pure_recall",
+                    "source_reads_verified": True,
+                }
+            continue
+        pages = payload.get("knowledge_pages", [])
+        if not isinstance(pages, list):
+            continue
+        parts = []
+        for page in pages:
+            if not isinstance(page, dict) or not isinstance(page.get("name"), str):
+                continue
+            match = PAGE_NAME.fullmatch(page["name"])
+            if not match or not isinstance(page.get("body"), str):
+                continue
+            part, total, start, end = map(int, match.groups()[:4])
+            digest = match.group(5)
+            try:
+                text = page_text(page["body"])
+            except ValueError:
+                continue
+            read = any(
+                item.get("kind") == "memory"
+                and item.get("method") == "GET"
+                and str(item.get("path", "")).endswith(
+                    f"/knowledge-base/pages/synthetic-memory-part-{part}"
+                )
+                for item in calls
+                if isinstance(item, dict)
+            )
+            parts.append(
+                {
+                    "part": part,
+                    "total": total,
+                    "start": start,
+                    "end": end,
+                    "sha256": digest,
+                    "text": text,
+                    "read": read,
+                }
+            )
+        if not parts or len(parts) > 2:
+            continue
+        end = 0
+        valid = True
+        for index, part in enumerate(parts, 1):
+            valid &= (
+                part["part"] == index
+                and part["total"] == len(parts)
+                and part["start"] == end
+                and part["end"] - part["start"] == len(part["text"])
+                and 0 < len(part["text"]) <= 1800
+                and text_digest(part["text"]) == part["sha256"]
+                and part["read"]
+            )
+            end = part["end"]
+        reconstructed = "".join(part["text"] for part in parts)
+        if valid and end == len(expected) and reconstructed == expected:
+            return {
+                **result,
+                "present": True,
+                "field_path": path,
+                "method": "ordered_existing_memory_pages",
+                "source_reads_verified": True,
+                "reconstructed_sha256": text_digest(reconstructed),
+                "parts": [
+                    {
+                        key: value
+                        for key, value in part.items()
+                        if key not in {"text", "read"}
+                    }
+                    for part in parts
+                ],
+            }
+    return result
 
 
 def _anchor_manifest(case: dict) -> list[tuple[dict, str]]:
@@ -118,6 +271,14 @@ def check_delivery(workload: dict, capture: dict, case_id: str, role: str) -> di
                 bodies[kind] = {"present": False}
                 continue
             fields = _request_text(body)
+            source_fields = {
+                name: _presence(fields, expected) for name, expected in inputs.items()
+            }
+            for name in ("memory", "derived_summary"):
+                if inputs.get(name):
+                    source_fields[name] = _private_source_presence(
+                        body, capture, name, inputs[name]
+                    )
             bodies[kind] = {
                 "present": True,
                 "body_sha256": digest(body),
@@ -129,10 +290,7 @@ def check_delivery(workload: dict, capture: dict, case_id: str, role: str) -> di
                 else "automatic"
                 if body["truncation"] == "auto"
                 else "unrecognized",
-                "fields": {
-                    name: _presence(fields, expected)
-                    for name, expected in inputs.items()
-                },
+                "fields": source_fields,
                 "anchors": [
                     {
                         "source_id": anchor["source_id"],

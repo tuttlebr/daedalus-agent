@@ -16,6 +16,7 @@ from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlencode
 
 HERE = Path(__file__).resolve().parents[1]
 
@@ -293,7 +294,15 @@ class RuntimeFixtureTests(unittest.TestCase):
         )
 
     @contextlib.contextmanager
-    def peer(self, *, maximum=4, fault=False, failing_provider=False):
+    def peer(
+        self,
+        *,
+        maximum=4,
+        fault=False,
+        failing_provider=False,
+        case=None,
+        workload=None,
+    ):
         provider = InMemoryProvider(fail=failing_provider)
         routes = {
             role: core.Route(
@@ -307,17 +316,18 @@ class RuntimeFixtureTests(unittest.TestCase):
             )
             for role in ("high", "baseline")
         }
-        case = {
-            "id": "fixture",
-            "prompt": "Fixture request",
-            "local_inputs": {"message": "PRIVATE_MARKER_7391"},
-            "faults": ["first_public_provider_attempt_timeout"] if fault else [],
-        }
+        if case is None:
+            case = {
+                "id": "fixture",
+                "prompt": "Fixture request",
+                "local_inputs": {"message": "PRIVATE_MARKER_7391"},
+                "faults": ["first_public_provider_attempt_timeout"] if fault else [],
+            }
         budget = core.AttemptBudget(maximum, 30)
         peers = fixture._peers_class(MinimalPeers)(
             variant="candidate",
             case=case,
-            workload={"as_of": "2026-10-26T12:00:00Z"},
+            workload=workload or {"as_of": "2026-10-26T12:00:00Z"},
             routes=routes,
             budget=budget,
             timeout=10,
@@ -350,6 +360,95 @@ class RuntimeFixtureTests(unittest.TestCase):
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
             return error.code, error.read()
+
+    def get(self, url, headers=None):
+        request = urllib.request.Request(url, headers=headers or {})
+        try:
+            # Only the loopback peer created by peer() is used here.
+            with urllib.request.urlopen(request, timeout=5) as response:  # nosec B310
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    def test_paged_memory_and_recall_match_frozen_sources_without_generation(self):
+        workload = json.loads((HERE / "workload.json").read_text())
+        path = "/v1/default/banks/synthetic/knowledge-base/search?" + urlencode(
+            {"q": "remember synthetic current source context", "limit": "2"}
+        )
+        recall_path = "/v1/default/banks/synthetic/memories/recall"
+        recall_request = {
+            "query": "remember existing synthetic evidence",
+            "budget": "low",
+            "max_tokens": 600,
+        }
+        for case_id in ("personal-heavy", "long-context"):
+            case = next(case for case in workload["cases"] if case["id"] == case_id)
+            with self.subTest(case=case_id), self.peer(
+                case=case, workload=workload
+            ) as (peers, provider, url):
+                origin = url.split("/model/", 1)[0]
+                status, raw = self.get(origin + path)
+                self.assertEqual(status, 200)
+                results = json.loads(raw)["results"]
+                self.assertEqual(
+                    results, [{"id": page["id"]} for page in peers.memory_pages]
+                )
+                self.assertEqual(len(results), 2 if case_id == "personal-heavy" else 1)
+                pages = []
+                for result in results:
+                    page_path = (
+                        "/v1/default/banks/synthetic/knowledge-base/pages/"
+                        + result["id"]
+                    )
+                    status, raw = self.get(origin + page_path)
+                    self.assertEqual(status, 200)
+                    pages.append(json.loads(raw))
+                self.assertEqual(pages, peers.memory_pages)
+                status, raw = self.post(origin + recall_path, recall_request)
+                self.assertEqual(status, 200)
+                self.assertEqual(
+                    json.loads(raw)["results"],
+                    [
+                        {
+                            "text": case["local_inputs"]["derived_summary"],
+                            "type": "experience",
+                            "mentioned_at": workload["as_of"],
+                        }
+                    ],
+                )
+                self.assertEqual(
+                    peers.source_calls,
+                    [{"kind": "memory", "method": "GET", "path": path}]
+                    + [
+                        {
+                            "kind": "memory",
+                            "method": "GET",
+                            "path": "/v1/default/banks/synthetic/knowledge-base/pages/"
+                            + result["id"],
+                        }
+                        for result in results
+                    ]
+                    + [
+                        {
+                            "kind": "memory",
+                            "method": "POST",
+                            "path": recall_path,
+                            "body": recall_request,
+                        }
+                    ],
+                )
+                self.assertEqual(peers.budget.count, 0)
+                self.assertEqual(peers.attempts, [])
+                self.assertEqual(provider.calls, [])
+
+    def test_memory_peer_preserves_standard_header_limit(self):
+        with self.peer() as (peers, provider, url):
+            origin = url.split("/model/", 1)[0]
+            status, _ = self.get(origin + "/health", {"X-Test-Header": "x" * 65537})
+            self.assertEqual(status, 431)
+            self.assertEqual(peers.source_calls, [])
+            self.assertEqual(peers.budget.count, 0)
+            self.assertEqual(provider.calls, [])
 
     def public_body(self):
         return {

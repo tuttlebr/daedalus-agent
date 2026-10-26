@@ -131,6 +131,49 @@ non-node LAN access, or rollback. Those checks remain separate rollout gates.
 No baseline or candidate measurements are bundled: enabling the feature requires
 actual runs against the intended model and configuration versions.
 
+## Check frozen source delivery without inference
+
+Before paying for a comparison, exercise both baseline and candidate transport
+with the heavy-personal and long-context cases through an immutable runtime:
+
+```bash
+python3 tools/context-isolation-eval/preflight_runtime_delivery.py \
+  --image REGISTRY/daedalus@sha256:PLATFORM_MANIFEST_DIGEST \
+  --redis-image redis:7-alpine \
+  --output .cache/context-isolation/source-delivery-preflight
+```
+
+All model-shaped HTTP responses are scripted on loopback. The four case/variant
+runs capture the actual built runtime's first message and attachment, personal
+mail/calendar/tool evidence, memory and existing derived summary. Long-corpus
+start/middle/end anchors are checked against the frozen manifest. Reports mark
+the run `mock_only` and empirical model-window fit false; no editorial result,
+provider attention, context capacity, cost or latency benefit is established.
+Run the real comparison separately after reviewing this transport evidence.
+
+The private memory fixture represents existing authorized source state. Exact
+memory bytes span at most two knowledge pages. Each page has a `pipe-v1` byte
+frame so native page trimming preserves boundary whitespace: remove exactly one
+outer pipe on each side, then reconstruct the original ordered source bytes.
+Part numbers, nonoverlapping character offsets, chunk hashes, actual page-read
+receipts and the complete frozen field hash must all match. The already supplied
+private derived summary is returned as an existing `experience` recall record;
+it is not newly generated reflection. Its exact text and actual pure-recall
+receipt must appear in the captured native automatic-memory context.
+
+Native bounds remain unchanged: two page bodies of at most 1,800 characters,
+1,000 characters per fact, and a 6,000-character serialized automatic-memory
+payload. Framing uses two characters within each page's existing limit.
+The automatic page-search GET uses a 3,000-character retrieval hint; the full
+authorized input and attachment remain in the coordinator request, and the pure
+recall POST retains the full query. This avoids producer URL-parser truncation
+without changing model context or the source bodies delivered by the fixture.
+Unsupported source sizes, unsplittable lines, malformed frames, changed bytes,
+missing reads and unexpected private fields in the public-only case fail
+instead of truncating or suppressing evidence. Both variants receive the same
+source state. Workload bytes, facts, guides, deadlines, repetitions and margins
+remain frozen; prior captures retain their original diagnostic status.
+
 ## Collect real model measurements
 
 `run.py` executes the built runtime image with disposable loopback fixture
