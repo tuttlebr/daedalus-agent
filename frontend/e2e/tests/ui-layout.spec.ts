@@ -305,14 +305,15 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
   expect(initialContentPosition.headingTop).toBeGreaterThanOrEqual(
     initialContentPosition.paneTop,
   );
-  const lastSuggestion = page
+  const welcomeDescription = page
     .locator('.chat-empty-state')
-    .getByRole('button')
-    .last();
+    .getByText('Ask a question, create something, or work through an idea.', {
+      exact: true,
+    });
   await page.locator('.chat-scroll-container').evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  await expect(lastSuggestion).toBeInViewport({ ratio: 1 });
+  await expect(welcomeDescription).toBeInViewport({ ratio: 1 });
   await expectKeyboardFits(page, { height: 420, shifted: true });
 
   await testInfo.attach('visual-viewport-layout', {
