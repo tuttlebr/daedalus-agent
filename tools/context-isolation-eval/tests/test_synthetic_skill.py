@@ -213,6 +213,25 @@ class SyntheticSkillTests(unittest.TestCase):
                 hashlib.sha256((self.bundle / relative).read_bytes()).hexdigest(),
             )
 
+    def test_brief_defaults_preserve_requested_long_deliverables(self):
+        context = json.loads((self.bundle / "fixture-environment.json").read_text())
+        production = yaml.safe_load(
+            (ROOT / "backend/tool-calling-config.yaml").read_text()
+        )
+        expected = production["workflow"]["instructions"].partition("Output:")[2]
+        actual = context["workflow_instructions"].partition("Output:")[2]
+        self.assertEqual(actual.partition("Files:")[0], expected.partition("Files:")[0])
+        for instruction in (
+            "Default to low verbosity.",
+            "usually in one short sentence and under 25 words",
+            "Expand for explicitly requested detail or longer deliverables",
+            "preserve completeness and requested formats.",
+        ):
+            self.assertIn(instruction, actual)
+        self.assertEqual(
+            context["production_config_sha256"], synthetic.PRODUCTION_CONFIG_SHA256
+        )
+
     def test_changed_canonical_or_global_prompt_fails_before_export(self):
         source = self.root / "repository/skills/daily-summary"
         for relative in synthetic.REVIEWED_SOURCES:
