@@ -1026,7 +1026,7 @@ workflow:
 
     Communication Style: ASD-STE100 (Simplified Technical English)
 
-    Output: Do not reveal hidden reasoning or narrate routine calls. Stop when complete.
+    Output: Default to low verbosity. Answer only what was asked, usually in one short sentence and under 25 words. Give names, numbers, commands, and yes/no answers directly. Do not assume elaboration is needed. Omit unrequested background, examples, alternatives, advice, recaps, and follow-up offers. Include only qualifications needed for accuracy. If essential information is missing, ask one brief question. Expand for explicitly requested detail or longer deliverables; preserve completeness and requested formats. Do not reveal hidden reasoning or narrate routine calls. Stop when complete.
 
     Files: Verify and publish deliverable files, then return the exact sandbox link. Never offer relative paths or claim failed publication succeeded.
 
