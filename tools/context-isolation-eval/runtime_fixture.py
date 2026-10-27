@@ -13,6 +13,7 @@ import hashlib
 import html
 import json
 import os
+import re
 import runpy
 import sys
 import threading
@@ -1194,43 +1195,98 @@ def _measure_runtime(
     return result
 
 
-def _renderer_executions(result):
-    completed = {
-        event.get("id"): event.get("payload")
-        for event in result.get("ends", [])
-        if event.get("name") == "Function Complete: briefing_renderer_tool"
-    }
-    executions = 0
+def _renderer_value(value):
+    for _ in range(4):
+        if isinstance(value, str):
+            if value.startswith("```html\n"):
+                break
+            try:
+                value = json.loads(value)
+            except ValueError:
+                break
+        elif isinstance(value, dict):
+            if (
+                value.get("executed") is False
+                or value.get("failure_type") == "attempt_limit"
+                or "passed" in value
+            ):
+                break
+            value = value.get("content", value.get("result"))
+        else:
+            break
+    return value
+
+
+def _renderer_outcomes(result):
+    # Call IDs can recur. Match each occurrence in its own workflow rather than
+    # applying the final result with an ID to every proposed invocation.
+    def identity(event):
+        call, parent = event.get("id"), event.get("parent_id")
+        if (
+            isinstance(call, str)
+            and call
+            and (parent is None or isinstance(parent, str))
+        ):
+            return call, parent
+        return None
+
+    completed = {}
+    for event in result.get("ends", []):
+        if event.get("name") == "Function Complete: briefing_renderer_tool":
+            key = identity(event)
+            if key is not None:
+                completed.setdefault(key, []).append(event.get("payload"))
+    outcomes = []
     for event in result.get("starts", []):
         if event.get("name") != "Function Start: briefing_renderer_tool":
             continue
-        value = completed.get(event.get("id"))
-        for _ in range(4):
-            if isinstance(value, str):
-                if value.startswith("```html\n"):
-                    executions += 1
-                    break
-                try:
-                    value = json.loads(value)
-                except ValueError:
-                    break
-            elif isinstance(value, dict):
-                if (
-                    value.get("executed") is False
-                    or value.get("failure_type") == "attempt_limit"
-                ):
-                    break
-                if "passed" in value:
-                    if (
-                        value.get("stage") != "input_validation"
-                        or value.get("attempts_remaining", 2) < 2
-                    ):
-                        executions += 1
-                    break
-                value = value.get("content", value.get("result"))
-            else:
-                break
-    return executions
+        values = completed.get(identity(event), [])
+        matched = bool(values)
+        raw = values.pop(0) if matched else None
+        value = _renderer_value(raw)
+        rendered = (
+            value if isinstance(value, str) and value.startswith("```html\n") else None
+        )
+        counted, status = bool(rendered), "succeeded" if rendered else "unknown"
+        if isinstance(value, dict):
+            if (
+                value.get("executed") is False
+                or value.get("failure_type") == "attempt_limit"
+            ):
+                status = "not_executed"
+            elif "passed" in value:
+                counted = (
+                    value.get("stage") != "input_validation"
+                    or value.get("attempts_remaining", 2) < 2
+                )
+                status = (
+                    "failed" if value["passed"] is False else "completed_without_html"
+                )
+        diagnostic = {
+            "proposal_sha256": hashlib.sha256(
+                json.dumps(
+                    event.get("payload"), sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+            "completion_matched": matched,
+            "completion_sha256": hashlib.sha256(
+                json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            if matched
+            else None,
+            "outcome": status,
+            "execution_counted": counted,
+        }
+        if isinstance(value, dict):
+            diagnostic["runtime_validation"] = {
+                key: item for key, item in value.items() if key != "edition"
+            }
+        outcomes.append((event, rendered, diagnostic))
+    return outcomes
+
+
+def _renderer_executions(result):
+    return sum(item[2]["execution_counted"] for item in _renderer_outcomes(result))
 
 
 def _canonical_contract(result, bundle, output):
@@ -1245,26 +1301,37 @@ def _canonical_contract(result, bundle, output):
             "passed": False,
             "reason": "runtime did not deliver a complete supported response",
         }
-    proposals = [
-        event
-        for event in result.get("starts", [])
-        if event.get("name") == "Function Start: briefing_renderer_tool"
-    ]
-    executions = _renderer_executions(result)
+    outcomes = _renderer_outcomes(result)
+    proposals = [event for event, _, _ in outcomes]
+    executions = sum(item[2]["execution_counted"] for item in outcomes)
+    diagnostics = {
+        "renderer_executions": executions,
+        "renderer_proposals": len(proposals),
+        "renderer_outcomes": [item[2] for item in outcomes],
+        "failed_renderer_verifications": [],
+    }
     if executions > 2:
         return {
             "passed": False,
             "reason": "renderer execution exceeded the canonical correction bound",
+            **diagnostics,
         }
+    successful = [item for item in outcomes if item[1] is not None]
+    published = successful[-1] if successful else None
+    # Regenerated proposals provide diagnostics, not proof that the runtime
+    # returned valid HTML. Only a paired successful tool result can do that.
+    candidates = [published[0]] if published else reversed(proposals)
     skill = bundle / "daily-summary"
+    verification = None
+    verification_unavailable = False
     try:
         renderer = runpy.run_path(str(skill / "scripts/render_daybook.py"))
         validator = runpy.run_path(str(skill / "scripts/validate_daybook.py"))
         policy_path = skill / "references/edition-policy.json"
         policy = json.loads(policy_path.read_text())
-        failed_renderings = []
-        for event in reversed(proposals):
-            edition = event.get("payload", {}).get("edition")
+        for event in candidates:
+            payload = event.get("payload")
+            edition = payload.get("edition") if isinstance(payload, dict) else None
             if not isinstance(edition, dict):
                 continue
             try:
@@ -1272,7 +1339,9 @@ def _canonical_contract(result, bundle, output):
                     edition, policy, (skill / "assets/daybook-v4.html").read_text()
                 )
             except Exception as error:
-                failed_renderings.append(type(error).__name__)
+                diagnostics["failed_renderer_verifications"].append(
+                    type(error).__name__
+                )
                 document = None
             if document is None:
                 continue
@@ -1286,32 +1355,52 @@ def _canonical_contract(result, bundle, output):
                 html_path, coverage_path, policy_path
             )
             exact = answer == f"```html\n{document}\n```"
-            return {
-                "passed": bool(checked.get("passed") and exact),
-                "reason": "canonical validator and exact inline comparison",
+            verification = {
                 "canonical_validation": checked,
                 "exact_inline_match": exact,
                 "canonical_sha256": hashlib.sha256(document.encode()).hexdigest(),
-                "renderer_executions": executions,
-                "renderer_proposals": len(proposals),
-                "failed_renderer_verifications": failed_renderings,
             }
+            diagnostics.update(verification)
+            break
     except Exception as error:
+        verification_unavailable = True
+        diagnostics["failure_kind"] = type(error).__name__
+    if published:
+        if answer != published[1]:
+            return {
+                "passed": False,
+                "reason": "successful canonical renderer result was not published exactly",
+                **diagnostics,
+            }
+        if verification_unavailable:
+            return {
+                "passed": None,
+                "reason": "independent canonical verification unavailable",
+                **diagnostics,
+            }
         return {
-            "passed": None,
-            "reason": "independent canonical verification unavailable",
-            "failure_kind": type(error).__name__,
+            "passed": bool(
+                verification
+                and verification["canonical_validation"].get("passed")
+                and verification["exact_inline_match"]
+            ),
+            "reason": "canonical validator and exact inline comparison",
+            **diagnostics,
         }
-    if "<!doctype" in answer.lower() or "<html" in answer.lower():
+    if re.search(
+        r"```html\b|<!doctype\b|<!--|</?[a-z][a-z0-9:-]*(?:\s[^<>]*|/?)>",
+        answer,
+        re.IGNORECASE,
+    ):
         return {
             "passed": False,
             "reason": "HTML did not match a successful canonical renderer execution",
+            **diagnostics,
         }
     return {
         "passed": None,
         "reason": "sourced text fallback requires independent editorial review",
-        "renderer_executions": executions,
-        "renderer_proposals": len(proposals),
+        **diagnostics,
     }
 
 

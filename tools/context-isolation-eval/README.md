@@ -101,7 +101,13 @@ omission denominator must match that case's frozen `required_facts`; independent
 review each fact. Count unsupported claims and incorrect citations rather than
 omitting them from denominators. Zero citation opportunities are permissible in
 an unavailable-source case; an entire unscored workload is rejected. A successful
-fallback still needs output-contract review. Capture tool/model/cache latency
+fallback still needs output-contract review. Automatic canonical checks use
+matched renderer starts and completed tool results. A rejected, unpublished
+proposal remains diagnostic evidence; sourced text after failed rendering gets
+an unknown automatic status and requires independent review. A successful
+canonical renderer result still requires exact inline HTML, and excessive
+renderer attempts, unsupported HTML or an incomplete runtime response fail.
+Capture tool/model/cache latency
 separately in the supporting artifact; `latency_ms` in each case is wall-clock
 completion latency, including tool waits, failures and retries.
 
