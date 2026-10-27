@@ -449,16 +449,15 @@ impl Preparation {
         }))
     }
 
-    pub async fn prepare(
+    /// Establish durable resource authority without reading private sources.
+    /// The Agent also uses this before accepting steering during preparation,
+    /// so every event clone can inherit the original absolute workflow fence.
+    pub(crate) async fn workflow_recovery(
         &self,
-        http: &reqwest::Client,
-        tools_url: &str,
         headers: &HeaderMap,
         body: &Value,
-    ) -> Result<PreparedRun> {
-        let autonomy =
-            header(headers, "x-daedalus-execution-scope").eq_ignore_ascii_case("autonomy");
-        let (mut prepared, query) = base_prepare(&self.config, body, autonomy)?;
+        prepared: &PreparedRun,
+    ) -> Result<Option<crate::memory::PreparationRecovery>> {
         let isolation = crate::routing::IsolationConfig::from_config(&self.config)?;
         let protected = isolation.is_some();
         let user = header(headers, "x-user-id");
@@ -513,6 +512,22 @@ impl Preparation {
         } else {
             None
         };
+        Ok(recovery)
+    }
+
+    pub async fn prepare(
+        &self,
+        http: &reqwest::Client,
+        tools_url: &str,
+        headers: &HeaderMap,
+        body: &Value,
+    ) -> Result<PreparedRun> {
+        let autonomy =
+            header(headers, "x-daedalus-execution-scope").eq_ignore_ascii_case("autonomy");
+        let (mut prepared, query) = base_prepare(&self.config, body, autonomy)?;
+        let recovery = self.workflow_recovery(headers, body, &prepared).await?;
+        let protected = recovery.is_some();
+        let workflow = self.config.workflow();
         let selected = names(workflow.get(
             if prepared.daily_summary && workflow.get("daily_summary_tools").is_some() {
                 "daily_summary_tools"
@@ -919,8 +934,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
-    async fn protected_memory_resume_reuses_reads_and_fences_completion()
-    {
+    async fn protected_memory_resume_reuses_reads_and_fences_completion() {
         use axum::response::IntoResponse;
         use std::sync::atomic::{AtomicUsize, Ordering};
         let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
@@ -1131,8 +1145,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
-    async fn protected_prep_deadline_covers_catalogue_and_expired_resume()
-     {
+    async fn protected_prep_deadline_covers_catalogue_and_expired_resume() {
         let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
         let calls = Arc::new(tokio::sync::Mutex::new(Vec::new()));
         let seen = calls.clone();

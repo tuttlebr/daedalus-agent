@@ -802,6 +802,9 @@ impl DurableBudget {
         self.total_deadline
             .saturating_duration_since(Instant::now())
     }
+    pub fn total_deadline(&self) -> Instant {
+        self.total_deadline
+    }
     pub fn remaining_research(&self) -> Duration {
         self.research_deadline
             .saturating_duration_since(Instant::now())
