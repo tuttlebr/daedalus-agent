@@ -157,6 +157,13 @@ the run `mock_only` and empirical model-window fit false; no editorial result,
 provider attention, context capacity, cost or latency benefit is established.
 Run the real comparison separately after reviewing this transport evidence.
 
+Protected cases obtain article provenance through the runtime's fixed synthetic
+collector and an isolated scripted public worker before rendering. The report
+separates coordinator and worker requests and records the actual search, scrape
+and source-evidence receipts. This exercises publication admission without
+granting catalogue URLs authority merely because the fixture knows them; the
+original case inputs and field hashes remain unchanged.
+
 The private memory fixture represents existing authorized source state. Exact
 memory bytes span at most two knowledge pages. Each page has a `pipe-v1` byte
 frame so native page trimming preserves boundary whitespace: remove exactly one

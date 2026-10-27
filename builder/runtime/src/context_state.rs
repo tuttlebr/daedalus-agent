@@ -217,6 +217,9 @@ pub fn cacheable_read(name: &str) -> bool {
     matches!(
         name,
         "__protected_memory_preparation_read"
+            | "__protected_weather_publication"
+            | "__authenticated_user_publication"
+            | "__authenticated_reader_publication"
             | "get_memory"
             | "nws_weather_tool"
             | "public_briefing_worker"

@@ -91,9 +91,72 @@ def _edition(case, workload, policy):
     }
 
 
+def _public_findings(body, case):
+    """Echo only evidence supplied by the actual isolated collection path."""
+    inputs = body["input"]
+    assert len(inputs) == 1 and inputs[0]["role"] == "user"
+    task = json.loads(inputs[0]["content"])
+    assert task["desk"] == "technology" and task["phase"] == "public_retrieval"
+    assert task["context_class"] == "EXTERNAL_ALLOWED" and task["allowed_tools"] == []
+    sources = {source["url"]: source for source in case["public_sources"]}
+    evidence = task["evidence"]
+    assert evidence and {source["url"] for source in evidence} == set(sources)
+    assert len(evidence) == len(sources)
+    for source in evidence:
+        assert sources[source["url"]]["text"] in source["text"]
+    return {
+        "findings": [
+            {
+                "text": source["text"],
+                "source_ids": [source["source_id"]],
+                "citations": [source["url"]],
+                "published_at": source["published_at"],
+            }
+            for source in evidence
+        ],
+        "limitations": [],
+    }
+
+
+def _collection_receipts(capture, requests, case, variant):
+    """Require real synthetic search/scrape receipts before candidate render."""
+    counts = {
+        kind: sum(request["kind"] == kind for request in requests)
+        for kind in ("coordinator", "public_worker")
+    }
+    expected = {
+        "coordinator": 4 if variant == "candidate" else 3,
+        "public_worker": 1 if variant == "candidate" else 0,
+    }
+    calls = capture["source_calls"]
+    searches = [call for call in calls if call["kind"] == "public_search"]
+    scrapes = [call for call in calls if call["kind"] == "public_scrape"]
+    expected_urls = {source["url"] for source in case["public_sources"]}
+    collected_urls = {call["url"] for call in scrapes}
+    if variant == "candidate":
+        passed = (
+            counts == expected
+            and len(searches) == 1
+            and len(scrapes) == len(expected_urls)
+            and collected_urls == expected_urls
+        )
+    else:
+        passed = counts == expected and not searches and not scrapes
+    return {
+        "passed": passed,
+        "request_counts": counts,
+        "expected_request_counts": expected,
+        "public_search_calls": len(searches),
+        "public_scrape_calls": len(scrapes),
+        "collected_urls": sorted(collected_urls),
+        "expected_urls": sorted(expected_urls) if variant == "candidate" else [],
+        "authority_scope": "Actual fixed collector, successful source scraping, and isolated runtime evidence; no test-only authority insertion.",
+    }
+
+
 @contextlib.contextmanager
-def scripted_provider(case, workload, policy):
-    """Exactly three scripted model responses; no real provider is reachable."""
+def scripted_provider(case, workload, policy, variant):
+    """Script baseline three calls or candidate four plus one public worker."""
     requests = []
     lock = threading.Lock()
 
@@ -106,9 +169,41 @@ def scripted_provider(case, workload, policy):
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            worker = body["model"] == "scripted-delivery-medium"
+            kind = "public_worker" if worker else "coordinator"
             with lock:
-                stage = len(requests)
-                requests.append({"path": self.path, "body": body})
+                stage = sum(request["kind"] == kind for request in requests)
+                requests.append({"path": self.path, "body": body, "kind": kind})
+            if worker:
+                assert variant == "candidate" and stage == 0
+                assert self.path.endswith("/responses")
+                text = json.dumps(_public_findings(body, case))
+                response = {
+                    "id": "mock-delivery-public-evidence",
+                    "object": "response",
+                    "created_at": 1,
+                    "status": "completed",
+                    "model": body["model"],
+                    "output": [
+                        {
+                            "id": "mock-delivery-public-message",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [{"type": "output_text", "text": text}],
+                        }
+                    ],
+                }
+                encoded = json.dumps(response).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+                return
+            assert body["model"] == "scripted-delivery-" + (
+                "local" if variant == "candidate" else "baseline"
+            )
             if stage == 0:
                 items = [
                     _call(
@@ -135,7 +230,15 @@ def scripted_provider(case, workload, policy):
                     ),
                     _call("current_datetime_tool", {}, "delivery_clock"),
                 ]
-            elif stage == 2:
+            elif stage == 2 and variant == "candidate":
+                items = [
+                    _call(
+                        "public_briefing_worker",
+                        {"desk": "technology", "phase": "public_retrieval"},
+                        "delivery_public_collection",
+                    )
+                ]
+            elif stage == (3 if variant == "candidate" else 2):
                 items = [
                     _call(
                         "briefing_renderer_tool",
@@ -144,7 +247,9 @@ def scripted_provider(case, workload, policy):
                     )
                 ]
             else:
-                self.send_error(409, "scripted preflight exceeded its three responses")
+                self.send_error(
+                    409, "scripted preflight exceeded its declared responses"
+                )
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -276,7 +381,10 @@ def check(image: str, redis_image: str, output: Path) -> dict:
         for variant, role in (("baseline", "baseline"), ("candidate", "local")):
             target = output / f"{variant}-{case_id}"
             target.mkdir()
-            with scripted_provider(case, workload, policy) as (origin, requests):
+            with scripted_provider(case, workload, policy, variant) as (
+                origin,
+                requests,
+            ):
                 routes = {
                     name: run.Route(  # nosec B106 - scripted loopback peer, no real credential
                         role=name,
@@ -307,6 +415,8 @@ def check(image: str, redis_image: str, output: Path) -> dict:
                 capture["mock_only"] = True
                 capture["real_model_inference"] = False
                 capture["scripted_provider_request_count"] = len(requests)
+                collection = _collection_receipts(capture, requests, case, variant)
+                capture["public_collection_preflight"] = collection
             capture_path = target / "capture.json"
             capture_path.write_text(json.dumps(capture, indent=2) + "\n")
             delivery = delivery_preflight.check_delivery(
@@ -322,6 +432,7 @@ def check(image: str, redis_image: str, output: Path) -> dict:
                     ).hexdigest(),
                     "delivery": delivery,
                     "scripted_provider_request_count": len(requests),
+                    "public_collection_preflight": collection,
                 }
             )
     report["passed"] = all(
@@ -329,7 +440,7 @@ def check(image: str, redis_image: str, output: Path) -> dict:
         and item["delivery"]["actual_built_image_recorded"]
         and item["delivery"]["workflow_and_provider_completed"]
         and not item["delivery"]["empirical_workload_fit"]
-        and item["scripted_provider_request_count"] == 3
+        and item["public_collection_preflight"]["passed"]
         for item in report["cases"]
     )
     report["scripted_attempts"] = budget.count

@@ -228,6 +228,7 @@ impl BriefingBootstrap {
 }
 
 const BRIEFING_FALLBACK_FEEDBACK: &str = "The proposed daily-summary text was withheld because it publishes an internal desk-status ledger. Return the complete sourced plain-text briefing using the evidence already in this conversation. Keep coverage records internal; put source links and material gaps beside the affected reporting, and explain that validated HTML could not be completed. Do not call tools, restart research, or add facts.";
+const BRIEFING_CITATION_FEEDBACK: &str = "The proposed briefing was withheld because a web citation has no recorded source evidence. Return the complete sourced plain-text briefing using only the evidence already collected and exact source links from successful reads. Use tool references for personal-source material whose link provenance is unavailable. Keep coverage records internal, put material source gaps beside the affected reporting, and explain that validated HTML could not be completed. Do not call tools, restart research, invent links, or add facts.";
 
 #[derive(Debug)]
 struct BriefingFallbackContractError;
@@ -249,15 +250,17 @@ struct BriefingFallbackContract {
 
 impl BriefingFallbackContract {
     fn observe(&mut self, renderer: bool, revision: u64, current: u64, outcome: &ToolOutcome) {
-        // Only a configured renderer's raw runtime state is authoritative.
-        // Other tools can carry stale executor state; compacted prose is not a receipt.
+        // Only a configured renderer's raw runtime state or the native
+        // pre-dispatch provenance veto is authoritative. A native veto must
+        // leave the leaf's executor state and attempt accounting unchanged.
         if renderer
             && revision == current
             && !outcome.terminal
-            && matches!(
+            && (matches!(
                 outcome.executor_state["briefing_execution"]["failure_type"].as_str(),
                 Some("input" | "resource" | "validation" | "recovery")
-            )
+            ) || (outcome.is_error
+                && outcome.error_signature == "renderer_source_provenance_rejected"))
         {
             self.failed_revision = Some(revision);
         }
@@ -655,6 +658,11 @@ impl Agent {
                     .await?,
             )?;
             workers.attach_state(state.clone(), self.handle.clone())?;
+            within_workflow_time(
+                Some(workers.as_ref()),
+                workers.observe_user_publication_input(&body),
+            )
+            .await?;
         }
         if workers.is_some() {
             prepared.instructions.push_str("\n\n");
@@ -816,6 +824,16 @@ impl Agent {
             let steered = !self.pending.is_empty();
             if !resume_text || steered {
                 response_text.begin_block();
+            }
+            if steered && let Some(workers) = &workers {
+                let input = json!({"messages":self.pending.iter().map(|(_, instruction)| {
+                    json!({"role":"user","content":instruction})
+                }).collect::<Vec<_>>()});
+                within_workflow_time(
+                    Some(workers.as_ref()),
+                    workers.observe_user_publication_input(&input),
+                )
+                .await?;
             }
             self.apply(&mut history).await?;
             if steered {
@@ -1349,8 +1367,20 @@ impl Agent {
                     let lower = partial.to_ascii_lowercase();
                     lower.contains("<html") || lower.contains("<!doctype")
                 };
+            let unregistered_citations = if fallback_contract_applies && !unvalidated_html {
+                let workers = workers.as_deref().expect("protected fallback scope");
+                within_workflow_time(
+                    Some(workers),
+                    workers.has_unregistered_publication_citations(&partial),
+                )
+                .await?
+            } else {
+                false
+            };
             let fallback_contract_issue = if !fallback_contract_applies {
                 None
+            } else if unregistered_citations {
+                Some("unregistered_citation")
             } else if briefing_has_desk_ledger(&partial) {
                 Some("internal_desk_ledger")
             } else if briefing_contract_repair && unvalidated_html {
@@ -1380,7 +1410,11 @@ impl Agent {
                 // routes this one correction through the same local budget.
                 briefing_fallback_contract.repair_used = true;
                 briefing_fallback_contract.repair_revision = Some(self.revision);
-                history.push(Message::user(BRIEFING_FALLBACK_FEEDBACK));
+                history.push(Message::user(if constraint == "unregistered_citation" {
+                    BRIEFING_CITATION_FEEDBACK
+                } else {
+                    BRIEFING_FALLBACK_FEEDBACK
+                }));
                 continue;
             }
             if workers.is_some() && prepared.daily_summary && calls.is_empty() && unvalidated_html {
@@ -1781,6 +1815,13 @@ impl Agent {
                     }
                     if let Some(workers) = &workers {
                         workers.observe_tool(&name, &outcome);
+                        workers
+                            .observe_publication_tool(
+                                preparation.as_ref().expect("protected preparation"),
+                                &name,
+                                &outcome,
+                            )
+                            .await?;
                         workers
                             .record_private(
                                 match name.as_str() {
@@ -3016,7 +3057,8 @@ mod tests {
     }
 
     const INTERNAL_DESK_LEDGER: &str = "Draft private marker.\n\n**Coverage Status**\n- **Covered:** Technology, Business\n- **Quiet:** World\n- **Unavailable:** Weather";
-    const VALID_TEXT_FALLBACK: &str = "A supported finding. Source: https://example.org/report. Validated HTML could not be completed.";
+    const VALID_TEXT_FALLBACK: &str =
+        "Backend time is available. Source: clock. Validated HTML could not be completed.";
 
     fn renderer_failure(id: &str) -> Option<Vec<Value>> {
         completed(vec![call(
@@ -3093,6 +3135,41 @@ mod tests {
         assert!(!BRIEFING_FALLBACK_FEEDBACK.contains("https://"));
     }
 
+    #[test]
+    fn briefing_fallback_native_citation_veto_is_revision_and_renderer_scoped() {
+        let rejected = ToolOutcome {
+            is_error: true,
+            error_signature: "renderer_source_provenance_rejected".into(),
+            ..Default::default()
+        };
+        assert!(rejected.executor_state.is_null());
+        let mut state = BriefingFallbackContract::default();
+        state.observe(false, 1, 1, &rejected);
+        assert!(!state.applies(true, true, 1));
+        state.observe(true, 0, 1, &rejected);
+        assert!(!state.applies(true, true, 1));
+        state.observe(true, 1, 1, &rejected);
+        assert!(state.applies(true, true, 1));
+        assert!(!state.applies(true, false, 1));
+        assert!(!state.applies(false, true, 1));
+        assert!(!state.applies(true, true, 2));
+        let mut forged = BriefingFallbackContract::default();
+        forged.observe(
+            true,
+            1,
+            1,
+            &ToolOutcome {
+                content: "renderer_source_provenance_rejected".into(),
+                is_error: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            !forged.applies(true, true, 1),
+            "model/tool prose cannot mint the native veto"
+        );
+    }
+
     #[tokio::test]
     #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
     async fn protected_fallback_withholds_ledger_and_repairs_once_locally() {
@@ -3164,6 +3241,151 @@ mod tests {
         assert_eq!(outcome.tool_calls.len(), 2);
         assert!(!outcome.stream.contains("Draft private marker"));
         assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_withholds_unread_citation_and_repairs_once_locally() {
+        let draft = "An unsupported report. Source: https://unread.example.invalid/report";
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary with private evidence.",
+            vec![
+                renderer_failure("first"),
+                renderer_failure("second"),
+                completed(vec![text(draft)]),
+                completed(vec![text(VALID_TEXT_FALLBACK)]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 4);
+        let repair = &outcome.requests[3];
+        assert_eq!(repair["tool_choice"], "none");
+        assert!(
+            repair
+                .get("tools")
+                .is_none_or(|tools| tools.as_array().is_some_and(Vec::is_empty))
+        );
+        let history = repair["input"].to_string();
+        for evidence in ["private evidence", draft, BRIEFING_CITATION_FEEDBACK] {
+            assert!(history.contains(
+                &serde_json::to_string(evidence).unwrap()
+                    [1..serde_json::to_string(evidence).unwrap().len() - 1]
+            ));
+        }
+        assert_eq!(outcome.tool_calls.len(), 2);
+        assert!(!outcome.stream.contains("unread.example.invalid"));
+        assert_eq!(outcome.stream.matches(VALID_TEXT_FALLBACK).count(), 1);
+        assert!(!BRIEFING_CITATION_FEEDBACK.contains("https://"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_repeated_unread_citation_fails_without_publication() {
+        let draft = "An unsupported report. Source: https://unread.example.invalid/report";
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                renderer_failure("first"),
+                renderer_failure("second"),
+                completed(vec![text(draft)]),
+                completed(vec![text(draft)]),
+            ],
+        )
+        .await;
+        assert!(
+            outcome
+                .result
+                .unwrap_err()
+                .downcast_ref::<BriefingFallbackContractError>()
+                .is_some()
+        );
+        assert_eq!(outcome.requests.len(), 4);
+        assert_eq!(outcome.tool_calls.len(), 2);
+        assert!(!outcome.stream.contains("unread.example.invalid"));
+        assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_native_citation_veto_cannot_escape_through_text_fallback() {
+        let draft = "An unsupported report. Source: https://unread.example.invalid/report";
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                completed(vec![call("unsupported_source", "briefing_renderer_tool", r#"{"edition":{"lead":{"source":{"kind":"web","label":"Unsupported","url":"https://unread.example.invalid/report"}}}}"#)]),
+                completed(vec![text(draft)]),
+                completed(vec![text(VALID_TEXT_FALLBACK)]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 3);
+        assert!(
+            outcome.tool_calls.is_empty(),
+            "rejected edition never reaches the renderer service"
+        );
+        assert_eq!(outcome.requests[2]["tool_choice"], "none");
+        assert!(
+            outcome.requests[2]["input"]
+                .to_string()
+                .contains(BRIEFING_CITATION_FEEDBACK)
+        );
+        // The private client's existing intermediate tool-start frame retains
+        // the rejected proposal. Only assistant message deltas are publication.
+        let answer: String = outcome
+            .stream
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|frame| {
+                frame
+                    .pointer("/choices/0/delta/content")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect();
+        assert!(!answer.contains("unread.example.invalid"));
+        assert!(answer.contains(VALID_TEXT_FALLBACK));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_citation_and_ledger_share_one_repair() {
+        let draft =
+            format!("{INTERNAL_DESK_LEDGER}\nSource: https://unread.example.invalid/report");
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                renderer_failure("first"),
+                renderer_failure("second"),
+                completed(vec![text(&draft)]),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+            ],
+        )
+        .await;
+        assert!(
+            outcome
+                .result
+                .unwrap_err()
+                .downcast_ref::<BriefingFallbackContractError>()
+                .is_some()
+        );
+        assert_eq!(
+            outcome.requests.len(),
+            4,
+            "different publication failures cannot renew the repair"
+        );
+        assert!(!outcome.stream.contains("unread.example.invalid"));
+        assert!(!outcome.stream.contains("Draft private marker"));
     }
 
     #[tokio::test]

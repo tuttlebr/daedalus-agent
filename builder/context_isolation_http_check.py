@@ -770,9 +770,14 @@ class IsolationPeers(MemoryPeers):
         self.failures = []
         self.lock = threading.Lock()
         self.retry_done = set()
-        self.edition = json.loads(
+        personal_rail = json.loads(
             (ROOT / "tests/fixtures/daily_summary_dense_edition.json").read_text()
-        )
+        )["day_ahead"]["email_calendar"]
+        # The fixed collector supplies one public release, so the main edition
+        # must not inherit unrelated catalogue stories or citation URLs. Keep
+        # the original private agenda/actions/lookahead rail and its markers.
+        self.edition = sparse_edition(personal=True)
+        self.edition["day_ahead"]["email_calendar"] = personal_rail
         self.edition["day_ahead"]["email_calendar"]["agenda"][0]["event"] = PRIVATE[
             "calendar"
         ]
@@ -1478,6 +1483,33 @@ class ScenarioPeers(IsolationPeers):
                     {"name": name, "arguments": body["params"].get("arguments", {})}
                 )
                 kind = "mail" if name == "search_threads" else "calendar"
+                records = (
+                    {
+                        "threads": [
+                            {
+                                "id": "synthetic-private-thread",
+                                "subject": PRIVATE["mail"],
+                                "from": "synthetic.sender@example.invalid",
+                                "body": PRIVATE["mail"],
+                                "snippet": PRIVATE["mail"],
+                                "date": "2026-10-26T12:00:00Z",
+                                "source_url": PERSONAL_URLS["mail"],
+                            }
+                        ]
+                    }
+                    if kind == "mail"
+                    else {
+                        "events": [
+                            {
+                                "id": "synthetic-private-event",
+                                "summary": PRIVATE["calendar"],
+                                "start": {"dateTime": "2026-10-26T14:00:00Z"},
+                                "end": {"dateTime": "2026-10-26T14:30:00Z"},
+                                "htmlLink": PERSONAL_URLS["calendar"],
+                            }
+                        ]
+                    }
+                )
                 return self.reply(
                     {
                         "jsonrpc": "2.0",
@@ -1486,12 +1518,7 @@ class ScenarioPeers(IsolationPeers):
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(
-                                        {
-                                            "private_source": PRIVATE[kind],
-                                            "source_url": PERSONAL_URLS[kind],
-                                        }
-                                    ),
+                                    "text": json.dumps(records),
                                 }
                             ],
                             "isError": False,

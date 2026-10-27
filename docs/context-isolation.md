@@ -370,6 +370,42 @@ Neither rollout nor rollback requires changing established LAN endpoints.
 
 ### Text-fallback publication check
 
+Protected canonical editions also validate citation URL provenance before the
+renderer executes. News source links must exactly match successfully ingested
+collector evidence or a separately recorded URL literal from an authenticated
+user message. Figure source-page links require collector evidence. A supplied
+user link remains `LOCAL_ONLY`: admitting
+a link for the user's edition never authorizes worker export or image fetching.
+Assistant history, injected memory, model planning, renderer arguments and worker
+prose cannot create this local authority. Private source facts can use tool
+references without introducing new web links.
+
+Successful configured read-only Gmail and Calendar getters can also establish
+separate `LOCAL_ONLY` publication references from recognized thread, message and
+event records. Admission requires record identity and meaningful source fields;
+only the record's explicit link fields qualify. Query/request echoes, errors,
+OAuth responses, arbitrary tool prose and memory summaries cannot mint this
+authority. Minimal typed receipts restore the links only within the authorized
+workflow and current private-source/getter policy. These references never become
+public worker evidence, permitted photos or figure source-page authority.
+
+Native weather links have separate authority from the successful configured
+weather adapter's structured result. A weather domain alone grants no authority.
+Restoration uses validated workflow-scoped records and the current source policy;
+it does not reopen research, fetch a URL, or renew any budget. Unknown links fail
+with fixed diagnostics that do not echo private URL values.
+
+After a current renderer failure or native citation-input rejection, the same
+full-guide text-fallback check also rejects links without recorded publication
+authority. Citation and desk-ledger violations share the single durable local
+tool-free correction described below. The complete rejected draft stays in
+private history; the runtime does not remove links, edit prose or insert facts.
+Generic chat, legacy runs and stale renderer failures remain outside this check.
+
+URL membership proves the recorded origin of a link, not the truth of its claims
+or whether an article supports a particular sentence. Editorial factuality,
+source support and completion still require the frozen quality evaluation.
+
 After a trusted native full daily-summary load and a renderer-reported failure,
 the protected local coordinator checks a completed text fallback for an internal
 desk-status ledger before releasing it. This narrow structural check recognizes
@@ -397,7 +433,9 @@ python builder/context_isolation_fallback_check.py \
   --output /tmp/context-isolation-fallback-check.json
 ```
 
-The check covers withholding and one correction, repeated invalid text, unchanged
-valid fallback, ordinary coverage prose and a generic conversation. It exercises
-the packaged native skill and canonical renderer with local HTTP peers; it makes
-no real model, personal-account or Hindsight calls.
+The eight cases cover desk-ledger and unknown-citation withholding, one shared
+correction, repeated invalid text, unchanged valid fallback, ordinary coverage
+prose, generic conversation, and a native citation veto followed by an exact
+canonical correction using a user-supplied source. They exercise the packaged
+native skill and canonical renderer with local HTTP peers; they make no real
+model, personal-account or Hindsight calls.

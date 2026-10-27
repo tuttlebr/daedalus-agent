@@ -11,6 +11,7 @@ import argparse
 import copy
 import hashlib
 import json
+import runpy
 from pathlib import Path
 
 from context_isolation_http_check import (
@@ -41,6 +42,19 @@ FEEDBACK = (
     "research, or add facts."
 )
 PUBLIC_FAILURE = "Agent execution failed; completed output has been preserved"
+CITATION_FEEDBACK = (
+    "The proposed briefing was withheld because a web citation has no recorded "
+    "source evidence. Return the complete sourced plain-text briefing using only "
+    "the evidence already collected and exact source links from successful reads. "
+    "Use tool references for personal-source material whose link provenance is "
+    "unavailable. Keep coverage records internal, put material source gaps beside "
+    "the affected reporting, and explain that validated HTML could not be completed. "
+    "Do not call tools, restart research, invent links, or add facts."
+)
+BAD_CITATION = (
+    "WITHHELD_CITATION_MARKER_7391. An unsupported report was published. "
+    "Source: https://unread.example.invalid/report"
+)
 BAD_TEXT = (
     "WITHHELD_LEDGER_MARKER_7391\n\nCoverage Status\n\n"
     "- Covered: Technology.\n- Quiet: Arts.\n- Unavailable: Weather.\n\n"
@@ -57,7 +71,18 @@ COVERAGE_PROSE = (
     f"No latency benchmark was published. Source: {SOURCE_URL}\n\n"
     "Weather: Unavailable. Validated HTML could not be completed."
 )
-MODES = ("repair", "repair_exhausted", "valid", "coverage_prose", "generic")
+MODES = (
+    "repair",
+    "repair_exhausted",
+    "citation_repair",
+    "citation_exhausted",
+    "valid",
+    "coverage_prose",
+    "generic",
+    "renderer_citation_correction",
+)
+REPAIR_MODES = ("repair", "repair_exhausted", "citation_repair", "citation_exhausted")
+EXHAUSTED_MODES = ("repair_exhausted", "citation_exhausted")
 
 
 def outputs(body):
@@ -111,6 +136,28 @@ class FallbackPeers(IsolationPeers):
                 )
             ]
         assert_full_skill_result(observed["fallback_skill"])
+        if self.mode == "renderer_citation_correction":
+            if "citation_veto" not in observed:
+                edition = sparse_edition(personal=False)
+                edition["lead"]["source"]["url"] = (
+                    "https://unread.example.invalid/report"
+                )
+                return [
+                    call(
+                        "briefing_renderer_tool", {"edition": edition}, "citation_veto"
+                    )
+                ]
+            require(
+                "citation_valid" not in observed,
+                "Model resumed after validated canonical publication",
+            )
+            return [
+                call(
+                    "briefing_renderer_tool",
+                    {"edition": sparse_edition(personal=False)},
+                    "citation_valid",
+                )
+            ]
         for label in ("fallback_render_one", "fallback_render_two"):
             if label not in observed:
                 return [
@@ -128,8 +175,10 @@ class FallbackPeers(IsolationPeers):
             text = VALID_TEXT
         elif self.mode == "coverage_prose":
             text = COVERAGE_PROSE
-        elif self.mode == "repair" and self.plain_responses > 1:
+        elif self.mode in ("repair", "citation_repair") and self.plain_responses > 1:
             text = VALID_TEXT
+        elif self.mode in ("citation_repair", "citation_exhausted"):
+            text = BAD_CITATION
         else:
             text = BAD_TEXT
         return [message(text, f"fallback_text_{self.plain_responses}")]
@@ -144,7 +193,7 @@ class FallbackPeers(IsolationPeers):
         return Handler
 
 
-def assert_rewrite_request(previous, current):
+def assert_rewrite_request(previous, current, bad_text=BAD_TEXT, feedback=FEEDBACK):
     prior = previous["input"]
     latest = current["input"]
     # The phase notice is added to each request copy, after persistent history;
@@ -166,14 +215,14 @@ def assert_rewrite_request(previous, current):
     appended = latest[len(prior) :]
     require(
         any(
-            item.get("role") == "assistant" and text_of(item) == BAD_TEXT
+            item.get("role") == "assistant" and text_of(item) == bad_text
             for item in appended
         ),
         "Rewrite did not retain the withheld proposed text",
     )
     require(
         any(
-            item.get("role") == "user" and text_of(item) == FEEDBACK
+            item.get("role") == "user" and text_of(item) == feedback
             for item in appended
         ),
         "Rewrite lacks the exact fixed publication feedback",
@@ -192,6 +241,33 @@ def assert_rewrite_request(previous, current):
 def verify_observations(mode, result, requests):
     bodies = [request["body"] for request in requests]
     require(bool(bodies), "Fallback fixture captured no coordinator requests")
+    if mode == "renderer_citation_correction":
+        require(
+            len(bodies) == 3, "Native citation veto changed the bounded correction path"
+        )
+        rejected = tool_json(outputs(bodies[-1]).get("citation_veto", "{}"))
+        require(
+            rejected.get("executed") is False
+            and rejected.get("error") == "context_policy_rejected"
+            and "unread.example.invalid" not in json.dumps(rejected),
+            "Native citation veto did not reject safely before renderer execution",
+        )
+        skill = Path(__file__).resolve().parent.parent / "skills/daily-summary"
+        renderer = runpy.run_path(str(skill / "scripts/render_daybook.py"))
+        expected, _, _ = renderer["render_daybook"](
+            sparse_edition(personal=False),
+            json.loads((skill / "references/edition-policy.json").read_text()),
+            (skill / "assets/daybook-v4.html").read_text(),
+        )
+        require(
+            result["answer"] == f"```html\n{expected}\n```",
+            "Observed user-supplied source did not produce exact canonical HTML",
+        )
+        require(
+            result["done"] and result["terminal"] == "stop" and not result["errors"],
+            "Corrected source edition did not complete",
+        )
+        return
     if mode == "generic":
         require(len(bodies) == 1, "Generic prose triggered briefing repair")
         require(result["answer"] == BAD_TEXT, "Generic response changed")
@@ -210,15 +286,27 @@ def verify_observations(mode, result, requests):
                 and failed.get("terminal") is False,
                 "Fixture did not execute two actual canonical validation failures",
             )
-        expected = 5 if mode in ("repair", "repair_exhausted") else 4
+        expected = 5 if mode in REPAIR_MODES else 4
         require(len(bodies) == expected, "Fallback exceeded its fixed model-call count")
-        if mode in ("repair", "repair_exhausted"):
-            assert_rewrite_request(bodies[-2], bodies[-1])
-            require(
-                "WITHHELD_LEDGER_MARKER_7391" not in result["answer"],
-                "Invalid desk ledger reached published text",
+        if mode in REPAIR_MODES:
+            assert_rewrite_request(
+                bodies[-2],
+                bodies[-1],
+                BAD_CITATION if mode.startswith("citation_") else BAD_TEXT,
+                CITATION_FEEDBACK if mode.startswith("citation_") else FEEDBACK,
             )
-        if mode == "repair_exhausted":
+            require(
+                all(
+                    marker not in result["answer"]
+                    for marker in (
+                        "WITHHELD_LEDGER_MARKER_7391",
+                        "WITHHELD_CITATION_MARKER_7391",
+                        "unread.example.invalid",
+                    )
+                ),
+                "Rejected publication content reached published text",
+            )
+        if mode in EXHAUSTED_MODES:
             require(not result["answer"], "Second invalid fallback published content")
             require(
                 result["terminal"] != "stop",
@@ -229,20 +317,27 @@ def verify_observations(mode, result, requests):
                 "Second invalid fallback changed the existing public error contract",
             )
             require(
-                "WITHHELD_LEDGER_MARKER_7391" not in json.dumps(result["errors"]),
+                all(
+                    marker not in json.dumps(result["errors"])
+                    for marker in (
+                        "WITHHELD_LEDGER_MARKER_7391",
+                        "WITHHELD_CITATION_MARKER_7391",
+                        "unread.example.invalid",
+                    )
+                ),
                 "Publication failure echoed rejected content",
             )
         else:
             expected_text = COVERAGE_PROSE if mode == "coverage_prose" else VALID_TEXT
             require(result["answer"] == expected_text, "Valid fallback text changed")
-    if mode != "repair_exhausted":
+    if mode not in EXHAUSTED_MODES:
         require(
             result["done"] and result["terminal"] == "stop" and not result["errors"],
             "Expected successful fallback did not finish",
         )
 
 
-def verify_failure_trace(runtime_log):
+def verify_failure_trace(runtime_log, constraint="internal_desk_ledger"):
     records = []
     for line in runtime_log.splitlines():
         try:
@@ -258,7 +353,7 @@ def verify_failure_trace(runtime_log):
     ]
     require(
         [row.get("repair_used") for row in rejections] == [False, True]
-        and all(row.get("constraint") == "internal_desk_ledger" for row in rejections),
+        and all(row.get("constraint") == constraint for row in rejections),
         "Runtime did not reject the original and corrected ledger exactly once each",
     )
     require(
@@ -271,7 +366,14 @@ def verify_failure_trace(runtime_log):
         "Public error lacks the trusted native publication-contract failure phase",
     )
     require(
-        "WITHHELD_LEDGER_MARKER_7391" not in runtime_log,
+        all(
+            marker not in runtime_log
+            for marker in (
+                "WITHHELD_LEDGER_MARKER_7391",
+                "WITHHELD_CITATION_MARKER_7391",
+                "unread.example.invalid",
+            )
+        ),
         "Runtime telemetry echoed the withheld draft",
     )
 
@@ -285,7 +387,7 @@ def verify_budget(peers, store):
         and int(row["tokens_used"]) == len(peers.local) * 8192,
         "Publication correction bypassed ordinary model-call/token reservations",
     )
-    repairing = peers.mode in ("repair", "repair_exhausted")
+    repairing = peers.mode in REPAIR_MODES
     require(
         (row.get("briefing_text_repair") == "1")
         if repairing
@@ -390,14 +492,24 @@ def check_case(args, mode):
             require(not peers.failures, "Fallback fixture used an unexpected endpoint")
             report["checks"] = {
                 "actual_native_skill": mode != "generic",
-                "actual_renderer_validation_failures": 0 if mode == "generic" else 2,
-                "one_tool_free_rewrite": mode in ("repair", "repair_exhausted"),
-                "valid_text_preserved": mode != "repair_exhausted",
+                "actual_renderer_validation_failures": (
+                    0 if mode in ("generic", "renderer_citation_correction") else 2
+                ),
+                "native_citation_veto_before_render": mode
+                == "renderer_citation_correction",
+                "corrected_canonical_HTML": mode == "renderer_citation_correction",
+                "one_tool_free_rewrite": mode in REPAIR_MODES,
+                "valid_text_preserved": mode not in EXHAUSTED_MODES,
                 "model_calls": len(peers.local),
                 "no_source_reopening": True,
             }
-        if mode == "repair_exhausted":
-            verify_failure_trace(report["runtime_log"])
+        if mode in EXHAUSTED_MODES:
+            verify_failure_trace(
+                report["runtime_log"],
+                "unregistered_citation"
+                if mode.startswith("citation_")
+                else "internal_desk_ledger",
+            )
         report["status"] = "passed"
     except Exception as error:
         report["failure_kind"] = type(error).__name__

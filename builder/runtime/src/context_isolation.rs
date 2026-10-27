@@ -411,6 +411,30 @@ impl ContextStore {
         ))
     }
 
+    /// Publication links require the same trusted ingestion receipt as worker
+    /// evidence. Model prose, local history and worker-written citations cannot
+    /// mint this authority, even when they contain a public-looking URL.
+    pub fn publication_urls(&self) -> BTreeSet<String> {
+        if self.policy_version != PUBLIC_POLICY {
+            return BTreeSet::new();
+        }
+        self.items
+            .values()
+            .filter(|item| {
+                item.provenance.scope == self.scope
+                    && item.provenance.source_kind == SourceKind::PublicCollection
+                    && item.provenance.context_class == ContextClass::ExternalAllowed
+                    && self.allowed_desks.iter().any(|desk| {
+                        item.provenance.policy_decision.as_deref()
+                            == Some(format!("{}:{}", PUBLIC_POLICY, desk.scope()).as_str())
+                    })
+            })
+            .filter_map(|item| item.source.as_ref())
+            .filter(|source| validate_public_source(source).is_ok())
+            .map(|source| source.url.clone())
+            .collect()
+    }
+
     pub fn build_worker(
         &self,
         proposal: WorkerProposal,
