@@ -1697,7 +1697,9 @@ def configuration(peers, sandbox_url, config, port, _runtime_port):
             "base_url": f"{local}/public/{profile}/v1",
             "model_name": "synthetic-public-" + profile,
             "api_key": "synthetic-public-credential",
-            "api_type": "chat" if profile == peers.public_chat_profile else "responses",
+            "api_type": "chat"
+            if profile == getattr(peers, "public_chat_profile", None)
+            else "responses",
         }
     config["functions"] = {
         "agent_skills_tool": {

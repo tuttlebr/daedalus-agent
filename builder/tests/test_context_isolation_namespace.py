@@ -2,6 +2,7 @@
 
 import copy
 import http.client
+import importlib.util
 import json
 import sys
 import threading
@@ -14,6 +15,7 @@ from context_isolation_chat_check import model_namespace  # noqa: E402
 from context_isolation_http_check import (  # noqa: E402
     SOURCE_URL,
     IsolationPeers,
+    MemoryPeers,
     configuration,
     public_worker_response,
     public_worker_task,
@@ -193,6 +195,38 @@ class NamespaceCaptureTests(unittest.TestCase):
         self.assertEqual(mixed, normal)
         with self.assertRaises(ValueError):
             IsolationPeers("unknown")
+
+    def test_actual_memory_and_evaluation_peers_default_to_responses(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "tools/context-isolation-eval/runtime_fixture.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "configuration_evaluation_fixture", path
+        )
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        evaluation = adapter._peers_class(MemoryPeers)(
+            variant="baseline",
+            case={"id": "public-only", "local_inputs": {}},
+            workload={"as_of": "2026-10-26T12:00:00Z"},
+            routes={},
+            budget=None,
+            timeout=1,
+            max_output_tokens_per_attempt=8192,
+        )
+        for peers in (MemoryPeers(), evaluation):
+            with self.subTest(peer=type(peers).__name__):
+                self.assertFalse(hasattr(peers, "public_chat_profile"))
+                config = {"llms": {"main": {"api_type": "responses"}}, "workflow": {}}
+                configuration(peers, "https://127.0.0.1:1", config, 19001, 19002)
+                self.assertEqual(
+                    [
+                        config["llms"][profile]["api_type"]
+                        for profile in ("medium", "high", "xhigh")
+                    ],
+                    ["responses"] * 3,
+                )
 
     def test_loopback_chat_retry_and_responses_keep_same_findings(self):
         peers = IsolationPeers("medium")
