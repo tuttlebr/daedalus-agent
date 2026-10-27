@@ -347,6 +347,12 @@ uv run --no-project --python 3.12 --with httpx --with pyyaml --with redis \
 The output directory must be new and is created with mode `0700`. Real provider
 keys remain in the forwarding process, are replaced if echoed in diagnostics,
 and are never written to the runtime configuration or capture artifacts.
+Each case has a private, redacted `capture.journal.jsonl`; admitted provider
+attempts are durable before dispatch. `progress.json` checkpoints observed rows.
+A `case.complete.json` marker binds finalized output, capture and journal hashes
+for review while collection continues. Interrupted journals preserve partial
+evidence, including unknown provider outcomes; they do not establish completion
+or permit resuming, merging or replacing runs in the frozen comparison.
 The runner starts only disposable test containers and loopback peers; it does
 not deploy workloads or change LAN exposure, ingress, ports, or authentication.
 Supply any required local model forward beforehand; the runner does not create
