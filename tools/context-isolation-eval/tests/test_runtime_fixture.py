@@ -229,6 +229,47 @@ class RuntimeFixtureTests(unittest.TestCase):
             self.assertEqual(peers.budget.count, 1)
             self.assertEqual(len(provider.calls), 1)
 
+    def test_native_nvext_survives_registered_runtime_and_capture_without_host_injection(
+        self,
+    ):
+        options = {
+            "nvext": {"max_thinking_tokens": 256},
+            "chat_template_kwargs": {"enable_thinking": True},
+        }
+        runtime_options = fixture._runtime_options(options)
+        self.assertEqual(runtime_options, options)
+        self.assertIs(type(runtime_options["nvext"]["max_thinking_tokens"]), int)
+        runtime_options["nvext"]["max_thinking_tokens"] = 1
+        self.assertEqual(options["nvext"]["max_thinking_tokens"], 256)
+        with self.peer(maximum=1) as (peers, provider, url):
+            peers.routes["high"] = replace(
+                peers.routes["high"], api_type="chat", extra_body=options
+            )
+            body = {
+                **self.public_body(),
+                **fixture._runtime_options(options),
+                "max_tokens": 128,
+            }
+            body["messages"] = body.pop("input")
+            url = url.removesuffix("responses") + "chat/completions"
+            self.assertEqual(self.post(url, body)[0], 200)
+            forwarded = provider.calls[0]["json"]
+            self.assertEqual(forwarded["nvext"], {"max_thinking_tokens": 256})
+            self.assertIs(type(forwarded["nvext"]["max_thinking_tokens"]), int)
+            self.assertNotIn("thinking_token_budget", forwarded)
+            self.assertEqual(forwarded["max_tokens"], 128)
+            capture = peers.captures[0]
+            self.assertEqual(capture["runtime_request"]["nvext"], forwarded["nvext"])
+            self.assertFalse(
+                any(
+                    record["kind"] == "bounded_host_route_options"
+                    for record in capture["fixture_transforms"]
+                )
+            )
+            self.assertEqual(self.post(url, body)[0], 429)
+            self.assertEqual(peers.budget.count, 1)
+            self.assertEqual(len(provider.calls), 1)
+
     def test_registered_medium_effort_reaches_chat_without_adding_a_thinking_cut(self):
         for medium_effort in (True, False):
             with self.subTest(medium_effort=medium_effort), self.peer(maximum=1) as (

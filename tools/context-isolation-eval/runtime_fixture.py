@@ -278,6 +278,7 @@ def _runtime_options(options: dict) -> dict:
             "reasoning",
             "reasoning_history",
             "thinking_token_budget",
+            "nvext",
         )
         if key in options
     }

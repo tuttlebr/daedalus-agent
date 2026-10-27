@@ -302,11 +302,40 @@ This is a configuration illustration, not an evaluated model assignment.
 For a Chat endpoint supporting a reasoning-token budget, route `extra_body` accepts
 a root-level `"thinking_token_budget": 256` alongside
 `"chat_template_kwargs": {"enable_thinking": true}`. The budget must be an
-integer from 0 through 8192; booleans, floats, strings and nested budgets are
-rejected. Responses routes reject this Chat-only option. The candidate passes
+integer from 0 through 8192; booleans, floats, strings and putting this field
+inside `chat_template_kwargs` are rejected. Responses routes reject this Chat-only option. The candidate passes
 this option into its registered runtime route
-configuration, so capture can verify the runtime itself emits it. This option
-does not increase the independent output-token ceiling or model-attempt budget.
+configuration, so capture can verify the runtime itself emits it. Use this form
+only when the actual endpoint supports it; the Dynamo frontend's native control
+uses the distinct `nvext` namespace below. Neither control increases the
+independent output-token ceiling or model-attempt budget.
+
+For the Dynamo Chat frontend's native reasoning-span control, a concrete route
+profile uses:
+
+```json
+{
+  "extra_body": {
+    "nvext": { "max_thinking_tokens": 256 },
+    "chat_template_kwargs": { "enable_thinking": true }
+  }
+}
+```
+
+`nvext` must contain exactly `max_thinking_tokens`, a JSON integer from 1 through 8192. Unknown nested fields, booleans, floats, strings, null, nonpositive values,
+and any `nvext` on Responses routes are rejected. A route cannot combine `nvext`
+with root `thinking_token_budget`. The candidate passes the typed namespace
+unchanged into its registered runtime route and captured Chat body. Capture
+checks distinguish the original runtime request from any host option injection. This is a **per-reasoning-span** control: it may reset
+for a later reasoning span, so it is not an aggregate thinking-token ceiling or
+a guarantee of exactly 256 reasoning tokens. The total 8192 output-token ceiling,
+provider-attempt budget and absolute workflow deadlines remain separate.
+
+The mock-only built-image Chat check supports `--budget-control nvext` to verify
+this exact native payload, its independent output cap and the private/local
+boundary. Its default `canonical` and `none` modes retain the existing endpoint
+compatibility and efficient-mode checks. No model-quality or speed claim follows
+from a scripted transport check.
 Chat template options require boolean `enable_thinking` and accept optional
 boolean `medium_effort`. For a template supporting this setting,
 `"chat_template_kwargs": {"enable_thinking": true, "medium_effort": true}`

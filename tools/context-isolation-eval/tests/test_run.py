@@ -180,6 +180,99 @@ class RunnerTests(unittest.TestCase):
             ):
                 self.load(configuration)
 
+    def test_native_nvext_budget_is_strict_chat_only_and_preserves_integer_type(self):
+        for role in ("local", "medium"):
+            for value in (1, 256, 8192):
+                configuration = route_configuration()
+                configuration["routes"][role].update(
+                    api_type="chat",
+                    extra_body={
+                        "nvext": {"max_thinking_tokens": value},
+                        "chat_template_kwargs": {"enable_thinking": True},
+                    },
+                )
+                with self.subTest(role=role, value=value):
+                    route = self.load(configuration)[role]
+                    self.assertEqual(
+                        route.extra_body["nvext"], {"max_thinking_tokens": value}
+                    )
+                    self.assertIs(
+                        type(route.extra_body["nvext"]["max_thinking_tokens"]), int
+                    )
+                    self.assertEqual(route.public()["extra_body"], route.extra_body)
+                    self.assertNotIn("thinking_token_budget", route.extra_body)
+
+    def test_native_nvext_rejects_malformed_payload_and_budget_ambiguity(self):
+        invalid = [
+            None,
+            {},
+            [],
+            256,
+            "256",
+            {"max_thinking_tokens": 256, "messages": []},
+            {"max_thinking_tokens": 256, "metadata": {}},
+            {"max_thinking_tokens": 256, "unknown": False},
+            {"thinking_token_budget": 256},
+            *(
+                {"max_thinking_tokens": value}
+                for value in (
+                    None,
+                    True,
+                    False,
+                    -1,
+                    0,
+                    8193,
+                    2**31,
+                    256.0,
+                    "256",
+                    [],
+                    {},
+                )
+            ),
+        ]
+        for native in invalid:
+            configuration = route_configuration()
+            configuration["routes"]["local"].update(
+                api_type="chat", extra_body={"nvext": native}
+            )
+            with self.subTest(native=native), self.assertRaises(runner.RunnerError):
+                self.load(configuration)
+        for root in (None, 0, 256, 8192):
+            configuration = route_configuration()
+            configuration["routes"]["local"].update(
+                api_type="chat",
+                extra_body={
+                    "nvext": {"max_thinking_tokens": 256},
+                    "thinking_token_budget": root,
+                },
+            )
+            with self.subTest(root=root), self.assertRaises(runner.RunnerError):
+                self.load(configuration)
+
+    def test_responses_and_context_fields_cannot_use_native_budget_namespace(self):
+        for native in (None, {}, {"max_thinking_tokens": 256}):
+            configuration = route_configuration()
+            configuration["routes"]["local"]["extra_body"] = {"nvext": native}
+            with self.subTest(native=native), self.assertRaisesRegex(
+                runner.RunnerError, "requires the Chat API"
+            ):
+                self.load(configuration)
+        configuration = route_configuration()
+        configuration["routes"]["local"]["extra_body"] = {
+            "nvext": {"max_thinking_tokens": 256}
+        }
+        del configuration["routes"]["local"]["api_type"]
+        with self.assertRaises(runner.RunnerError):
+            self.load(configuration)
+        for field in ("messages", "input", "metadata", "session_id", "model", "tools"):
+            configuration = route_configuration()
+            configuration["routes"]["local"].update(
+                api_type="chat",
+                extra_body={"nvext": {"max_thinking_tokens": 256}, field: "forged"},
+            )
+            with self.subTest(field=field), self.assertRaises(runner.RunnerError):
+                self.load(configuration)
+
     def test_chat_template_medium_effort_is_boolean_without_a_required_token_cut(self):
         for enable_thinking in (True, False):
             for medium_effort in (True, False):

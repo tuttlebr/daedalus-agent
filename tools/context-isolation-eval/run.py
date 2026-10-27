@@ -261,6 +261,7 @@ def load_routes(path: Path, environ: Mapping[str, str]) -> dict[str, Route]:
                 "top_p",
                 "chat_template_kwargs",
                 "thinking_token_budget",
+                "nvext",
             }:
                 raise RunnerError(
                     "provider options cannot replace context or routing fields"
@@ -274,6 +275,21 @@ def load_routes(path: Path, environ: Mapping[str, str]) -> dict[str, Route]:
                 )
             if "thinking_token_budget" in extra and raw["api_type"] != "chat":
                 raise RunnerError("thinking token budget requires the Chat API")
+            if "nvext" in extra:
+                if raw["api_type"] != "chat":
+                    raise RunnerError("native thinking budget requires the Chat API")
+                native = extra["nvext"]
+                if (
+                    not isinstance(native, dict)
+                    or set(native) != {"max_thinking_tokens"}
+                    or type(native["max_thinking_tokens"]) is not int
+                    or not 1 <= native["max_thinking_tokens"] <= 8192
+                ):
+                    raise RunnerError(
+                        "nvext must declare only an integer max_thinking_tokens from 1 to 8192"
+                    )
+                if "thinking_token_budget" in extra:
+                    raise RunnerError("thinking budget controls cannot be combined")
             if "reasoning" in extra and (
                 not isinstance(extra["reasoning"], dict)
                 or set(extra["reasoning"]) != {"effort"}

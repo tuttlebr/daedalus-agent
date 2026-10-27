@@ -121,7 +121,32 @@ def register_redis(root, _peer_port, redis_port, _runtime_port):
     yield {}
 
 
-def configuration(config, port, _runtime_port):
+def thinking_budget_matches(body, include_hard_budget, budget_control):
+    if not include_hard_budget:
+        return "thinking_token_budget" not in body and "nvext" not in body
+    if budget_control == "nvext":
+        native = body.get("nvext")
+        return (
+            "thinking_token_budget" not in body
+            and isinstance(native, dict)
+            and set(native) == {"max_thinking_tokens"}
+            and type(native["max_thinking_tokens"]) is int
+            and native["max_thinking_tokens"] == 256
+        )
+    return (
+        "nvext" not in body
+        and type(body.get("thinking_token_budget")) is int
+        and body["thinking_token_budget"] == 256
+    )
+
+
+def configuration(
+    config, port, _runtime_port, *, include_hard_budget=True, budget_control="canonical"
+):
+    if budget_control not in {"canonical", "nvext"} or (
+        not include_hard_budget and budget_control != "canonical"
+    ):
+        raise ValueError("Choose one supported thinking-budget control")
     origin = f"http://127.0.0.1:{port}"
     config["llms"]["main"].update(
         api_type="chat",
@@ -174,6 +199,14 @@ def configuration(config, port, _runtime_port):
             "trusted_local_services": {},
         },
     )
+    options = config["workflow"]["context_isolation"]["destinations"]["local"][
+        "extra_body"
+    ]
+    if budget_control == "nvext":
+        del options["thinking_token_budget"]
+        options["nvext"] = {"max_thinking_tokens": 256}
+    elif not include_hard_budget:
+        del options["thinking_token_budget"]
 
 
 def check(
@@ -182,7 +215,12 @@ def check(
     output: Path | None = None,
     *,
     include_hard_budget: bool = True,
+    budget_control: str = "canonical",
 ) -> dict:
+    if budget_control not in {"canonical", "nvext"} or (
+        not include_hard_budget and budget_control != "canonical"
+    ):
+        raise ValueError("Choose one supported thinking-budget control")
     if re.fullmatch(r"sha256:[a-f0-9]{64}", image) is None:
         raise ValueError("An immutable local runtime image ID is required")
     if output is not None:
@@ -193,7 +231,19 @@ def check(
         "mock_only": True,
         "status": "failed",
         "requested_image": image,
-        "thinking_profile": "bounded_efficient" if include_hard_budget else "efficient",
+        "thinking_profile": (
+            "native_bounded_efficient"
+            if budget_control == "nvext"
+            else "bounded_efficient"
+            if include_hard_budget
+            else "efficient"
+        ),
+        "budget_control": budget_control if include_hard_budget else None,
+        "native_budget_scope": (
+            "per_reasoning_span_may_reset; total output and workflow limits remain separate"
+            if budget_control == "nvext"
+            else None
+        ),
         "scope": "One protected non-briefing Chat coordinator request; scripted provider, no real generation or external source access. No renderer or public-worker quality claim.",
         "host_source_sha256": {
             str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -207,11 +257,13 @@ def check(
     }
 
     def configure(config, port, runtime_port):
-        configuration(config, port, runtime_port)
-        if not include_hard_budget:
-            del config["workflow"]["context_isolation"]["destinations"]["local"][
-                "extra_body"
-            ]["thinking_token_budget"]
+        configuration(
+            config,
+            port,
+            runtime_port,
+            include_hard_budget=include_hard_budget,
+            budget_control=budget_control,
+        )
 
     try:
         with environment(
@@ -282,12 +334,7 @@ def check(
         "one_local_chat_request_no_cloud": len(local) == len(peers.captures) == 1,
         "thinking_budget_policy": bool(local)
         and all(
-            (
-                type(record["body"].get("thinking_token_budget")) is int
-                and record["body"]["thinking_token_budget"] == 256
-            )
-            if include_hard_budget
-            else "thinking_token_budget" not in record["body"]
+            thinking_budget_matches(record["body"], include_hard_budget, budget_control)
             for record in local
         ),
         "thinking_enabled": bool(local)
@@ -339,8 +386,19 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--redis-image", default="redis:7.4-alpine")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--budget-control", choices=("canonical", "nvext", "none"), default="canonical"
+    )
     args = parser.parse_args()
-    report = check(args.image, args.redis_image, args.output)
+    report = check(
+        args.image,
+        args.redis_image,
+        args.output,
+        include_hard_budget=args.budget_control != "none",
+        budget_control="canonical"
+        if args.budget_control == "none"
+        else args.budget_control,
+    )
     print(
         json.dumps(
             {
