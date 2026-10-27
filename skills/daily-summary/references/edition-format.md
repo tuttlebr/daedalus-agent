@@ -63,6 +63,23 @@ digits, underscores, and hyphens. The renderer links public headlines to their
 source pages and keeps tool references in validation attributes. There is no
 separate Sources section. Image credits appear only in their figure captions.
 
+A lead or supporting story links a single source. Every claim in its headline,
+dek, and body must be supported by that linked source; naming other documents in
+the label or detail does not cite them. Put facts from other documents in
+separately sourced supporting stories or `briefs` items, each with its own
+`source`.
+
+## Validation and fallback
+
+Correct all returned validation errors together and retry once when
+`attempts_remaining=1` and workflow time allows. The renderer permits at most
+two attempts. If rendering remains unavailable, no attempts remain, or workflow
+time prevents the correction, deliver the collected reporting as sourced plain
+text. State that HTML validation could not be completed and disclose material
+source gaps. Describe the returned validation failure truthfully; do not claim
+the tool budget or attempts are exhausted unless the returned counter says so.
+Never publish unvalidated HTML or restart research to replace the fallback.
+
 ## Lead and front page
 
 `lead` requires `desk_key` for the selected policy news desk, `headline`, `dek`,

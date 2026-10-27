@@ -1,9 +1,12 @@
 """Tests for the deterministic Daily Daedalus v4 renderer."""
 
 import copy
+import hashlib
 import importlib.util
 import json
+import runpy
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,7 @@ assert _spec and _spec.loader
 renderer = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = renderer
 _spec.loader.exec_module(renderer)
+validator = runpy.run_path(str(SKILL / "scripts" / "validate_daybook.py"))
 
 
 def _edition() -> dict:
@@ -36,6 +40,188 @@ def _render(edition: dict | None = None):
         _policy(),
         TEMPLATE.read_text(encoding="utf-8"),
     )
+
+
+class _Anchors(HTMLParser):
+    def __init__(self, document):
+        super().__init__()
+        self.ids = []
+        self.targets = []
+        self.departments = {}
+        self.feed(document)
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if "id" in values:
+            self.ids.append(values["id"])
+        if values.get("href", "").startswith("#"):
+            self.targets.append(values["href"][1:])
+        self.targets.extend(values.get("aria-labelledby", "").split())
+        if "data-department" in values:
+            self.departments[values["data-department"]] = values
+
+
+def _append_department(edition, key):
+    story = copy.deepcopy(edition["departments"][0]["stories"][0])
+    story["headline"] = f"Synthetic reporting for {key}"
+    edition["departments"].append(
+        {"desk_key": key, "title": key.title(), "stories": [story]}
+    )
+    coverage = next(
+        (item for item in edition["coverage"] if item["desk_key"] == key), None
+    )
+    if coverage is None:
+        edition["coverage"].append(
+            {"desk_key": key, "label": key.title(), "status": "covered"}
+        )
+    else:
+        coverage["status"] = "covered"
+
+
+def _validate(tmp_path, document, manifest):
+    html_path = tmp_path / "daybook.html"
+    manifest_path = tmp_path / "coverage.json"
+    html_path.write_text(document, encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return validator["validate_daybook"](html_path, manifest_path, POLICY)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "email-calendar",
+        "weather",
+        "lead",
+        "daybook",
+        "day-ahead-continuation",
+        "day-ahead-continuation-heading",
+        "operations-continuation",
+        "operations-continuation-heading",
+        "business-heading",
+        "health-heading",
+        "opinion-heading",
+    ],
+)
+def test_department_keys_cannot_duplicate_emitted_ids(tmp_path, key):
+    edition = _edition()
+    _append_department(edition, key)
+
+    document, manifest, _ = _render(edition)
+
+    result = _validate(tmp_path, document, manifest)
+    assert result["passed"], result["errors"]
+    anchors = _Anchors(document)
+    assert len(anchors.ids) == len(set(anchors.ids))
+    assert set(anchors.targets) <= set(anchors.ids)
+    for desk, values in anchors.departments.items():
+        anchor = values["id"]
+        assert values["aria-labelledby"] == f"{anchor}-heading"
+        assert f'id="{anchor}-heading"' in document
+        if desk != edition["lead"]["desk_key"]:
+            assert f'href="#{anchor}"' in document
+        assert f'data-desk-key="{desk}"' in document
+    assert 'href="#weather">The Day Ahead</a>' in document
+    assert 'href="#lead">Technology</a>' in document
+
+
+def test_department_anchor_fallback_avoids_other_department_slugs(tmp_path):
+    edition = _edition()
+    for key in ("department-email-calendar", "email-calendar"):
+        _append_department(edition, key)
+
+    document, manifest, _ = _render(edition)
+
+    result = _validate(tmp_path, document, manifest)
+    assert result["passed"], result["errors"]
+    anchors = _Anchors(document)
+    assert anchors.departments["department-email-calendar"]["id"] == (
+        "department-email-calendar"
+    )
+    assert anchors.departments["email-calendar"]["id"] == (
+        "department-email-calendar-2"
+    )
+    assert len(anchors.ids) == len(set(anchors.ids))
+    assert set(anchors.targets) <= set(anchors.ids)
+
+
+@pytest.mark.parametrize("variant", ["dense", "ordinary", "weather_unavailable"])
+def test_previously_valid_html_bytes_remain_identical(variant):
+    edition = _edition()
+    if variant == "ordinary":
+        edition["operations_details"] = []
+        next(
+            item
+            for item in edition["coverage"]
+            if item["desk_key"] == "cluster-infrastructure"
+        )["status"] = "quiet"
+    elif variant == "weather_unavailable":
+        weather = edition["day_ahead"]["weather"]
+        weather.update(
+            {"status": "unavailable", "rows": [], "note": "Weather source unavailable."}
+        )
+        weather.pop("source")
+        next(item for item in edition["coverage"] if item["desk_key"] == "weather")[
+            "status"
+        ] = "unavailable"
+    prior = {
+        "dense": "01479186b357043cbe30b8b6d594558ecf0d2058d40d81a251bbda7c81545094",
+        "ordinary": "46ed7b8956176e70ac9fee4ea6f8224c7363d75065c7220206c8f5f03fb7bb42",
+        "weather_unavailable": "10632aa1b84100ccb09f7c8c293bf89d1bb607e06963e1f3829b296fd7a5a61d",
+    }
+
+    document, _, _ = _render(edition)
+
+    assert hashlib.sha256(document.encode()).hexdigest() == prior[variant]
+
+
+def test_absent_optional_sections_do_not_reserve_department_ids():
+    edition = _edition()
+    edition["operations_details"] = []
+    next(
+        item
+        for item in edition["coverage"]
+        if item["desk_key"] == "cluster-infrastructure"
+    )["status"] = "quiet"
+    personal = edition["day_ahead"]["email_calendar"]
+    personal["agenda"] = personal["agenda"][:4]
+    personal["actions"] = personal["actions"][:2]
+    personal["lookahead"] = []
+    for key in ("operations-continuation", "day-ahead-continuation"):
+        _append_department(edition, key)
+
+    document, _, _ = _render(edition)
+
+    anchors = _Anchors(document)
+    for key in ("operations-continuation", "day-ahead-continuation"):
+        assert anchors.departments[key]["id"] == key
+
+
+def test_unrelated_duplicate_ids_still_fail_validation(tmp_path):
+    template = TEMPLATE.read_text(encoding="utf-8").replace(
+        "</footer>", '<span id="daybook"></span></footer>'
+    )
+    document, manifest, _ = renderer.render_daybook(_edition(), _policy(), template)
+
+    result = _validate(tmp_path, document, manifest)
+
+    assert not result["passed"]
+    assert any("duplicate IDs" in error for error in result["errors"])
+
+
+def test_duplicate_department_keys_are_still_invalid():
+    edition = _edition()
+    edition["departments"].append(copy.deepcopy(edition["departments"][0]))
+
+    with pytest.raises(renderer.RenderError, match="duplicate desk key"):
+        _render(edition)
+
+
+def test_story_ids_are_not_accepted_as_an_anchor_override():
+    edition = _edition()
+    edition["departments"][0]["stories"][0]["id"] = "email-calendar"
+
+    with pytest.raises(renderer.RenderError, match="unsupported field"):
+        _render(edition)
 
 
 def test_renderer_builds_v4_split_layout_and_derived_manifest():

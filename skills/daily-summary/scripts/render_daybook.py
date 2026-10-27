@@ -10,6 +10,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from html import escape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -641,8 +642,37 @@ def _render_operations(value: Any, registry: SourceRegistry) -> str:
     )
 
 
+class DepartmentIds(HTMLParser):
+    """Allocate section and heading IDs without changing semantic desk keys."""
+
+    def __init__(self, *fragments: str) -> None:
+        super().__init__()
+        self.used: set[str] = set()
+        self.anchors: dict[str, str] = {}
+        for fragment in fragments:
+            self.feed(fragment)
+        self.close()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        element_id = dict(attrs).get("id")
+        if element_id:
+            self.used.add(element_id)
+
+    def allocate(self, key: str) -> str:
+        anchor = key
+        suffix = 0
+        while {anchor, f"{anchor}-heading"} & self.used:
+            suffix += 1
+            anchor = f"department-{key}"
+            if suffix > 1:
+                anchor += f"-{suffix}"
+        self.used.update((anchor, f"{anchor}-heading"))
+        self.anchors[key] = anchor
+        return anchor
+
+
 def _render_departments(
-    value: Any, registry: SourceRegistry
+    value: Any, registry: SourceRegistry, ids: DepartmentIds
 ) -> tuple[str, list[tuple[str, str]]]:
     departments = _array(value, "edition.departments", maximum=20)
     rendered: list[str] = []
@@ -658,6 +688,7 @@ def _render_departments(
         if key in seen:
             raise RenderError(f"edition.departments contains duplicate desk key {key}")
         seen.add(key)
+        anchor = ids.allocate(key)
         title = _text(department.get("title"), f"{path}.title")
         stories_raw = _array(
             department.get("stories"), f"{path}.stories", minimum=1, maximum=8
@@ -680,8 +711,8 @@ def _render_departments(
                 f'<div class="story-body">{body}</div>{_source_line(source)}</article>'
             )
         rendered.append(
-            f'<section class="department" data-department="{escape(key, quote=True)}" id="{escape(key, quote=True)}" '
-            f'aria-labelledby="{escape(key, quote=True)}-heading"><h2 id="{escape(key, quote=True)}-heading">'
+            f'<section class="department" data-department="{escape(key, quote=True)}" id="{anchor}" '
+            f'aria-labelledby="{anchor}-heading"><h2 id="{anchor}-heading">'
             f'{escape(title)}</h2><div class="department-stories">{"".join(stories)}</div></section>'
         )
         navigation.append((key, title))
@@ -790,17 +821,25 @@ def render_daybook(
         edition.get("day_ahead"), registry
     )
     operations_html = _render_operations(edition.get("operations_details"), registry)
+    department_ids = DepartmentIds(
+        template, lead_html, day_ahead_html, day_ahead_continuation, operations_html
+    )
     rail_keys = {item["key"] for item in policy["desks"] if item["placement"] == "rail"}
     departments = edition.get("departments", [])
     departments_html, main_navigation = _render_departments(
-        [item for item in departments if item["desk_key"] not in rail_keys], registry
+        [item for item in departments if item["desk_key"] not in rail_keys],
+        registry,
+        department_ids,
     )
     feature_html, feature_navigation = _render_departments(
-        [item for item in departments if item["desk_key"] == "health"], registry
+        [item for item in departments if item["desk_key"] == "health"],
+        registry,
+        department_ids,
     )
     rail_html, rail_navigation = _render_departments(
         [item for item in departments if item["desk_key"] in rail_keys - {"health"}],
         registry,
+        department_ids,
     )
     navigation = main_navigation + feature_navigation + rail_navigation
     manifest, statuses = _coverage_manifest(edition.get("coverage"), policy)
@@ -842,7 +881,9 @@ def render_daybook(
         item["label"] for item in policy["desks"] if item["key"] == lead_key
     )
     rail_items = [("lead", lead_label)] + [
-        item for item in navigation if item[0] != lead_key
+        (department_ids.anchors[key], label)
+        for key, label in navigation
+        if key != lead_key
     ]
     rail_items.append(("weather", "The Day Ahead"))
     if operations_html:

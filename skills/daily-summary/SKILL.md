@@ -302,19 +302,20 @@ errors are reported together. Do not load or
 transcribe those fixed resources or use sandbox commands to assemble the edition.
 
 If the tool returns validation errors with `attempts_remaining=1`, correct the
-reported fields together in the object and submit it once more. Rebuild the affected
-object or array from the verified source material; do not patch delimiters or
-inspect successive string slices. A successful shell command is not evidence
-that an edition passes validation.
+reported fields together and submit the object once more while workflow time
+allows. Rebuild the affected object or array from the verified source material;
+do not patch delimiters or inspect successive string slices. A successful shell
+command is not evidence that an edition passes validation.
 
 The renderer allows two attempts per request. On success it delivers the exact
 validated HTML in the required single `html` fence. If rendering remains
-unavailable or `attempts_remaining=0`, use the returned edition and collected
-sources to deliver the useful reporting as a plain-text briefing with source
-links. State that the HTML edition could not be validated and briefly disclose
-material source gaps. Keep unsupported claims out of the fallback. Do not restart
-the research, bypass validation by writing your own HTML, or replace collected
-reporting with an error-only edition.
+unavailable, `attempts_remaining=0`, or workflow time prevents a correction, use
+the returned edition and collected sources to deliver the useful reporting as a
+plain-text briefing with source links. State that the HTML edition could not be
+validated and briefly disclose material source gaps. Do not claim attempts are
+exhausted unless the returned counter says so. Keep unsupported claims out of the
+fallback. Do not restart the research, bypass validation by writing your own HTML,
+or replace collected reporting with an error-only edition.
 
 ## Failure behavior
 
