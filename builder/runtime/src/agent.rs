@@ -256,40 +256,93 @@ async fn within_workflow_time<T>(
     }
 }
 
-/// Serialize protected text before reserving the real client channel. There is
-/// no await between the final expiry check and publication, so neither JSON
-/// encoding nor client backpressure can turn an expired delta into output.
-async fn model_text_delta(
+/// Stage each bounded event operation before reserving the client channel.
+/// Encoding and backpressure happen before the final expiry check; publication
+/// itself has no await. Legacy operations keep their original direct path.
+async fn publish_workflow_frames<F, Fut>(
+    workers: Option<&crate::public_worker::Workers>,
+    events: &Events,
+    frame_limit: usize,
+    emit: F,
+) -> Result<()>
+where
+    F: FnOnce(Events) -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let Some(workers) = workers else {
+        return emit(events.clone()).await;
+    };
+    within_workflow_time(Some(workers), async {
+        // Callers emit one frame, or at most two for text and finish. This
+        // staging queue never collects a whole response or an unbounded stream.
+        let (sender, mut receiver) = mpsc::channel(frame_limit);
+        emit(Events {
+            run_id: events.run_id.clone(),
+            sender,
+        })
+        .await?;
+        while let Some(frame) = receiver.recv().await {
+            let permit = events
+                .sender
+                .reserve()
+                .await
+                .map_err(|_| anyhow!("Client disconnected"))?;
+            ensure_workflow_time(Some(workers))?;
+            permit.send(frame);
+        }
+        Ok(())
+    })
+    .await
+}
+
+async fn workflow_text_delta(
     workers: Option<&crate::public_worker::Workers>,
     response_text: &mut ResponseText,
     events: &Events,
     text: &str,
 ) -> Result<()> {
-    let Some(workers) = workers else {
-        return response_text.delta(events, text).await;
-    };
-    ensure_workflow_time(Some(workers))?;
-    // ResponseText emits at most a block separator and the content frame.
-    let (sender, mut receiver) = mpsc::channel(2);
-    let staged = Events {
-        run_id: events.run_id.clone(),
-        sender,
-    };
-    response_text.delta(&staged, text).await?;
-    drop(staged);
-    while let Some(frame) = receiver.recv().await {
-        let permit = within_workflow_time(Some(workers), async {
-            events
-                .sender
-                .reserve()
-                .await
-                .map_err(|_| anyhow!("Client disconnected"))
-        })
-        .await?;
-        ensure_workflow_time(Some(workers))?;
-        permit.send(frame);
-    }
-    Ok(())
+    // A new response block can add its separator before the content frame.
+    publish_workflow_frames(workers, events, 2, |staged| async move {
+        response_text.delta(&staged, text).await
+    })
+    .await
+}
+
+async fn workflow_finish(
+    workers: Option<&crate::public_worker::Workers>,
+    events: &Events,
+    reason: &str,
+) -> Result<()> {
+    publish_workflow_frames(workers, events, 2, |staged| async move {
+        staged.finish(reason).await
+    })
+    .await
+}
+
+async fn workflow_tool_event(
+    workers: Option<&crate::public_worker::Workers>,
+    events: &Events,
+    id: &str,
+    name: &str,
+    completed: bool,
+    payload: Value,
+) -> Result<()> {
+    publish_workflow_frames(workers, events, 1, |staged| async move {
+        staged.tool(id, name, completed, payload).await
+    })
+    .await
+}
+
+async fn workflow_event(
+    workers: Option<&crate::public_worker::Workers>,
+    events: &Events,
+    event: &str,
+    payload: Value,
+) -> Result<()> {
+    publish_workflow_frames(workers, events, 1, |staged| async move {
+        staged.event(event, payload).await
+    })
+    .await
 }
 
 pub struct Agent {
@@ -956,7 +1009,7 @@ impl Agent {
                                     }
                                     partial.push_str(&text);
                                     if !withhold_text {
-                                        model_text_delta(workers.as_deref(), &mut response_text, &self.events, &text).await?;
+                                        workflow_text_delta(workers.as_deref(), &mut response_text, &self.events, &text).await?;
                                         last_activity = Instant::now();
                                     } else if last_activity.elapsed() >= Duration::from_secs(15) {
                                         self.events.raw(": model active\n\n".into()).await?;
@@ -1187,9 +1240,15 @@ impl Agent {
                 }
                 within_workflow_time(workers.as_deref(), async {
                     if withhold_text {
-                        response_text.delta(&self.events, &partial).await?;
+                        workflow_text_delta(
+                            workers.as_deref(),
+                            &mut response_text,
+                            &self.events,
+                            &partial,
+                        )
+                        .await?;
                     }
-                    self.events.finish("stop").await
+                    workflow_finish(workers.as_deref(), &self.events, "stop").await
                 })
                 .await?;
                 if let Some(state) = &session_state
@@ -1357,9 +1416,15 @@ impl Agent {
                             + 1;
                         let group = self.execution_group(&name);
                         *active_groups.entry(group.clone()).or_default() += 1;
-                        self.events
-                            .tool(&id, &name, false, call.function.arguments.clone())
-                            .await?;
+                        workflow_tool_event(
+                            workers.as_deref(),
+                            &self.events,
+                            &id,
+                            &name,
+                            false,
+                            call.function.arguments.clone(),
+                        )
+                        .await?;
                         let http = self.http.clone();
                         let headers = self.headers.clone();
                         let url = format!(
@@ -1613,9 +1678,15 @@ impl Agent {
                             outcome.content.clone()
                         };
                     ensure_workflow_time(workers.as_deref())?;
-                    self.events
-                        .tool(&call.id.to_string(), &name, true, Value::String(visible))
-                        .await?;
+                    workflow_tool_event(
+                        workers.as_deref(),
+                        &self.events,
+                        &call.id.to_string(),
+                        &name,
+                        true,
+                        Value::String(visible),
+                    )
+                    .await?;
                     let approval_boundary =
                         outcome.terminal && outcome.terminal_reason == "mcp_approval_required";
                     if outcome.terminal && terminal.is_none() {
@@ -1713,19 +1784,32 @@ impl Agent {
                 within_workflow_time(workers.as_deref(), async {
                     if reason == "mcp_approval_required" {
                         tracing::info!(event = "approval_required");
-                        self.events
-                            .event("mcp_approval_required", json!({"marker":content}))
-                            .await?;
+                        workflow_event(
+                            workers.as_deref(),
+                            &self.events,
+                            "mcp_approval_required",
+                            json!({"marker":content}),
+                        )
+                        .await?;
                     }
                     response_text.begin_block();
-                    response_text.delta(&self.events, &content).await?;
-                    self.events
-                        .finish(if reason == "mcp_approval_required" {
+                    workflow_text_delta(
+                        workers.as_deref(),
+                        &mut response_text,
+                        &self.events,
+                        &content,
+                    )
+                    .await?;
+                    workflow_finish(
+                        workers.as_deref(),
+                        &self.events,
+                        if reason == "mcp_approval_required" {
                             "mcp_approval_required"
                         } else {
                             "stop"
-                        })
-                        .await
+                        },
+                    )
+                    .await
                 })
                 .await?;
                 if reason == "validated_artifact"
@@ -2512,7 +2596,7 @@ mod tests {
         model_settings: Value,
         steer: Option<(usize, &'static str)>,
         request_fields: Value,
-        output: Option<(usize, Duration)>,
+        output: Option<(usize, Duration, bool)>,
     ) -> Outcome {
         let protected = workflow["context_isolation"]["enabled"] == true;
         let model = Arc::new(Model::default());
@@ -2586,8 +2670,13 @@ mod tests {
         let http = reqwest::Client::new();
         let preparation = crate::preparation::Preparation::new(config).unwrap();
         let (commands, inbox) = mpsc::channel(8);
-        let (capacity, collector_delay) = output.unwrap_or((128, Duration::ZERO));
+        let (capacity, collector_delay, prefill) = output.unwrap_or((128, Duration::ZERO, false));
         let (sender, mut receiver) = mpsc::channel::<bytes::Bytes>(capacity);
+        if prefill {
+            sender
+                .try_send(bytes::Bytes::from_static(b": fixture backpressure\n\n"))
+                .unwrap();
+        }
         let collector = tokio::spawn(async move {
             tokio::time::sleep(collector_delay).await;
             let mut stream = String::new();
@@ -2701,6 +2790,144 @@ mod tests {
         let mut workflow = protected_clock_workflow(&["clock", "briefing_renderer_tool"]);
         workflow["daily_summary_final_tools"] = json!(["briefing_renderer_tool"]);
         workflow
+    }
+
+    fn publication_workers(lifetime: Duration) -> Arc<crate::public_worker::Workers> {
+        let config = crate::config::Config::new(json!({
+            "llms":{"main":{"base_url":"http://127.0.0.1:1/v1", "model_name":"fixture"}},
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main",
+                "context_isolation":{"enabled":true,"policy_version":"publication-tests-v1",
+                    "coordinator":"local", "worker_profiles":{},
+                    "trusted_local_services":{"redis":"redis://127.0.0.1:1/0"},
+                    "destinations":{"local":{"llm":"main","trust":"trusted_local","transport":"direct"}}}}
+        }), [("REDIS_URL".into(),"redis://127.0.0.1:1/0".into())].into()).unwrap();
+        let routes = crate::routing::IsolationConfig::from_config(&config)
+            .unwrap()
+            .unwrap();
+        crate::public_worker::Workers::new(
+            "synthetic",
+            "publication",
+            routes,
+            8,
+            lifetime.as_secs_f64(),
+            0.,
+            false,
+        )
+    }
+
+    #[tokio::test]
+    async fn protected_staged_publication_rechecks_expiry_after_encoding_every_frame_kind() {
+        for kind in [
+            "final_text",
+            "terminal_html",
+            "tool_complete",
+            "finish",
+            "approval",
+        ] {
+            let workers = publication_workers(Duration::from_millis(20));
+            let (sender, mut receiver) = mpsc::channel(4);
+            let events = Events {
+                run_id: "publication".into(),
+                sender,
+            };
+            let result = publish_workflow_frames(Some(&workers), &events, 2, |staged| async move {
+                match kind {
+                    "final_text" => {
+                        ResponseText::default()
+                            .delta(&staged, "FINAL_TEXT_MARKER")
+                            .await?
+                    }
+                    "terminal_html" => {
+                        ResponseText::default()
+                            .delta(&staged, DEADLINE_RENDERER_HTML)
+                            .await?
+                    }
+                    "tool_complete" => {
+                        staged
+                            .tool(
+                                "render",
+                                "briefing_renderer_tool",
+                                true,
+                                Value::String(DEADLINE_RENDERER_HTML.into()),
+                            )
+                            .await?
+                    }
+                    "finish" => staged.finish("stop").await?,
+                    "approval" => {
+                        staged
+                            .event("mcp_approval_required", json!({"marker":"synthetic"}))
+                            .await?
+                    }
+                    _ => unreachable!(),
+                }
+                // Model synchronous encoding that crosses expiry in one poll.
+                // A timer outside this future cannot preempt that operation.
+                std::thread::sleep(Duration::from_millis(35));
+                Ok(())
+            })
+            .await;
+            assert_eq!(
+                result.unwrap_err().root_cause().to_string(),
+                "shared workflow deadline has expired",
+                "{kind}"
+            );
+            assert!(receiver.try_recv().is_err(), "late {kind} was published");
+        }
+    }
+
+    #[tokio::test]
+    async fn protected_staged_publication_preserves_text_blocks_tools_and_finish_bytes() {
+        let mut legacy_frames = None;
+        for protected in [false, true] {
+            let workers = protected.then(|| publication_workers(Duration::from_secs(5)));
+            let (sender, mut receiver) = mpsc::channel(8);
+            let events = Events {
+                run_id: "publication".into(),
+                sender,
+            };
+            let mut text = ResponseText::default();
+            workflow_text_delta(workers.as_deref(), &mut text, &events, "First.")
+                .await
+                .unwrap();
+            text.begin_block();
+            workflow_text_delta(workers.as_deref(), &mut text, &events, "Second.")
+                .await
+                .unwrap();
+            workflow_tool_event(
+                workers.as_deref(),
+                &events,
+                "render",
+                "briefing_renderer_tool",
+                true,
+                Value::String("result".into()),
+            )
+            .await
+            .unwrap();
+            workflow_finish(workers.as_deref(), &events, "stop")
+                .await
+                .unwrap();
+            drop(events);
+            let mut frames = Vec::new();
+            while let Some(frame) = receiver.recv().await {
+                frames.push(frame);
+            }
+            assert_eq!(frames.len(), 6);
+            if protected {
+                assert_eq!(legacy_frames.as_ref().unwrap(), &frames);
+            } else {
+                legacy_frames = Some(frames.clone());
+            }
+            let frames: Vec<_> = frames
+                .iter()
+                .map(|frame| String::from_utf8_lossy(frame))
+                .collect();
+            assert!(frames[0].contains("First."));
+            assert!(frames[1].contains(r#""content":"\n\n""#));
+            assert!(frames[2].contains("Second."));
+            assert!(frames[3].contains("Function Complete: briefing_renderer_tool"));
+            assert!(frames[4].contains(r#""finish_reason":"stop","daedalus_terminal":true"#));
+            assert_eq!(frames[5], "data: [DONE]\n\n");
+        }
     }
 
     #[tokio::test]
@@ -2963,7 +3190,7 @@ mod tests {
             json!({"request_timeout":5}),
             None,
             json!({}),
-            Some((1, Duration::from_secs(3))),
+            Some((1, Duration::from_secs(3), false)),
         )
         .await;
         assert_eq!(
@@ -2974,6 +3201,81 @@ mod tests {
         assert!(outcome.stream.contains("Accepted before deadline."));
         assert!(!outcome.stream.contains("BACKPRESSURED_LATE_MARKER"));
         assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_final_only_text_and_finish_obey_output_backpressure_deadline() {
+        for prefill in [false, true] {
+            let mut workflow = protected_clock_workflow(&["clock"]);
+            workflow["daily_summary_research_budget_seconds"] = json!(1);
+            workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+            let outcome = run_raw_scripted_with_output(
+                clocks(),
+                workflow,
+                "Summarize the plan.",
+                vec![completed(vec![text("FINAL_ONLY_TEXT_MARKER")])],
+                json!({}),
+                None,
+                json!({"response_mode":"final_only"}),
+                Some((1, Duration::from_secs(3), prefill)),
+            )
+            .await;
+            assert_eq!(
+                outcome.result.unwrap_err().root_cause().to_string(),
+                "shared workflow deadline has expired"
+            );
+            assert_eq!(outcome.requests.len(), 1);
+            assert_eq!(outcome.stream.contains("FINAL_ONLY_TEXT_MARKER"), !prefill);
+            assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+            assert!(!outcome.stream.contains("[DONE]"));
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_terminal_html_and_tool_completion_obey_output_backpressure_deadline() {
+        // One slot blocks the tool stream after Start. Three accept Start,
+        // its heartbeat and Function Complete, but block final HTML content.
+        for capacity in [1, 3] {
+            let mut workflow = protected_rendering_workflow();
+            workflow["daily_summary_research_budget_seconds"] = json!(1);
+            workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+            let outcome = run_raw_scripted_with_output(
+                rendering_functions(),
+                workflow,
+                "Render the supplied edition.",
+                vec![completed(vec![call(
+                    "render",
+                    "briefing_renderer_tool",
+                    r#"{"edition":{"fixture_delay_ms":50}}"#,
+                )])],
+                json!({}),
+                None,
+                json!({}),
+                Some((capacity, Duration::from_secs(3), false)),
+            )
+            .await;
+            assert_eq!(
+                outcome.result.unwrap_err().root_cause().to_string(),
+                "shared workflow deadline has expired"
+            );
+            assert_eq!(outcome.requests.len(), 1);
+            assert_eq!(outcome.tool_calls.len(), 1);
+            assert!(
+                outcome
+                    .stream
+                    .contains("Function Start: briefing_renderer_tool")
+            );
+            assert_eq!(
+                outcome
+                    .stream
+                    .contains("Function Complete: briefing_renderer_tool"),
+                capacity == 3
+            );
+            assert!(!outcome.stream.contains("chat.completion.chunk"));
+            assert!(!outcome.stream.contains("[DONE]"));
+        }
     }
 
     #[tokio::test]
