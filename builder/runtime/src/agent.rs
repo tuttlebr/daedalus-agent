@@ -256,6 +256,42 @@ async fn within_workflow_time<T>(
     }
 }
 
+/// Serialize protected text before reserving the real client channel. There is
+/// no await between the final expiry check and publication, so neither JSON
+/// encoding nor client backpressure can turn an expired delta into output.
+async fn model_text_delta(
+    workers: Option<&crate::public_worker::Workers>,
+    response_text: &mut ResponseText,
+    events: &Events,
+    text: &str,
+) -> Result<()> {
+    let Some(workers) = workers else {
+        return response_text.delta(events, text).await;
+    };
+    ensure_workflow_time(Some(workers))?;
+    // ResponseText emits at most a block separator and the content frame.
+    let (sender, mut receiver) = mpsc::channel(2);
+    let staged = Events {
+        run_id: events.run_id.clone(),
+        sender,
+    };
+    response_text.delta(&staged, text).await?;
+    drop(staged);
+    while let Some(frame) = receiver.recv().await {
+        let permit = within_workflow_time(Some(workers), async {
+            events
+                .sender
+                .reserve()
+                .await
+                .map_err(|_| anyhow!("Client disconnected"))
+        })
+        .await?;
+        ensure_workflow_time(Some(workers))?;
+        permit.send(frame);
+    }
+    Ok(())
+}
+
 pub struct Agent {
     pub http: reqwest::Client,
     pub tools_url: String,
@@ -663,7 +699,13 @@ impl Agent {
                         // Schema visibility removes unsafe tools; dispatch
                         // repeats authorization against the concrete arguments.
                         workers.as_ref().unwrap().schema_allowed(p, &tool.name)))
-                    && (!final_synthesis || prepared.final_tools.contains(&tool.name))
+                    && (!final_synthesis
+                        || prepared.final_tools.contains(&tool.name)
+                        // A resumed closed research phase still needs its
+                        // fresh native full bundle. Only that validated loader
+                        // can cross the final-tool filter while bootstrap is
+                        // pending; its ordinary gate rejects every sibling.
+                        || bootstrap.as_ref().is_some_and(|loader| loader.name == tool.name))
                     && requirement.allows(&tool.name)
                     && validation_recovery.allows(&tool.name)
             };
@@ -861,13 +903,19 @@ impl Agent {
                 )
             };
             let model = rig_core::driver::Model::new(wire, model.transport);
+            ensure_workflow_time(workers.as_deref())?;
             let mut stream = model.stream(request).context(Phase("model_request"))?;
             let idle = tokio::time::sleep(inactivity);
             tokio::pin!(idle);
             let total = async {
                 match total_timeout {
                     Some(seconds) => {
-                        tokio::time::sleep(Duration::from_secs_f64(seconds.max(1.0))).await
+                        let seconds = if workers.is_some() {
+                            seconds
+                        } else {
+                            seconds.max(1.0)
+                        };
+                        tokio::time::sleep(Duration::from_secs_f64(seconds)).await
                     }
                     None => std::future::pending().await,
                 }
@@ -879,50 +927,57 @@ impl Agent {
             let mut stream_error = None;
             let mut received_item = false;
             let mut last_activity = Instant::now();
-            loop {
-                tokio::select! {
-                    biased;
-                    Some(command) = self.inbox.recv() => {
-                        self.accept(command).await?;
-                        interrupted = true;
-                        break;
-                    }
-                    item = stream.next() => match item {
-                        None => break,
-                        Some(Err(error)) => { stream_error = Some(error); break; },
-                        Some(Ok(item)) => {
-                            idle.as_mut().reset(tokio::time::Instant::now() + inactivity);
-                            if !received_item {
-                                tracing::info!(event = "model_first_event", model_call,
-                                    elapsed_ms = model_started.elapsed().as_millis() as u64);
-                            }
-                            received_item = true;
-                            if let Item::Event(StreamEvent::Text { text, .. }) = item {
-                                if withhold_text && partial.len().saturating_add(text.len()) > crate::response_policy::MAX_WITHHELD_BYTES {
-                                    return Err(anyhow::anyhow!("Withheld response exceeded output limit").context(Phase("model_stream")));
+            within_workflow_time(workers.as_deref(), async {
+                loop {
+                    // Buffered, always-ready items must not starve the absolute
+                    // timer. Recheck before polling or publishing another delta.
+                    ensure_workflow_time(workers.as_deref())?;
+                    tokio::select! {
+                        biased;
+                        Some(command) = self.inbox.recv() => {
+                            self.accept(command).await?;
+                            interrupted = true;
+                            break;
+                        }
+                        item = stream.next() => match item {
+                            None => break,
+                            Some(Err(error)) => { stream_error = Some(error); break; },
+                            Some(Ok(item)) => {
+                                ensure_workflow_time(workers.as_deref())?;
+                                idle.as_mut().reset(tokio::time::Instant::now() + inactivity);
+                                if !received_item {
+                                    tracing::info!(event = "model_first_event", model_call,
+                                        elapsed_ms = model_started.elapsed().as_millis() as u64);
                                 }
-                                partial.push_str(&text);
-                                if !withhold_text {
-                                    response_text.delta(&self.events, &text).await?;
-                                    last_activity = Instant::now();
+                                received_item = true;
+                                if let Item::Event(StreamEvent::Text { text, .. }) = item {
+                                    if withhold_text && partial.len().saturating_add(text.len()) > crate::response_policy::MAX_WITHHELD_BYTES {
+                                        return Err(anyhow::anyhow!("Withheld response exceeded output limit").context(Phase("model_stream")));
+                                    }
+                                    partial.push_str(&text);
+                                    if !withhold_text {
+                                        model_text_delta(workers.as_deref(), &mut response_text, &self.events, &text).await?;
+                                        last_activity = Instant::now();
+                                    } else if last_activity.elapsed() >= Duration::from_secs(15) {
+                                        self.events.raw(": model active\n\n".into()).await?;
+                                        last_activity = Instant::now();
+                                    }
                                 } else if last_activity.elapsed() >= Duration::from_secs(15) {
+                                    // Reasoning and argument fragments are private,
+                                    // but their arrival proves the stream is active.
+                                    // A silent provider emits no activity comments.
                                     self.events.raw(": model active\n\n".into()).await?;
                                     last_activity = Instant::now();
                                 }
-                            } else if last_activity.elapsed() >= Duration::from_secs(15) {
-                                // Reasoning and argument fragments are private,
-                                // but their arrival proves the stream is active.
-                                // A silent provider emits no activity comments.
-                                self.events.raw(": model active\n\n".into()).await?;
-                                last_activity = Instant::now();
-                            }
+                            },
                         },
-                    },
-                    _ = &mut idle => { inactive = true; break; }
-                    _ = &mut total => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
-                    _ = self.events.sender.closed() => bail!("Client disconnected"),
+                        _ = &mut idle => { inactive = true; break; }
+                        _ = &mut total => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
+                        _ = self.events.sender.closed() => bail!("Client disconnected"),
+                    }
                 }
-            }
+                Ok(())
+            }).await?;
             if interrupted {
                 tracing::info!(
                     event = "model_call_interrupted",
@@ -948,7 +1003,12 @@ impl Agent {
                     drop(stream);
                     Err(None)
                 }
-                None => stream.finish().await.map_err(Some),
+                None => {
+                    within_workflow_time(workers.as_deref(), async {
+                        Ok(stream.finish().await.map_err(Some))
+                    })
+                    .await?
+                }
             };
             let completed = match completion {
                 Ok(completed) => completed,
@@ -1001,12 +1061,15 @@ impl Agent {
                         output_bytes,
                         resuming = resume_text
                     );
-                    tokio::select! {
-                        biased;
-                        Some(command) = self.inbox.recv() => { self.accept(command).await?; retry_attempt = 0; },
-                        _ = tokio::time::sleep(delay) => {},
-                        _ = self.events.sender.closed() => bail!("Client disconnected"),
-                    }
+                    within_workflow_time(workers.as_deref(), async {
+                        tokio::select! {
+                            biased;
+                            Some(command) = self.inbox.recv() => { self.accept(command).await?; retry_attempt = 0; },
+                            _ = tokio::time::sleep(delay) => {},
+                            _ = self.events.sender.closed() => bail!("Client disconnected"),
+                        }
+                        Ok(())
+                    }).await?;
                     continue;
                 }
                 Err(None) => {
@@ -1211,6 +1274,9 @@ impl Agent {
                 calls = valid;
                 if recovery_exhausted {
                     if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
+                        if let Some(workers) = &workers {
+                            workers.close_research().await?;
+                        }
                         briefing_text_fallback = true;
                         tracing::info!(
                             event = "briefing_text_fallback",
@@ -2422,6 +2488,32 @@ mod tests {
         steer: Option<(usize, &'static str)>,
         request_fields: Value,
     ) -> Outcome {
+        run_raw_scripted_with_output(
+            functions,
+            workflow,
+            query,
+            scripts,
+            model_settings,
+            steer,
+            request_fields,
+            None,
+        )
+        .await
+    }
+
+    /// A delayed collector models a connected client applying backpressure;
+    /// the real Agent still owns the protected deadline and provider stream.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_raw_scripted_with_output(
+        functions: Value,
+        workflow: Value,
+        query: &str,
+        scripts: Vec<Option<Vec<Value>>>,
+        model_settings: Value,
+        steer: Option<(usize, &'static str)>,
+        request_fields: Value,
+        output: Option<(usize, Duration)>,
+    ) -> Outcome {
         let protected = workflow["context_isolation"]["enabled"] == true;
         let model = Arc::new(Model::default());
         model.scripts.lock().unwrap().extend(scripts);
@@ -2494,8 +2586,10 @@ mod tests {
         let http = reqwest::Client::new();
         let preparation = crate::preparation::Preparation::new(config).unwrap();
         let (commands, inbox) = mpsc::channel(8);
-        let (sender, mut receiver) = mpsc::channel::<bytes::Bytes>(128);
+        let (capacity, collector_delay) = output.unwrap_or((128, Duration::ZERO));
+        let (sender, mut receiver) = mpsc::channel::<bytes::Bytes>(capacity);
         let collector = tokio::spawn(async move {
+            tokio::time::sleep(collector_delay).await;
             let mut stream = String::new();
             while let Some(bytes) = receiver.recv().await {
                 stream.push_str(&String::from_utf8_lossy(&bytes));
@@ -2754,6 +2848,132 @@ mod tests {
         assert_eq!(outcome.requests[0]["tool_choice"], "required");
         assert_eq!(outcome.requests[1]["tool_choice"], "required");
         assert_eq!(outcome.requests[2]["tool_choice"], "none");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_lifecycle_invalid_renderer_fallback_stays_closed_after_interrupted_resume() {
+        let workflow_id = uuid::Uuid::new_v4().to_string();
+        let request = json!({"additional_props":{"context_workflow_id":workflow_id}});
+        let first = run_scripted_with_body(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                completed(vec![call("invalid_1", "briefing_renderer_tool", "{}")]),
+                completed(vec![call("invalid_2", "briefing_renderer_tool", "{}")]),
+                paced(
+                    &["A supported finding that was not yet delivered."],
+                    0,
+                    true,
+                ),
+            ],
+            json!({"request_timeout":1}),
+            None,
+            request.clone(),
+        )
+        .await;
+        assert_eq!(
+            first.result.unwrap_err().root_cause().to_string(),
+            "Model request timed out"
+        );
+        assert_eq!(first.requests.len(), 3);
+        assert_eq!(first.requests[2]["tool_choice"], "none");
+        assert!(!first.stream.contains("A supported finding"));
+        assert!(!first.stream.contains("\"finish_reason\":\"stop\""));
+
+        // A new Agent instance restores the same unfinished workflow from
+        // actual Redis. It may synthesize, but must never reopen research.
+        let resumed = run_scripted_with_body(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                completed(vec![call(
+                    "render",
+                    "briefing_renderer_tool",
+                    r#"{"edition":{"fixture_transport_failure":true}}"#,
+                )]),
+                completed(vec![text(
+                    "Rendering is unavailable; the supported finding remains source limited.",
+                )]),
+            ],
+            json!({}),
+            None,
+            request,
+        )
+        .await;
+        resumed.result.unwrap();
+        assert_eq!(tool_names(&resumed.requests[0]), ["briefing_renderer_tool"]);
+        assert!(!tool_names(&resumed.requests[0]).contains(&"clock"));
+        assert!(!tool_names(&resumed.requests[0]).contains(&"public_briefing_worker"));
+        assert_eq!(resumed.tool_calls.len(), 1);
+        assert!(
+            resumed
+                .stream
+                .contains("supported finding remains source limited")
+        );
+        assert!(resumed.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_lifecycle_model_retry_keeps_subsecond_deadline_and_withholds_late_chat() {
+        let mut workflow = protected_clock_workflow(&["clock"]);
+        workflow["daily_summary_research_budget_seconds"] = json!(1);
+        workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+        let mut interrupted = paced(&["On-time partial answer."], 1100, false).unwrap();
+        interrupted.truncate(4); // EOF immediately after the visible delta.
+        let started = Instant::now();
+        let outcome = run_scripted(
+            clocks(),
+            workflow,
+            "Summarize the plan.",
+            vec![Some(interrupted), paced(&["LATE_CHAT_MARKER"], 700, false)],
+            json!({"request_timeout":3,"max_retries":1}),
+            None,
+        )
+        .await;
+        assert_eq!(
+            outcome.result.unwrap_err().root_cause().to_string(),
+            "shared workflow deadline has expired"
+        );
+        assert_eq!(outcome.requests.len(), 2);
+        assert!(outcome.stream.contains("On-time partial answer."));
+        assert!(!outcome.stream.contains("LATE_CHAT_MARKER"));
+        assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_lifecycle_model_deadline_cancels_backpressured_chat_without_late_delta() {
+        let mut workflow = protected_clock_workflow(&["clock"]);
+        workflow["daily_summary_research_budget_seconds"] = json!(1);
+        workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+        let outcome = run_raw_scripted_with_output(
+            clocks(),
+            workflow,
+            "Summarize the plan.",
+            vec![paced(
+                &["Accepted before deadline.", "BACKPRESSURED_LATE_MARKER"],
+                0,
+                false,
+            )],
+            json!({"request_timeout":5}),
+            None,
+            json!({}),
+            Some((1, Duration::from_secs(3))),
+        )
+        .await;
+        assert_eq!(
+            outcome.result.unwrap_err().root_cause().to_string(),
+            "shared workflow deadline has expired"
+        );
+        assert_eq!(outcome.requests.len(), 1);
+        assert!(outcome.stream.contains("Accepted before deadline."));
+        assert!(!outcome.stream.contains("BACKPRESSURED_LATE_MARKER"));
+        assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
     }
 
     #[tokio::test]
