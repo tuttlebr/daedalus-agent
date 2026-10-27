@@ -186,6 +186,7 @@ impl Wire for CompatibleOpenAi {
                     "reasoning_history",
                     "chat_template_kwargs",
                     "thinking_token_budget",
+                    "nvext",
                 ]
                 .contains(&key.as_str())
             }) {
@@ -214,6 +215,20 @@ impl Wire for CompatibleOpenAi {
                 if !crate::routing::valid_chat_template_kwargs(options) {
                     return Err(EncodeError::request(
                         "Invalid isolated Chat template options",
+                    ));
+                }
+            }
+            if let Some(nvext) = params.get("nvext") {
+                if !matches!(self.wire, OpenAiWire::Chat(_)) {
+                    return Err(EncodeError::request(
+                        "Isolated Dynamo thinking control requires Chat route",
+                    ));
+                }
+                if params.contains_key("thinking_token_budget")
+                    || !crate::routing::valid_dynamo_nvext(nvext)
+                {
+                    return Err(EncodeError::request(
+                        "Invalid isolated Dynamo thinking control",
                     ));
                 }
             }
@@ -598,6 +613,124 @@ mod tests {
                 assert_eq!(body["store"], false);
                 assert!(body.get("previous_response_id").is_none());
                 assert!(body.get("metadata").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_chat_preserves_dynamo_nvext_and_existing_output_cap() {
+        let wire = isolated_wire(Route::Chat, "http://127.0.0.1:9000/v1");
+        for mode in [Mode::Streaming, Mode::Unary] {
+            for (tokens, output_cap) in [(1, 8192), (4, 8192), (8192, 8192), (128, 2048)] {
+                let mut request =
+                    CompletionRequest::new("private local input").additional_params(json!({
+                        "nvext":{"max_thinking_tokens":tokens},
+                        "reasoning_effort":"medium",
+                        "chat_template_kwargs":{"enable_thinking":true}
+                    }));
+                request.max_tokens = Some(output_cap);
+                let encoded = wire.encode(request, mode).unwrap();
+                assert_eq!(
+                    encoded.request.uri().to_string(),
+                    "http://127.0.0.1:9000/v1/chat/completions"
+                );
+                let rig_core::wire::Body::Bytes(payload) = encoded.request.body() else {
+                    panic!()
+                };
+                let body: Value = serde_json::from_slice(payload).unwrap();
+                assert_eq!(body["nvext"], json!({"max_thinking_tokens":tokens}));
+                assert_eq!(body["nvext"]["max_thinking_tokens"].as_u64(), Some(tokens));
+                assert_eq!(body["reasoning_effort"], "medium");
+                assert_eq!(body["chat_template_kwargs"]["enable_thinking"], true);
+                assert_eq!(body["max_tokens"], output_cap);
+                assert_eq!(body["model"], "registered-model");
+                assert_eq!(body["store"], false);
+                assert_eq!(
+                    body["user"],
+                    isolated_affinity_key("alice-private", "run", "task", "v1")
+                );
+                for forbidden in [
+                    "thinking_token_budget",
+                    "previous_response_id",
+                    "metadata",
+                    "target",
+                ] {
+                    assert!(body.get(forbidden).is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_wire_rejects_untyped_or_ambiguous_dynamo_nvext() {
+        for route in [Route::Chat, Route::Responses] {
+            let wire = isolated_wire(route, "http://127.0.0.1:9000/v1");
+            for nvext in [
+                Value::Null,
+                json!([]),
+                json!(true),
+                json!({}),
+                json!({"max_thinking_tokens":null}),
+                json!({"max_thinking_tokens":true}),
+                json!({"max_thinking_tokens":4.0}),
+                json!({"max_thinking_tokens":4.5}),
+                json!({"max_thinking_tokens":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":0}),
+                json!({"max_thinking_tokens":-1}),
+                json!({"max_thinking_tokens":8193}),
+                json!({"max_thinking_tokens":u64::MAX}),
+                json!({"max_thinking_tokens":[4]}),
+                json!({"max_thinking_tokens":{"value":4}}),
+                json!({"max_thinking_tokens":4,"messages":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":4,"metadata":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":4,"model":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":4,"target":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":4,"destination_policy":"PRIVATE-MARKER"}),
+                json!({"max_thinking_tokens":4,"previous_response_id":"PRIVATE-MARKER"}),
+            ] {
+                for mode in [Mode::Streaming, Mode::Unary] {
+                    let error = wire
+                        .encode(
+                            CompletionRequest::new("private local input")
+                                .additional_params(json!({"nvext":nvext.clone()})),
+                            mode,
+                        )
+                        .unwrap_err()
+                        .to_string();
+                    assert!(!error.contains("PRIVATE-MARKER"));
+                    assert!(!error.contains("private local input"));
+                }
+            }
+            for other in [json!(0), json!(256), Value::Null, json!("PRIVATE-MARKER")] {
+                let error = wire
+                    .encode(
+                        CompletionRequest::new("private local input").additional_params(json!({
+                            "nvext":{"max_thinking_tokens":4},"thinking_token_budget":other
+                        })),
+                        Mode::Streaming,
+                    )
+                    .unwrap_err()
+                    .to_string();
+                assert!(!error.contains("PRIVATE-MARKER"));
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_responses_rejects_valid_dynamo_nvext_before_encoding() {
+        let wire = isolated_wire(Route::Responses, "http://127.0.0.1:9000/v1");
+        for mode in [Mode::Streaming, Mode::Unary] {
+            for tokens in [1, 4, 8192] {
+                let error = wire
+                    .encode(
+                        CompletionRequest::new("private local input")
+                            .additional_params(json!({"nvext":{"max_thinking_tokens":tokens}})),
+                        mode,
+                    )
+                    .unwrap_err()
+                    .to_string();
+                assert!(error.contains("requires Chat route"));
+                assert!(!error.contains("private local input"));
             }
         }
     }

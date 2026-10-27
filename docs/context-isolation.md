@@ -82,6 +82,17 @@ For a verified Chat backend that supports it, destination `extra_body` may inclu
 within the existing output-token and workflow limits; it grants no context or
 routing authority. Responses transport rejects this extension. Check the actual
 backend API before configuring it.
+For a verified legacy Dynamo Chat backend, the alternative is
+`extra_body.nvext: {max_thinking_tokens: 128}`. This exact object accepts only
+`max_thinking_tokens`, a JSON integer from 1 through 8192. Responses rejects it,
+and it cannot be combined with root `thinking_token_budget`. The runtime preserves
+the selected namespace; it does not translate controls between backends. Dynamo
+applies this control to a reasoning span, and counting can reset for another
+span. It is not an aggregate hard ceiling on reasoning across the response or
+workflow. Existing total output-token limits, shared call budgets and workflow
+deadlines still apply. Verify the deployed backend's parser and enforcement
+before using either control; typed acceptance alone does not establish model
+quality or exact reasoning-token counts.
 Compatible Chat templates may also accept boolean `enable_thinking` and
 `medium_effort` in `extra_body.chat_template_kwargs`. The latter requests efficient
 reasoning; it is a soft model control and does not replace output-token limits.

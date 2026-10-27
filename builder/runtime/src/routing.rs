@@ -311,6 +311,15 @@ pub(crate) fn valid_thinking_token_budget(value: &Value) -> bool {
     value.as_u64().is_some_and(|tokens| tokens <= 8192)
 }
 
+/// The reviewed legacy Dynamo extension controls one reasoning span. It is
+/// deliberately not a general NvExt passthrough or an aggregate token budget.
+pub(crate) fn valid_dynamo_nvext(value: &Value) -> bool {
+    keys(value, &["max_thinking_tokens"]).is_ok()
+        && value["max_thinking_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| (1..=8192).contains(&tokens))
+}
+
 /// Only reviewed boolean template capabilities are accepted; these options
 /// cannot carry context, a destination, or an arbitrary template override.
 pub(crate) fn valid_chat_template_kwargs(value: &Value) -> bool {
@@ -331,6 +340,7 @@ fn extra_body(value: Option<&Value>) -> Result<Value> {
             "reasoning_history",
             "chat_template_kwargs",
             "thinking_token_budget",
+            "nvext",
         ],
     )?;
     if value.get("reasoning_effort").is_some_and(|v| {
@@ -358,6 +368,9 @@ fn extra_body(value: Option<&Value>) -> Result<Value> {
     if value
         .get("chat_template_kwargs")
         .is_some_and(|kwargs| !valid_chat_template_kwargs(kwargs))
+        || value.get("nvext").is_some_and(|nvext| {
+            value.get("thinking_token_budget").is_some() || !valid_dynamo_nvext(nvext)
+        })
     {
         return Err(PolicyError::InvalidConfiguration);
     }
@@ -509,7 +522,8 @@ impl IsolationConfig {
             let extra_body = extra_body(entry.get("extra_body"))?;
             if api_type != "chat"
                 && (extra_body.get("thinking_token_budget").is_some()
-                    || extra_body.get("chat_template_kwargs").is_some())
+                    || extra_body.get("chat_template_kwargs").is_some()
+                    || extra_body.get("nvext").is_some())
             {
                 // Rig's Responses encoder drops these vendor-specific controls.
                 // Reject unsupported configurations rather than silently lose
@@ -826,6 +840,117 @@ mod tests {
             IsolationConfig::from_config(&config),
             Err(PolicyError::InvalidConfiguration)
         ));
+    }
+
+    #[test]
+    fn dynamo_nvext_accepts_only_a_positive_registered_thinking_control() {
+        for tokens in [1, 4, 128, 8192] {
+            let mut config = config();
+            policy(&mut config);
+            let options = json!({
+                "nvext":{"max_thinking_tokens":tokens},
+                "reasoning_effort":"medium",
+                "chat_template_kwargs":{"enable_thinking":true}
+            });
+            config.raw["workflow"]["context_isolation"]["destinations"]["local"]["extra_body"] =
+                options.clone();
+            let route = IsolationConfig::from_config(&config)
+                .unwrap()
+                .unwrap()
+                .resolve_coordinator("deep_max")
+                .unwrap();
+            assert_eq!(route.extra_body, options);
+            assert_eq!(route.model.base_url, "http://127.0.0.1:9000/v1");
+            assert_eq!(route.model.model_name, "private-model");
+            assert_eq!(route.eligible_destinations, ["local"]);
+            assert_eq!(route.context_class, "LOCAL_ONLY");
+        }
+        for invalid in [
+            Value::Null,
+            json!([]),
+            json!(true),
+            json!("PRIVATE-MARKER"),
+            json!({}),
+            json!({"max_thinking_tokens":null}),
+            json!({"max_thinking_tokens":false}),
+            json!({"max_thinking_tokens":1.0}),
+            json!({"max_thinking_tokens":1.5}),
+            json!({"max_thinking_tokens":"1"}),
+            json!({"max_thinking_tokens":0}),
+            json!({"max_thinking_tokens":-1}),
+            json!({"max_thinking_tokens":8193}),
+            json!({"max_thinking_tokens":u64::MAX}),
+            json!({"max_thinking_tokens":{"value":4}}),
+            json!({"max_thinking_tokens":[4]}),
+        ] {
+            assert!(!valid_dynamo_nvext(&invalid));
+            let mut config = config();
+            policy(&mut config);
+            config.raw["workflow"]["context_isolation"]["destinations"]["local"]["extra_body"] =
+                json!({"nvext":invalid});
+            assert!(matches!(
+                IsolationConfig::from_config(&config),
+                Err(PolicyError::InvalidConfiguration)
+            ));
+        }
+    }
+
+    #[test]
+    fn dynamo_nvext_rejects_context_overrides_and_ambiguous_controls() {
+        for forbidden in [
+            "messages",
+            "metadata",
+            "model",
+            "target",
+            "destination_policy",
+            "previous_response_id",
+            "thinking_token_budget",
+        ] {
+            assert!(
+                extra_body(Some(&json!({"nvext":{
+                    "max_thinking_tokens":4,forbidden:"PRIVATE-MARKER"
+                }})))
+                .is_err()
+            );
+        }
+        // Presence is ambiguous even when the other control is zero or invalid.
+        for other in [json!(0), json!(256), Value::Null, json!("PRIVATE-MARKER")] {
+            assert!(
+                extra_body(Some(&json!({
+                    "nvext":{"max_thinking_tokens":4},"thinking_token_budget":other
+                })))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn dynamo_nvext_requires_an_explicit_chat_destination() {
+        for api in [Some("responses"), None] {
+            for destination in ["local", "cloud"] {
+                let mut config = config();
+                policy(&mut config);
+                let model = if destination == "local" {
+                    "private"
+                } else {
+                    "public"
+                };
+                if let Some(api) = api {
+                    config.raw["llms"][model]["api_type"] = json!(api);
+                } else {
+                    config.raw["llms"][model]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("api_type");
+                }
+                config.raw["workflow"]["context_isolation"]["destinations"][destination]["extra_body"] =
+                    json!({"nvext":{"max_thinking_tokens":4}});
+                assert!(matches!(
+                    IsolationConfig::from_config(&config),
+                    Err(PolicyError::InvalidConfiguration)
+                ));
+            }
+        }
     }
 
     #[test]
