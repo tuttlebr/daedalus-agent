@@ -276,19 +276,11 @@ where
         // Callers emit one frame, or at most two for text and finish. This
         // staging queue never collects a whole response or an unbounded stream.
         let (sender, mut receiver) = mpsc::channel(frame_limit);
-        emit(Events {
-            run_id: events.run_id.clone(),
-            sender,
-        })
-        .await?;
+        let started = Instant::now();
+        let events = events.clone().with_deadline(started + workers.remaining());
+        emit(events.with_sender(sender)).await?;
         while let Some(frame) = receiver.recv().await {
-            let permit = events
-                .sender
-                .reserve()
-                .await
-                .map_err(|_| anyhow!("Client disconnected"))?;
-            ensure_workflow_time(Some(workers))?;
-            permit.send(frame);
+            events.raw_bytes(frame).await?;
         }
         Ok(())
     })
@@ -447,6 +439,22 @@ impl Agent {
                 return Err(crate::routing::PolicyError::UnsupportedGateway.into());
             }
         }
+        if let Some(preparation) = &preparation {
+            let autonomy = crate::preparation::header(&self.headers, "x-daedalus-execution-scope")
+                .eq_ignore_ascii_case("autonomy");
+            let (base, _) = crate::preparation::base_prepare(&preparation.config, &body, autonomy)?;
+            if let Some(recovery) = preparation
+                .workflow_recovery(&self.headers, &body, &base)
+                .await?
+            {
+                // Bind before polling preparation or accepting steering. All
+                // later tool/OAuth clones inherit this persisted absolute clock.
+                self.events = self
+                    .events
+                    .clone()
+                    .with_deadline(recovery.budget.total_deadline());
+            }
+        }
         let prepare_http = self.http.clone();
         let prepare_headers = self.headers.clone();
         let prepare_url = self.tools_url.clone();
@@ -474,7 +482,7 @@ impl Agent {
                 biased;
                 Some(command) = self.inbox.recv() => self.accept(command).await?,
                 response = &mut prepare => break response.context(Phase("prepare_request"))?,
-                _ = self.events.sender.closed() => bail!("Client disconnected"),
+                _ = self.events.closed() => bail!("Client disconnected"),
             }
         };
         let isolation = preparation
@@ -1026,7 +1034,7 @@ impl Agent {
                         },
                         _ = &mut idle => { inactive = true; break; }
                         _ = &mut total => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
-                        _ = self.events.sender.closed() => bail!("Client disconnected"),
+                        _ = self.events.closed() => bail!("Client disconnected"),
                     }
                 }
                 Ok(())
@@ -1119,7 +1127,7 @@ impl Agent {
                             biased;
                             Some(command) = self.inbox.recv() => { self.accept(command).await?; retry_attempt = 0; },
                             _ = tokio::time::sleep(delay) => {},
-                            _ = self.events.sender.closed() => bail!("Client disconnected"),
+                            _ = self.events.closed() => bail!("Client disconnected"),
                         }
                         Ok(())
                     }).await?;
@@ -1553,7 +1561,7 @@ impl Agent {
                         biased;
                         Some(command) = self.inbox.recv() => { self.accept(command).await?; continue; }
                         Some(result) = active.next() => result,
-                        _ = self.events.sender.closed() => bail!("Client disconnected"),
+                        _ = self.events.closed() => bail!("Client disconnected"),
                     };
                     // A completed tool must not publish or enter model history
                     // after the protected workflow's original total deadline.
@@ -2217,7 +2225,10 @@ mod tests {
         scripts: StdMutex<VecDeque<Option<Vec<Value>>>>,
         requests: StdMutex<Vec<Value>>,
         tool_calls: StdMutex<Vec<Value>>,
+        catalogue_delay_ms: std::sync::atomic::AtomicU64,
+        catalogue_entered: std::sync::atomic::AtomicBool,
     }
+    const STEER_DURING_PREPARATION: usize = usize::MAX;
     const DEADLINE_RENDERER_HTML: &str =
         "```html\n<!doctype html><html><body>DEADLINE_RENDERER_MARKER</body></html>\n```";
 
@@ -2343,7 +2354,12 @@ mod tests {
         ([(http::header::CONTENT_TYPE, "text/event-stream")], body).into_response()
     }
 
-    async fn catalogue() -> Json<Value> {
+    async fn catalogue(State(model): State<Arc<Model>>) -> Json<Value> {
+        model.catalogue_entered.store(true, Ordering::Release);
+        let delay = model.catalogue_delay_ms.load(Ordering::Acquire);
+        if delay != 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
         Json(json!({
             "briefing_renderer_tool":[{"name":"briefing_renderer_tool",
                 "description":"Render the briefing edition.",
@@ -2590,7 +2606,7 @@ mod tests {
     #[allow(clippy::too_many_arguments)]
     async fn run_raw_scripted_with_output(
         functions: Value,
-        workflow: Value,
+        mut workflow: Value,
         query: &str,
         scripts: Vec<Option<Vec<Value>>>,
         model_settings: Value,
@@ -2600,6 +2616,15 @@ mod tests {
     ) -> Outcome {
         let protected = workflow["context_isolation"]["enabled"] == true;
         let model = Arc::new(Model::default());
+        let catalogue_delay = workflow
+            .as_object_mut()
+            .unwrap()
+            .remove("__fixture_catalogue_delay_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        model
+            .catalogue_delay_ms
+            .store(catalogue_delay, Ordering::Release);
         model.scripts.lock().unwrap().extend(scripts);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -2708,7 +2733,9 @@ mod tests {
             let handle = handle.clone();
             let model = model.clone();
             tokio::spawn(async move {
-                while if after == 0 {
+                while if after == STEER_DURING_PREPARATION {
+                    !model.catalogue_entered.load(Ordering::Acquire)
+                } else if after == 0 {
                     model.tool_calls.lock().unwrap().is_empty()
                 } else {
                     model.requests.lock().unwrap().len() < after
@@ -2726,14 +2753,14 @@ mod tests {
             http,
             tools_url: base,
             headers,
-            events: Events {
-                run_id: if protected {
+            events: Events::new(
+                if protected {
                     uuid::Uuid::new_v4().to_string()
                 } else {
                     "synthetic-run".into()
                 },
                 sender,
-            },
+            ),
             inbox,
             handle,
             pending: Vec::new(),
@@ -2832,10 +2859,7 @@ mod tests {
         ] {
             let workers = publication_workers(Duration::from_millis(20));
             let (sender, mut receiver) = mpsc::channel(4);
-            let events = Events {
-                run_id: "publication".into(),
-                sender,
-            };
+            let events = Events::new("publication", sender);
             let result = publish_workflow_frames(Some(&workers), &events, 2, |staged| async move {
                 match kind {
                     "final_text" => {
@@ -2887,10 +2911,7 @@ mod tests {
         for protected in [false, true] {
             let workers = protected.then(|| publication_workers(Duration::from_secs(5)));
             let (sender, mut receiver) = mpsc::channel(8);
-            let events = Events {
-                run_id: "publication".into(),
-                sender,
-            };
+            let events = Events::new("publication", sender);
             let mut text = ResponseText::default();
             workflow_text_delta(workers.as_deref(), &mut text, &events, "First.")
                 .await
@@ -3207,6 +3228,45 @@ mod tests {
         assert!(outcome.stream.contains("Accepted before deadline."));
         assert!(!outcome.stream.contains("BACKPRESSURED_LATE_MARKER"));
         assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_preparation_steering_cannot_publish_after_its_persisted_deadline() {
+        let mut workflow = protected_rendering_workflow();
+        workflow["daily_summary_research_budget_seconds"] = json!(1);
+        workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+        workflow["__fixture_catalogue_delay_ms"] = json!(5000);
+        let outcome = run_raw_scripted_with_output(
+            rendering_functions(),
+            workflow,
+            "Summarize the plan.",
+            vec![],
+            json!({}),
+            Some((
+                STEER_DURING_PREPARATION,
+                "PRIVATE_PREPARATION_STEERING_MARKER",
+            )),
+            json!({}),
+            Some((1, Duration::from_secs(3), true)),
+        )
+        .await;
+        assert_eq!(
+            outcome.result.unwrap_err().root_cause().to_string(),
+            "shared workflow deadline has expired"
+        );
+        assert!(
+            outcome.requests.is_empty(),
+            "preparation must not reach a model"
+        );
+        assert!(outcome.tool_calls.is_empty());
+        assert!(
+            !outcome
+                .stream
+                .contains("PRIVATE_PREPARATION_STEERING_MARKER")
+        );
+        assert!(!outcome.stream.contains("event: steering"));
+        assert!(!outcome.stream.contains("[DONE]"));
     }
 
     #[tokio::test]

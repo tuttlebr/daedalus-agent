@@ -1130,10 +1130,7 @@ mod tests {
                 reqwest::Client::new(),
                 HeaderMap::new(),
                 "http://unused-tools.invalid".into(),
-                crate::events::Events {
-                    run_id: "PRIVATE-RUN".into(),
-                    sender,
-                },
+                crate::events::Events::new("PRIVATE-RUN", sender),
             )
             .await
             .unwrap()

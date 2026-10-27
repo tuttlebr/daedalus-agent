@@ -267,10 +267,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         }
         runs.insert(run_id.clone(), handle.clone());
     }
-    let events = Events {
-        run_id: run_id.clone(),
-        sender,
-    };
+    let events = Events::new(run_id.clone(), sender);
     let cleanup = app.preparation.is_none().then(|| {
         app.http
             .delete(format!("{}/runtime/run", app.tools_url))
@@ -389,7 +386,7 @@ async fn supervise(
             tracing::info!(event = "cancellation_received");
             Err(anyhow::anyhow!("Run cancelled by user"))
         },
-        _ = events.sender.closed() => Err(anyhow::anyhow!("Client disconnected")),
+        _ = events.closed() => Err(anyhow::anyhow!("Client disconnected")),
         result = run => match result {
             Ok(result) => result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out"))),
             // A panic payload can quote private values; report only the fact.
@@ -977,10 +974,7 @@ mod tests {
         let handle = run("alice", "conversation", false);
         runs.lock().await.insert("defective".into(), handle.clone());
         let (sender, mut receiver) = mpsc::channel(8);
-        let events = Events {
-            run_id: "defective".into(),
-            sender,
-        };
+        let events = Events::new("defective", sender);
         let supervisor = tokio::spawn(supervise(
             runs.clone(),
             "defective".into(),
@@ -1007,10 +1001,7 @@ mod tests {
     #[tokio::test]
     async fn non_streaming_responses_keep_the_terminal_reason_and_caller_events() {
         let (sender, mut receiver) = mpsc::channel(16);
-        let events = Events {
-            run_id: "run-1".into(),
-            sender,
-        };
+        let events = Events::new("run-1", sender);
         events
             .event(
                 "oauth_required",
@@ -1101,10 +1092,7 @@ mod tests {
         runs.lock().await.insert("failed".into(), handle.clone());
         // A one-slot output channel holds the supervisor in its terminal events.
         let (sender, mut receiver) = mpsc::channel(1);
-        let events = Events {
-            run_id: "failed".into(),
-            sender,
-        };
+        let events = Events::new("failed", sender);
         let failed = async move {
             let _inbox = inbox;
             anyhow::bail!("synthetic model failure")
