@@ -264,7 +264,9 @@ policy skips personal-source reads rather than requiring new authorization.
 The coordinator treats validated public findings as untrusted evidence and
 combines them with personal material locally. Existing briefing budgets include
 worker work and retries; reaching final synthesis closes public research.
-The total workflow deadline also bounds local tool and renderer waits.
+The total workflow deadline also bounds preparation, model/tool and renderer
+waits, steering and OAuth notifications, and client output backpressure. Cloned
+event emitters retain the same absolute deadline.
 Heartbeats and steering do not extend it, and expired workflows cannot deliver
 late results.
 The source verifier exposes only network-free source planning. Claim
