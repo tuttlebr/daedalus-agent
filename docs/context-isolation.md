@@ -216,15 +216,29 @@ The frontend assigns an authenticated job UUID as `context_workflow_id`,
 overriding client-supplied values. A direct API caller resuming an interrupted
 workflow must reuse that UUID (or the original `x-daedalus-request-id` when no
 workflow UUID was supplied). A new explicit request gets a new workflow identity.
-The identity is scoped to the authenticated user, conversation and configured
-policy; midnight does not reset its counters or repeat completed reads. Provider
-sessions are rebuilt separately and never resume private context externally.
+The resource budget and completion tombstone are scoped to the authenticated
+user, conversation and workflow UUID, independently of configured policy.
+Changing policy invalidates cached evidence while preserving the original shared
+counters, deadlines and completion status. A new explicit UUID starts a new
+workflow. Provider sessions are rebuilt separately and never resume private
+context externally.
 
 Redis policy enrollment is checked before preparation on every request, including
 when the isolation stanza is absent or disabled. Unavailable policy storage
 stops the request. The retained Python preparation path cannot process an enabled
 isolated workflow or a previously protected conversation through unrestricted
 routing. Preserve policy keys alongside conversation backups.
+
+First enrollment atomically records a permanent `stable-budget-v2` era marker
+alongside the existing `local-only-v1` privacy labels. An already protected owner
+without that marker requires an operator-reviewed migration before enabled
+workflows can run. Legacy budget keys include an opaque policy-dependent scope;
+changing policy cannot safely discover or adopt those keys. The runtime leaves
+legacy counters and completion tombstones untouched and never infers a fresh
+budget. Check for legacy protected owners before upgrading; if any exist, retain
+their state and review migration compatibility before rollout. Unknown era or
+privacy versions fail closed. Disabling the feature and standalone owner privacy
+checks continue to honor the original privacy labels.
 
 Enrollment also protects the authenticated owner across new conversation and run
 identifiers. Turning isolation off cannot reopen cloud access by starting a new

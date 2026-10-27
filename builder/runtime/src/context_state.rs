@@ -21,6 +21,7 @@ use std::{
 };
 
 const ENROLLED: &str = "local-only-v1";
+const BUDGET_ERA: &str = "stable-budget-v2";
 const READ_VERSION: u32 = 1;
 const READ_TTL_SECONDS: usize = 36 * 60 * 60;
 const MAX_READ_BYTES: usize = 4 * 1024 * 1024;
@@ -34,6 +35,7 @@ pub enum StateError {
     BudgetExhausted,
     DeadlineExceeded,
     WorkflowCompleted,
+    LegacyWorkflowMigrationRequired,
 }
 impl fmt::Display for StateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -47,6 +49,9 @@ impl fmt::Display for StateError {
             Self::BudgetExhausted => "durable workflow budget is exhausted",
             Self::DeadlineExceeded => "durable workflow deadline has expired",
             Self::WorkflowCompleted => "durable workflow is already completed",
+            Self::LegacyWorkflowMigrationRequired => {
+                "legacy protected owner requires reviewed workflow budget migration"
+            }
         })
     }
 }
@@ -96,6 +101,13 @@ fn user_enrollment_key(user: &str) -> String {
     )
 }
 
+fn budget_era_key(user: &str) -> String {
+    format!(
+        "daedalus:context-budget-era:v1:{}",
+        hash(&["daedalus-protected-owner-v1", user])
+    )
+}
+
 /// Standalone private-service calls must honor owner protection without
 /// enrolling an owner or requiring a conversation/run supplied by a client.
 pub async fn owner_is_protected(store: &Store, user: &str) -> Result<bool> {
@@ -138,15 +150,28 @@ async fn enforce_store(
     let key = enrollment_key(user, conversation, run)?;
     let owner_key = user_enrollment_key(user);
     if enabled {
-        // Atomically preserve existing enrollment, reject unknown versions, and
-        // remove an accidental TTL from recognized state. Never overwrite an
-        // unknown future policy with a weaker policy version.
-        let outcome: String = store.command(redis::cmd("EVAL")
-            .arg("for i=1,2 do local value=redis.call('GET',KEYS[i]); if value and value~=ARGV[1] then return 'incompatible' end end; for i=1,2 do redis.call('SET',KEYS[i],ARGV[1]) end; return 'enrolled'")
-            .arg(2).arg(key).arg(owner_key).arg(ENROLLED))
-            .await.map_err(|_| StateError::PolicyStateUnavailable)?;
-        if outcome != "enrolled" {
-            return Err(StateError::IncompatiblePolicyState);
+        // Install the stable-budget era only during first enrollment. Legacy
+        // protected owners have opaque, policy-dependent budget keys that cannot
+        // be safely discovered or reset. They require reviewed migration.
+        // Existing recognized privacy and era labels lose any accidental TTL;
+        // unknown future versions never get overwritten.
+        let outcome: String = store
+            .command(
+                redis::cmd("EVAL")
+                    .arg(ENROLL_OWNER)
+                    .arg(3)
+                    .arg(key)
+                    .arg(owner_key)
+                    .arg(budget_era_key(user))
+                    .arg(ENROLLED)
+                    .arg(BUDGET_ERA),
+            )
+            .await
+            .map_err(|_| StateError::PolicyStateUnavailable)?;
+        match outcome.as_str() {
+            "enrolled" => {}
+            "migration_required" => return Err(StateError::LegacyWorkflowMigrationRequired),
+            _ => return Err(StateError::IncompatiblePolicyState),
         }
     } else {
         let state: Vec<Option<String>> = store
@@ -235,6 +260,9 @@ struct CollectedEvidence {
 pub struct SessionState {
     store: Store,
     scope: String,
+    budget_scope: String,
+    owner_key: String,
+    era_key: String,
 }
 impl SessionState {
     /// `workflow_id` is a stable authenticated job identity chosen by runtime
@@ -242,23 +270,37 @@ impl SessionState {
     /// a new explicit request receives a new identity. Never reconstruct this
     /// value from model output, user prose, or the current clock. The caller
     /// validates externally supplied IDs before invoking this internal API.
+    /// `context_policy` scopes evidence only; changing it never allocates a new
+    /// resource budget or removes a workflow completion tombstone.
     pub fn new(
         config: &Config,
         user: &str,
         conversation: &str,
-        _run: &str,
         workflow_id: &str,
+        context_policy: &str,
     ) -> Result<Self> {
-        if workflow_id.trim().is_empty() {
+        if workflow_id.trim().is_empty() || context_policy.trim().is_empty() {
             return Err(StateError::InvalidScope);
         }
+        // Preserve the evidence namespace for an unchanged policy. The
+        // original v1 caller combined these fields before constructing scope.
+        let evidence_identity = format!("{workflow_id}:{context_policy}");
         Ok(Self {
             store: Store::new(config).map_err(|_| StateError::PolicyStateUnavailable)?,
             scope: hash(&[
                 "daedalus-completed-reads-v1",
+                &scope(user, conversation, &evidence_identity)?,
+                &evidence_identity,
+            ]),
+            // Resource authority is the authenticated workflow, independent of
+            // policy changes that correctly invalidate cached export evidence.
+            budget_scope: hash(&[
+                "daedalus-workflow-budget-v2",
                 &scope(user, conversation, workflow_id)?,
                 workflow_id,
             ]),
+            owner_key: user_enrollment_key(user),
+            era_key: budget_era_key(user),
         })
     }
 
@@ -361,7 +403,7 @@ impl SessionState {
     }
 
     fn budget_key(&self) -> String {
-        format!("daedalus:workflow-budget:v1:{}", self.scope)
+        format!("daedalus:workflow-budget:v2:{}", self.budget_scope)
     }
 
     /// Initialize once per workflow. Redis's clock and persisted counters are
@@ -390,15 +432,22 @@ impl SessionState {
             .command(
                 redis::cmd("EVAL")
                     .arg(BUDGET_INITIALIZE)
-                    .arg(1)
+                    .arg(3)
                     .arg(&key)
+                    .arg(&self.owner_key)
+                    .arg(&self.era_key)
                     .arg(max_calls)
                     .arg(total_tokens)
                     .arg(research.as_millis() as u64)
-                    .arg(total.as_millis() as u64),
+                    .arg(total.as_millis() as u64)
+                    .arg(ENROLLED)
+                    .arg(BUDGET_ERA),
             )
             .await
             .map_err(|_| StateError::PolicyStateUnavailable)?;
+        if response.len() == 3 && response[0] == -5 {
+            return Err(StateError::LegacyWorkflowMigrationRequired);
+        }
         if response.len() == 3 && response[0] == -4 {
             return Err(StateError::WorkflowCompleted);
         }
@@ -597,7 +646,27 @@ pub async fn empty_policy_store() -> (String, tokio::task::JoinHandle<()>) {
     (url, server)
 }
 
+const ENROLL_OWNER: &str = r#"
+local legacy = false
+for i = 1, 2 do
+  local value = redis.call('GET', KEYS[i])
+  if value and value ~= ARGV[1] then return 'incompatible' end
+  legacy = legacy or value ~= false
+end
+local era = redis.call('GET', KEYS[3])
+if era and era ~= ARGV[2] then return 'incompatible' end
+if not era and legacy then return 'migration_required' end
+for i = 1, 2 do redis.call('SET', KEYS[i], ARGV[1]) end
+redis.call('SET', KEYS[3], ARGV[2])
+return 'enrolled'
+"#;
+
 const BUDGET_INITIALIZE: &str = r#"
+if redis.call('GET', KEYS[2]) ~= ARGV[5] then return {-1, 0, 0} end
+local era = redis.call('GET', KEYS[3])
+if not era then return {-5, 0, 0} end
+if era ~= ARGV[6] then return {-1, 0, 0} end
+redis.call('PERSIST', KEYS[3])
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 if redis.call('EXISTS', KEYS[1]) == 0 then
@@ -852,46 +921,64 @@ mod tests {
     }
 
     #[test]
-    fn workflow_identity_survives_run_changes_and_separates_new_explicit_requests() {
+    fn workflow_budget_identity_is_independent_of_evidence_policy() {
         let config = legacy_config("redis://127.0.0.1:1");
         let workflow = uuid::Uuid::new_v4().to_string();
-        let first =
-            SessionState::new(&config, "user", "conversation", "first-run", &workflow).unwrap();
-        let resumed =
-            SessionState::new(&config, "user", "conversation", "resumed-run", &workflow).unwrap();
-        let new_request = SessionState::new(
-            &config,
-            "user",
-            "conversation",
-            "new-run",
-            &uuid::Uuid::new_v4().to_string(),
-        )
-        .unwrap();
-        let other_user =
-            SessionState::new(&config, "other", "conversation", "resumed-run", &workflow).unwrap();
-        assert_eq!(first.scope, resumed.scope);
-        assert_ne!(first.scope, new_request.scope);
-        assert_ne!(first.scope, other_user.scope);
-        let without_conversation =
-            SessionState::new(&config, "user", "", "first-run", &workflow).unwrap();
-        let resumed_without_conversation =
-            SessionState::new(&config, "user", "", "resumed-run", &workflow).unwrap();
-        let distinct_without_conversation = SessionState::new(
-            &config,
-            "user",
-            "",
-            "resumed-run",
-            &uuid::Uuid::new_v4().to_string(),
-        )
-        .unwrap();
-        assert_eq!(
-            without_conversation.scope,
-            resumed_without_conversation.scope
-        );
-        assert_ne!(
-            without_conversation.scope,
-            distinct_without_conversation.scope
-        );
+        for conversation in ["conversation", ""] {
+            let first = SessionState::new(
+                &config,
+                "user",
+                conversation,
+                &workflow,
+                "public-desk-v1:policy-a",
+            )
+            .unwrap();
+            let resumed = SessionState::new(
+                &config,
+                "user",
+                conversation,
+                &workflow,
+                "public-desk-v1:policy-b",
+            )
+            .unwrap();
+            assert_ne!(
+                first.scope, resumed.scope,
+                "changed policy invalidates cached evidence"
+            );
+            assert_eq!(
+                first.budget_key(),
+                resumed.budget_key(),
+                "changed policy cannot renew resource authority"
+            );
+            let fresh = SessionState::new(
+                &config,
+                "user",
+                conversation,
+                &uuid::Uuid::new_v4().to_string(),
+                "public-desk-v1:policy-b",
+            )
+            .unwrap();
+            assert_ne!(first.budget_key(), fresh.budget_key());
+            let other = SessionState::new(
+                &config,
+                "other",
+                conversation,
+                &workflow,
+                "public-desk-v1:policy-a",
+            )
+            .unwrap();
+            assert_ne!(first.budget_key(), other.budget_key());
+            let old_identity = format!("{workflow}:public-desk-v1:policy-a");
+            assert_eq!(
+                first.scope,
+                hash(&[
+                    "daedalus-completed-reads-v1",
+                    &scope("user", conversation, &old_identity).unwrap(),
+                    &old_identity
+                ]),
+                "unchanged policy preserves existing evidence namespace"
+            );
+        }
     }
 
     fn redis_store() -> Store {
@@ -900,6 +987,16 @@ mod tests {
             "",
         )
         .unwrap()
+    }
+
+    async fn session_fixture() -> SessionState {
+        let config = legacy_config(&std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap());
+        let user = uuid::Uuid::new_v4().to_string();
+        let job = uuid::Uuid::new_v4().to_string();
+        enforce(&config, &user, "conversation", &job, true)
+            .await
+            .unwrap();
+        SessionState::new(&config, &user, "conversation", &job, "fixture-policy").unwrap()
     }
 
     #[tokio::test]
@@ -979,13 +1076,297 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
-    async fn redis_completed_reads_restore_only_trusted_local_content_in_the_same_scope() {
+    async fn redis_budget_era_is_atomic_permanent_and_never_inferred_for_legacy_owners() {
         let store = redis_store();
-        let scope = uuid::Uuid::new_v4().to_string();
-        let session = SessionState {
-            store: store.clone(),
-            scope: scope.clone(),
-        };
+        let user = uuid::Uuid::new_v4().to_string();
+        let enrollments = (0..16).map(|index| {
+            let store = store.clone();
+            let user = user.clone();
+            async move {
+                enforce_store(&store, &user, &format!("conversation-{index}"), "job", true).await
+            }
+        });
+        assert!(
+            futures::future::join_all(enrollments)
+                .await
+                .into_iter()
+                .all(|result| result.is_ok())
+        );
+        let era_key = budget_era_key(&user);
+        assert_eq!(
+            store.get(&era_key).await.unwrap().as_deref(),
+            Some(BUDGET_ERA)
+        );
+        let _: bool = store
+            .command(redis::cmd("EXPIRE").arg(&era_key).arg(300))
+            .await
+            .unwrap();
+        enforce_store(&store, &user, "conversation-0", "job", true)
+            .await
+            .unwrap();
+        let ttl: i64 = store
+            .command(redis::cmd("TTL").arg(&era_key))
+            .await
+            .unwrap();
+        assert_eq!(
+            ttl, -1,
+            "recognized enrollment repairs an accidental era TTL"
+        );
+        store
+            .set(&era_key, "unknown-future-era", 300)
+            .await
+            .unwrap();
+        assert_eq!(
+            enforce_store(&store, &user, "new-conversation", "job", true).await,
+            Err(StateError::IncompatiblePolicyState)
+        );
+        assert_eq!(
+            store.get(&era_key).await.unwrap().as_deref(),
+            Some("unknown-future-era")
+        );
+        assert!(
+            owner_is_protected(&store, &user).await.unwrap(),
+            "standalone privacy enrollment retains v1 semantics"
+        );
+        assert_eq!(
+            enforce_store(&store, &user, "new-conversation", "job", false).await,
+            Err(StateError::ProtectedConversation)
+        );
+
+        let config = legacy_config(&std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap());
+        for conversation_only in [false, true] {
+            let user = uuid::Uuid::new_v4().to_string();
+            let conversation = "legacy-conversation";
+            let job = uuid::Uuid::new_v4().to_string();
+            let old_key = if conversation_only {
+                enrollment_key(&user, conversation, &job).unwrap()
+            } else {
+                user_enrollment_key(&user)
+            };
+            let _: () = store
+                .command(redis::cmd("SET").arg(&old_key).arg(ENROLLED))
+                .await
+                .unwrap();
+            let old_identity = format!("{job}:{PUBLIC_POLICY}:old-policy");
+            let old_scope = hash(&[
+                "daedalus-completed-reads-v1",
+                &scope(&user, conversation, &old_identity).unwrap(),
+                &old_identity,
+            ]);
+            let legacy_budget = format!("daedalus:workflow-budget:v1:{old_scope}");
+            let _: usize = store
+                .command(
+                    redis::cmd("HSET")
+                        .arg(&legacy_budget)
+                        .arg("status")
+                        .arg("completed")
+                        .arg("calls_used")
+                        .arg(17),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                enforce_store(&store, &user, conversation, &job, true).await,
+                Err(StateError::LegacyWorkflowMigrationRequired)
+            );
+            assert!(store.get(&budget_era_key(&user)).await.unwrap().is_none());
+            let session =
+                SessionState::new(&config, &user, conversation, &job, "new-policy").unwrap();
+            let result = session
+                .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+                .await;
+            assert!(matches!(
+                result,
+                Err(StateError::LegacyWorkflowMigrationRequired
+                    | StateError::IncompatiblePolicyState)
+            ));
+            let budget_exists: bool = store
+                .command(redis::cmd("EXISTS").arg(session.budget_key()))
+                .await
+                .unwrap();
+            assert!(
+                !budget_exists,
+                "legacy owner never gets a fresh v2 budget without reviewed migration"
+            );
+            let stored: Vec<String> = store
+                .command(
+                    redis::cmd("HMGET")
+                        .arg(&legacy_budget)
+                        .arg("status")
+                        .arg("calls_used"),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                stored,
+                ["completed", "17"],
+                "legacy counters and completion remain untouched"
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
+    async fn redis_policy_change_invalidates_evidence_but_preserves_budget_and_completion() {
+        let config = legacy_config(&std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap());
+        let store = redis_store();
+        for conversation in ["conversation", ""] {
+            let user = uuid::Uuid::new_v4().to_string();
+            let job = uuid::Uuid::new_v4().to_string();
+            enforce(&config, &user, conversation, &job, true)
+                .await
+                .unwrap();
+            let first = SessionState::new(
+                &config,
+                &user,
+                conversation,
+                &job,
+                "public-desk-v1:policy-a",
+            )
+            .unwrap();
+            let before = first
+                .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap();
+            before.reserve_model_call(100).await.unwrap();
+            before.reserve_research_tool_call(1).await.unwrap();
+            let arguments = json!({"threadId":"private-thread"});
+            first
+                .record_read(
+                    "gmail_mcp_server__get_thread",
+                    &arguments,
+                    &ToolOutcome {
+                        content: "private completed evidence".into(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            let original: Vec<String> = store
+                .command(
+                    redis::cmd("HMGET")
+                        .arg(first.budget_key())
+                        .arg("calls_used")
+                        .arg("tokens_used")
+                        .arg("research_calls_used")
+                        .arg("research_deadline")
+                        .arg("total_deadline"),
+                )
+                .await
+                .unwrap();
+            let changed = SessionState::new(
+                &config,
+                &user,
+                conversation,
+                &job,
+                "public-desk-v1:policy-b",
+            )
+            .unwrap();
+            assert!(
+                changed
+                    .lookup_read("gmail_mcp_server__get_thread", &arguments)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            let resumed = changed
+                .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap();
+            let restored: Vec<String> = store
+                .command(
+                    redis::cmd("HMGET")
+                        .arg(changed.budget_key())
+                        .arg("calls_used")
+                        .arg("tokens_used")
+                        .arg("research_calls_used")
+                        .arg("research_deadline")
+                        .arg("total_deadline"),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                restored, original,
+                "policy changes cannot renew any shared resource"
+            );
+            assert_eq!(
+                resumed.reserve_research_tool_call(1).await,
+                Err(StateError::BudgetExhausted)
+            );
+            resumed.reserve_model_call(100).await.unwrap();
+            assert_eq!(
+                before.reserve_model_call(1).await,
+                Err(StateError::BudgetExhausted)
+            );
+            changed.finish().await.unwrap();
+            let third = SessionState::new(
+                &config,
+                &user,
+                conversation,
+                &job,
+                "public-desk-v1:policy-c",
+            )
+            .unwrap();
+            assert!(matches!(
+                third
+                    .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
+                    .await,
+                Err(StateError::WorkflowCompleted)
+            ));
+            assert_eq!(
+                before.reserve_model_call(1).await,
+                Err(StateError::WorkflowCompleted)
+            );
+            assert_eq!(
+                first
+                    .record_read(
+                        "gmail_mcp_server__get_thread",
+                        &arguments,
+                        &ToolOutcome {
+                            content: "late result".into(),
+                            ..Default::default()
+                        }
+                    )
+                    .await,
+                Err(StateError::WorkflowCompleted)
+            );
+            let fresh = SessionState::new(
+                &config,
+                &user,
+                conversation,
+                &uuid::Uuid::new_v4().to_string(),
+                "public-desk-v1:policy-c",
+            )
+            .unwrap();
+            fresh
+                .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap()
+                .reserve_model_call(100)
+                .await
+                .unwrap();
+            let _: bool = store
+                .command(redis::cmd("EXPIRE").arg(budget_era_key(&user)).arg(300))
+                .await
+                .unwrap();
+            fresh
+                .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap();
+            let ttl: i64 = store
+                .command(redis::cmd("TTL").arg(budget_era_key(&user)))
+                .await
+                .unwrap();
+            assert_eq!(ttl, -1, "budget restoration also preserves the era marker");
+            fresh.finish().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
+    async fn redis_completed_reads_restore_only_trusted_local_content_in_the_same_scope() {
+        let session = session_fixture().await;
+        let store = session.store.clone();
         let name = "gmail_mcp_server__get_thread";
         let args = json!({"threadId":"PRIVATE_THREAD_ID"});
         let key = session.key(name, &args);
@@ -997,17 +1378,14 @@ mod tests {
         session.record_read(name, &args, &original).await.unwrap();
         let restarted = SessionState {
             store: redis_store(),
-            scope,
+            ..session.clone()
         };
         let restored = restarted.lookup_read(name, &args).await.unwrap().unwrap();
         assert_eq!(restored.content, original.content);
         assert!(restored.executor_state.is_null());
         assert!(restored.tools.is_empty());
         assert!(restored.model_profile.is_none());
-        let other_user = SessionState {
-            store: store.clone(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let other_user = session_fixture().await;
         assert!(other_user.lookup_read(name, &args).await.unwrap().is_none());
         assert!(
             restarted
@@ -1087,10 +1465,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
     async fn redis_budget_survives_resume_and_completion_never_renews_it() {
-        let session = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let session = session_fixture().await;
         let first = session
             .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
             .await
@@ -1109,7 +1484,7 @@ mod tests {
             .unwrap();
         let restarted = SessionState {
             store: redis_store(),
-            scope: session.scope.clone(),
+            ..session.clone()
         };
         let resumed = restarted
             .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
@@ -1198,10 +1573,7 @@ mod tests {
             ttl, -1,
             "completion tombstone must not expire and permit renewal"
         );
-        let fresh_session = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let fresh_session = session_fixture().await;
         let fresh = fresh_session
             .budget(2, 200, Duration::from_secs(30), Duration::from_secs(60))
             .await
@@ -1291,10 +1663,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
     async fn redis_public_collection_requires_runtime_provenance_and_authorized_scope_on_resume() {
-        let session = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let session = session_fixture().await;
         let sources = vec![PublicSource {
             url: "https://news.example.com/public-article".into(),
             title: "Public article".into(),
@@ -1307,7 +1676,7 @@ mod tests {
             .unwrap();
         let resumed = SessionState {
             store: redis_store(),
-            scope: session.scope.clone(),
+            ..session.clone()
         };
         let restored = resumed
             .lookup_collection("technology", PUBLIC_POLICY)
@@ -1315,10 +1684,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(restored[0].text, sources[0].text);
-        let other_user = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let other_user = session_fixture().await;
         assert!(
             other_user
                 .lookup_collection("technology", PUBLIC_POLICY)
@@ -1438,10 +1804,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
     async fn redis_research_tool_limit_is_shared_atomic_and_survives_resume() {
-        let session = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let session = session_fixture().await;
         let budget = session
             .budget(5, 1000, Duration::from_secs(30), Duration::from_secs(60))
             .await
@@ -1510,13 +1873,14 @@ mod tests {
         let config = legacy_config(&std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap());
         let user = uuid::Uuid::new_v4().to_string();
         let job = uuid::Uuid::new_v4().to_string();
-        let first = SessionState::new(&config, &user, "", "first-run", &job).unwrap();
+        enforce(&config, &user, "", &job, true).await.unwrap();
+        let first = SessionState::new(&config, &user, "", &job, "policy-a").unwrap();
         let budget = first
             .budget(1, 100, Duration::from_secs(30), Duration::from_secs(60))
             .await
             .unwrap();
         budget.reserve_model_call(100).await.unwrap();
-        let resumed = SessionState::new(&config, &user, "", "new-run-after-oauth", &job).unwrap();
+        let resumed = SessionState::new(&config, &user, "", &job, "policy-b").unwrap();
         let resumed_budget = resumed
             .budget(1, 100, Duration::from_secs(30), Duration::from_secs(60))
             .await
@@ -1529,8 +1893,8 @@ mod tests {
             &config,
             &user,
             "",
-            "new-run-after-oauth",
             &uuid::Uuid::new_v4().to_string(),
+            "policy-b",
         )
         .unwrap();
         distinct
@@ -1547,10 +1911,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
     async fn redis_final_composition_closes_public_research_across_restarts() {
-        let session = SessionState {
-            store: redis_store(),
-            scope: uuid::Uuid::new_v4().to_string(),
-        };
+        let session = session_fixture().await;
         let budget = session
             .budget(10, 1000, Duration::from_secs(30), Duration::from_secs(60))
             .await

@@ -416,10 +416,9 @@ impl Agent {
                 &preparation.as_ref().unwrap().config,
                 &self.handle.user,
                 &self.handle.conversation,
-                &self.events.run_id,
+                workflow_id,
                 &format!(
-                    "{}:{}:{}",
-                    workflow_id,
+                    "{}:{}",
                     crate::context_isolation::PUBLIC_POLICY,
                     coordinator_route.as_ref().unwrap().policy_version,
                 ),
