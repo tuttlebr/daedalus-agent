@@ -21,6 +21,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "migration"))
+from context_isolation_chat_check import model_namespace  # noqa: E402
 from image_check import MemoryPeers, environment, require, run  # noqa: E402
 from leaf_check import measure  # noqa: E402
 from nvidia_docs_check import secure_peer  # noqa: E402
@@ -58,6 +59,67 @@ RENDERER_PHOTO_HINT = (
     "Omit figures without an explicitly registered URL in permitted_photo_urls, "
     "and resubmit the complete edition using the evidence already collected."
 )
+
+
+def public_worker_task(body, api_type):
+    namespace = model_namespace(body, api_type)
+    require(namespace is not None, "Worker lacks its first model-visible namespace")
+    if api_type == "responses":
+        messages = body.get("input")
+    else:
+        messages = body.get("messages", [])
+        require(
+            messages[0]
+            == {
+                "role": "system",
+                "content": f"DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n",
+            },
+            "Public Chat preface replaced or included worker task content",
+        )
+        messages = messages[1:]
+    require(
+        isinstance(messages, list)
+        and len(messages) == 1
+        and isinstance(messages[0], dict)
+        and messages[0].get("role") == "user"
+        and isinstance(messages[0].get("content"), str),
+        "Worker task JSON changed its user-message envelope",
+    )
+    task = json.loads(messages[0]["content"])
+    require(isinstance(task, dict), "Worker task must remain a JSON object")
+    return task
+
+
+def public_worker_response(findings, api_type):
+    if api_type == "chat":
+        return {
+            "id": "chatcmpl-isolated-public",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": json.dumps(findings)},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 40,
+                "total_tokens": 140,
+            },
+        }
+    require(api_type == "responses", "Unknown public fixture provider API")
+    return {
+        "id": "response-isolated-public",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": json.dumps(findings)}],
+            }
+        ],
+        "usage": {"input_tokens": 100, "output_tokens": 40},
+    }
 
 
 def call(name, arguments, label):
@@ -693,8 +755,11 @@ def attested_memory_boundary(image, redis_image, report):
 
 
 class IsolationPeers(MemoryPeers):
-    def __init__(self):
+    def __init__(self, public_chat_profile=None):
         super().__init__()
+        if public_chat_profile not in (None, "medium", "high", "xhigh"):
+            raise ValueError("Unknown public Chat fixture profile")
+        self.public_chat_profile = public_chat_profile
         self.external = []
         self.personal = []
         self.personal_transport = 0
@@ -808,6 +873,10 @@ class IsolationPeers(MemoryPeers):
                         peers.local.append(
                             {"body": body, "headers": dict(self.headers)}
                         )
+                    require(
+                        model_namespace(body, "responses") is not None,
+                        "Coordinator lacks its first model-visible namespace",
+                    )
                     if "FAIL_LOCAL_ROUTE_7391" in json.dumps(body.get("input", [])):
                         return self.reply(
                             {
@@ -931,11 +1000,21 @@ class IsolationPeers(MemoryPeers):
                     )
                     if retry:
                         peers.retry_done.add(body["user"])
+                profile = self.path.split("/")[2]
+                api_type = (
+                    "chat" if profile == peers.public_chat_profile else "responses"
+                )
+                suffix = "chat/completions" if api_type == "chat" else "responses"
+                require(
+                    profile in ("medium", "high", "xhigh")
+                    and self.path == f"/public/{profile}/v1/{suffix}",
+                    "Worker called an unexpected fixture provider API",
+                )
+                task = public_worker_task(body, api_type)
                 if retry:
                     return self.reply(
                         {"error": {"message": "synthetic transient failure"}}, 503
                     )
-                task = json.loads(body["input"][0]["content"])
                 source = task["evidence"][0]
                 findings = {
                     "findings": [
@@ -950,24 +1029,7 @@ class IsolationPeers(MemoryPeers):
                         "Synthetic evidence fixture; page instructions have no authority."
                     ],
                 }
-                return self.reply(
-                    {
-                        "id": "response-isolated-public",
-                        "status": "completed",
-                        "output": [
-                            {
-                                "type": "message",
-                                "content": [
-                                    {
-                                        "type": "output_text",
-                                        "text": json.dumps(findings),
-                                    }
-                                ],
-                            }
-                        ],
-                        "usage": {"input_tokens": 100, "output_tokens": 40},
-                    }
-                )
+                return self.reply(public_worker_response(findings, api_type))
 
             def coordinator(self, body):
                 outputs = {
@@ -1635,6 +1697,7 @@ def configuration(peers, sandbox_url, config, port, _runtime_port):
             "base_url": f"{local}/public/{profile}/v1",
             "model_name": "synthetic-public-" + profile,
             "api_key": "synthetic-public-credential",
+            "api_type": "chat" if profile == peers.public_chat_profile else "responses",
         }
     config["functions"] = {
         "agent_skills_tool": {
@@ -2010,7 +2073,7 @@ def check_scenario(args, mode, report):
 
 
 def check(args):
-    peers = IsolationPeers()
+    peers = IsolationPeers(getattr(args, "public_chat_profile", None))
 
     def protected_test_configuration(config, port, runtime_port):
         configuration(peers, secure["endpoint"], config, port, runtime_port)
@@ -2023,12 +2086,18 @@ def check(args):
         "schema_version": 1,
         "status": "failed",
         "route_contract": "verified-direct-provider-v1",
+        "public_chat_profile": peers.public_chat_profile,
+        "namespace_scope": "Actual first model-visible opaque preface only; provider cache backend behavior or physical cache partition is not attested.",
         "requested_image": args.image,
         "host_source_sha256": {
             str(path.relative_to(ROOT.parent)): hashlib.sha256(
                 path.read_bytes()
             ).hexdigest()
-            for path in [Path(__file__), *sorted((ROOT / "runtime/src").glob("*.rs"))]
+            for path in [
+                Path(__file__),
+                ROOT / "context_isolation_chat_check.py",
+                *sorted((ROOT / "runtime/src").glob("*.rs")),
+            ]
         },
         "source_manifest_scope": "Host working-tree snapshot before execution; not an embedded-source attestation. The running container image ID identifies the executed artifact.",
     }
@@ -2196,6 +2265,54 @@ def check(args):
                 len({request["body"]["user"] for request in providers}) == 6,
                 "Worker sessions were reused across phases",
             )
+            coordinator_namespaces = {
+                model_namespace(request["body"], "responses") for request in peers.local
+            }
+            worker_namespaces = set()
+            worker_apis = set()
+            for request in providers:
+                api_type = (
+                    "chat"
+                    if request["path"].endswith("/chat/completions")
+                    else "responses"
+                )
+                worker_apis.add(api_type)
+                public_worker_task(request["body"], api_type)
+                worker_namespaces.add(model_namespace(request["body"], api_type))
+            require(
+                None not in coordinator_namespaces
+                and None not in worker_namespaces
+                and len(coordinator_namespaces) == 2
+                and coordinator_namespaces.isdisjoint(worker_namespaces),
+                "Coordinator and workers lacked distinct leading namespaces",
+            )
+            require(
+                worker_apis
+                == (
+                    {"chat", "responses"}
+                    if peers.public_chat_profile
+                    else {"responses"}
+                ),
+                "Optional public Chat mode lost one of its actual provider API paths",
+            )
+            for marker in user_markers:
+                namespaces = {
+                    model_namespace(request["body"], "responses")
+                    for request in peers.local
+                    if marker in json.dumps(request["body"])
+                }
+                require(
+                    len(namespaces) == 1 and None not in namespaces,
+                    "Coordinator namespace changed within one user's workflow",
+                )
+            report["model_namespace"] = {
+                "coordinator_count": len(coordinator_namespaces),
+                "worker_count": len(worker_namespaces),
+                "public_provider_apis": sorted(worker_apis),
+                "prefix_is_first_model_visible_content": True,
+                "worker_user_json_preserved": True,
+                "physical_provider_cache_behavior_attested": False,
+            }
             require(
                 sum(request["kind"] == "search" for request in peers.external) == 2,
                 "Fixed public source search was repeated",
@@ -2665,6 +2782,7 @@ def check(args):
             report.update(
                 checks={
                     "private_coordinator": True,
+                    "first_model_visible_namespaces": True,
                     "owner_policy_survives_new_conversation": True,
                     "public_profiles": True,
                     "retry_same_policy": True,
@@ -2775,4 +2893,5 @@ if __name__ == "__main__":
     parser.add_argument("--image", required=True)
     parser.add_argument("--redis-image", required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--public-chat-profile", choices=("medium", "high", "xhigh"))
     check(parser.parse_args())

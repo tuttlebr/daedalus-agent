@@ -28,6 +28,50 @@ PRIVATE = {
 }
 
 
+def model_namespace(body, api_type):
+    """Observe the encoded preface, without asserting provider cache behavior."""
+    namespace = body.get("user")
+    if not isinstance(namespace, str) or not re.fullmatch(r"[a-f0-9]{64}", namespace):
+        return None
+    prefix = f"DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n"
+    if api_type == "responses":
+        instructions = body.get("instructions")
+        valid = isinstance(instructions, str) and instructions.startswith(prefix)
+    elif api_type == "chat":
+        messages = body.get("messages")
+        first = messages[0] if isinstance(messages, list) and messages else None
+        content = first.get("content") if isinstance(first, dict) else None
+        if isinstance(content, list):
+            content = (
+                content[0]["text"]
+                if content
+                and all(
+                    isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and isinstance(part.get("text"), str)
+                    for part in content
+                )
+                else None
+            )
+        valid = (
+            isinstance(messages, list)
+            and bool(messages)
+            and isinstance(first, dict)
+            and first.get("role") == "system"
+            and isinstance(content, str)
+            and content.startswith(prefix)
+            # The deployed Qwen template rejects a second system message.
+            and sum(
+                isinstance(item, dict) and item.get("role") == "system"
+                for item in messages
+            )
+            == 1
+        )
+    else:
+        return None
+    return namespace if valid else None
+
+
 class ChatPeers(MemoryPeers):
     def __init__(self):
         super().__init__()
@@ -245,6 +289,7 @@ def check(
             else None
         ),
         "scope": "One protected non-briefing Chat coordinator request; scripted provider, no real generation or external source access. No renderer or public-worker quality claim.",
+        "namespace_scope": "Actual first model-visible opaque preface and matching user field only; no provider cache backend or physical cache partition is attested.",
         "host_source_sha256": {
             str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (
@@ -332,6 +377,8 @@ def check(
     report["checks"] = {
         "actual_immutable_image": report.get("image_id") == image,
         "one_local_chat_request_no_cloud": len(local) == len(peers.captures) == 1,
+        "namespace_is_first_model_visible_content": bool(local)
+        and all(model_namespace(record["body"], "chat") for record in local),
         "thinking_budget_policy": bool(local)
         and all(
             thinking_budget_matches(record["body"], include_hard_budget, budget_control)
