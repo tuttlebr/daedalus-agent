@@ -392,6 +392,15 @@ impl Workers {
             .map_or(local, |budget| local.min(budget.remaining_total()))
     }
 
+    pub async fn claim_briefing_text_repair(&self) -> Result<bool> {
+        self.durable_budget
+            .get()
+            .ok_or(crate::context_state::StateError::PolicyStateUnavailable)?
+            .claim_briefing_text_repair()
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn reserve_model_call(&self, cap: u64) -> Result<()> {
         if let Some(budget) = self.durable_budget.get() {
             budget.reserve_model_call(cap).await?;

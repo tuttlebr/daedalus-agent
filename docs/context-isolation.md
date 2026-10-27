@@ -367,3 +367,37 @@ legacy unrestricted shared-history route by turning isolation off or restoring
 an old image that cannot enforce their restrictions. Restore the backed-up
 network configuration only if it changed, and recheck ordinary LAN clients.
 Neither rollout nor rollback requires changing established LAN endpoints.
+
+### Text-fallback publication check
+
+After a trusted native full daily-summary load and a renderer-reported failure,
+the protected local coordinator checks a completed text fallback for an internal
+desk-status ledger before releasing it. This narrow structural check recognizes
+a coverage heading followed by multiple Covered, Quiet or Unavailable status
+rows. It does not classify ordinary coverage prose or a source limitation beside
+a story, and does not validate factual accuracy or citation support. Successful
+canonical HTML and other conversations retain their existing paths.
+
+One rejected draft may receive one tool-free local correction using the complete
+existing history and shared workflow budgets. An atomic marker on the existing
+local workflow budget admits that correction once across replicas, restarts and
+policy changes without changing its counters, deadlines or expiry. The draft is withheld, not edited
+or stripped. A second invalid draft fails with a fixed publication-contract error.
+Steering invalidates an earlier revision's renderer-failure eligibility without
+renewing the shared correction allowance. Where the protected text-only fallback timer has
+already started, the correction shares that deadline; the workflow's total
+budget, model-call limits and two renderer attempts are never extended.
+
+Run the focused built-image check with disposable synthetic peers:
+
+```bash
+python builder/context_isolation_fallback_check.py \
+  --image "$RUNTIME_IMAGE" \
+  --redis-image "$REDIS_IMAGE" \
+  --output /tmp/context-isolation-fallback-check.json
+```
+
+The check covers withholding and one correction, repeated invalid text, unchanged
+valid fallback, ordinary coverage prose and a generic conversation. It exercises
+the packaged native skill and canonical renderer with local HTTP peers; it makes
+no real model, personal-account or Hindsight calls.

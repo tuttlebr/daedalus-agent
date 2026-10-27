@@ -725,6 +725,21 @@ redis.call('HINCRBY', KEYS[1], 'tokens_used', ARGV[1])
 return 1
 "#;
 
+const BRIEFING_REPAIR_CLAIM: &str = r#"
+local state = redis.call('HMGET', KEYS[1], 'status', 'schema_version', 'context_class',
+  'total_deadline', 'briefing_text_repair')
+if state[1] == 'completed' then return -4 end
+if state[1] ~= 'active' or state[2] ~= '1' or state[3] ~= 'LOCAL_ONLY' then return -1 end
+local deadline = tonumber(state[4])
+if not deadline or deadline <= 0 or deadline > 9007199254740991
+  or deadline ~= math.floor(deadline) then return -1 end
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+if deadline <= now then return -2 end
+if state[5] and state[5] ~= '1' then return -1 end
+return redis.call('HSETNX', KEYS[1], 'briefing_text_repair', '1')
+"#;
+
 const RESEARCH_TOOL_RESERVE: &str = r#"
 local status = redis.call('HGET', KEYS[1], 'status')
 if status == 'completed' then return -4 end
@@ -758,6 +773,29 @@ pub struct DurableBudget {
     total_deadline: Instant,
 }
 impl DurableBudget {
+    /// Admit at most one text-publication correction across replicas, steering,
+    /// restarts and policy changes. This reserves no model calls or extra time;
+    /// the next actual request still pays the ordinary shared budget.
+    pub async fn claim_briefing_text_repair(&self) -> Result<bool> {
+        let outcome: i64 = self
+            .store
+            .command(
+                redis::cmd("EVAL")
+                    .arg(BRIEFING_REPAIR_CLAIM)
+                    .arg(1)
+                    .arg(&self.key),
+            )
+            .await
+            .map_err(|_| StateError::PolicyStateUnavailable)?;
+        match outcome {
+            1 => Ok(true),
+            0 => Ok(false),
+            -2 => Err(StateError::DeadlineExceeded),
+            -4 => Err(StateError::WorkflowCompleted),
+            _ => Err(StateError::IncompatiblePolicyState),
+        }
+    }
+
     pub async fn reserve_model_call(&self, cap: u64) -> Result<()> {
         self.reserve_call(cap, false).await
     }
@@ -1818,6 +1856,230 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
+    async fn redis_briefing_repair_is_atomic_across_restart_and_policy() {
+        let config = legacy_config(&std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap());
+        let user = uuid::Uuid::new_v4().to_string();
+        let job = uuid::Uuid::new_v4().to_string();
+        enforce(&config, &user, "conversation", &job, true)
+            .await
+            .unwrap();
+        let first = SessionState::new(&config, &user, "conversation", &job, "policy-a").unwrap();
+        let budget = first
+            .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+            .await
+            .unwrap();
+        let before: std::collections::BTreeMap<String, String> = first
+            .store
+            .command(redis::cmd("HGETALL").arg(first.budget_key()))
+            .await
+            .unwrap();
+        assert!(
+            !before.contains_key("briefing_text_repair"),
+            "older compatible hashes omit this field"
+        );
+        let second = SessionState::new(&config, &user, "conversation", &job, "policy-b").unwrap();
+        let resumed = second
+            .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert_eq!(first.budget_key(), second.budget_key());
+        let attempts = (0..12).map(|index| {
+            let budget = if index % 2 == 0 {
+                budget.clone()
+            } else {
+                resumed.clone()
+            };
+            async move { budget.claim_briefing_text_repair().await }
+        });
+        let results = futures::future::join_all(attempts).await;
+        assert_eq!(
+            results.iter().filter(|result| **result == Ok(true)).count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| **result == Ok(false))
+                .count(),
+            11
+        );
+        let restarted =
+            SessionState::new(&config, &user, "conversation", &job, "policy-c").unwrap();
+        assert_eq!(
+            restarted
+                .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap()
+                .claim_briefing_text_repair()
+                .await,
+            Ok(false)
+        );
+        let mut after: std::collections::BTreeMap<String, String> = first
+            .store
+            .command(redis::cmd("HGETALL").arg(first.budget_key()))
+            .await
+            .unwrap();
+        assert_eq!(after.remove("briefing_text_repair").as_deref(), Some("1"));
+        assert_eq!(
+            after, before,
+            "claim must not change counters, limits, deadlines or status"
+        );
+        let ttl: i64 = first
+            .store
+            .command(redis::cmd("TTL").arg(first.budget_key()))
+            .await
+            .unwrap();
+        assert_eq!(ttl, -1);
+        let other = SessionState::new(
+            &config,
+            &user,
+            "conversation",
+            &uuid::Uuid::new_v4().to_string(),
+            "policy-c",
+        )
+        .unwrap();
+        assert_ne!(other.budget_key(), first.budget_key());
+        assert_eq!(
+            other
+                .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+                .await
+                .unwrap()
+                .claim_briefing_text_repair()
+                .await,
+            Ok(true)
+        );
+        first.finish().await.unwrap();
+        assert_eq!(
+            budget.claim_briefing_text_repair().await,
+            Err(StateError::WorkflowCompleted)
+        );
+        other.finish().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Redis in DAEDALUS_TEST_REDIS_URL"]
+    async fn redis_briefing_repair_denies_corruption_and_expiry() {
+        let session = session_fixture().await;
+        let budget = session
+            .budget(3, 600, Duration::from_secs(30), Duration::from_secs(60))
+            .await
+            .unwrap();
+        let original: std::collections::BTreeMap<String, String> = session
+            .store
+            .command(redis::cmd("HGETALL").arg(session.budget_key()))
+            .await
+            .unwrap();
+        for unknown in ["0", "2", "future", "NaN", ""] {
+            let _: usize = session
+                .store
+                .command(
+                    redis::cmd("HSET")
+                        .arg(session.budget_key())
+                        .arg("briefing_text_repair")
+                        .arg(unknown),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                budget.claim_briefing_text_repair().await,
+                Err(StateError::IncompatiblePolicyState)
+            );
+        }
+        let _: usize = session
+            .store
+            .command(
+                redis::cmd("HDEL")
+                    .arg(session.budget_key())
+                    .arg("briefing_text_repair"),
+            )
+            .await
+            .unwrap();
+        let _: usize = session
+            .store
+            .command(
+                redis::cmd("HSET")
+                    .arg(session.budget_key())
+                    .arg("total_deadline")
+                    .arg(1),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            budget.claim_briefing_text_repair().await,
+            Err(StateError::DeadlineExceeded)
+        );
+        let marker: Option<String> = session
+            .store
+            .command(
+                redis::cmd("HGET")
+                    .arg(session.budget_key())
+                    .arg("briefing_text_repair"),
+            )
+            .await
+            .unwrap();
+        assert!(
+            marker.is_none(),
+            "expired workflow cannot spend a new correction"
+        );
+        let _: usize = session
+            .store
+            .command(
+                redis::cmd("HSET")
+                    .arg(session.budget_key())
+                    .arg("total_deadline")
+                    .arg(&original["total_deadline"]),
+            )
+            .await
+            .unwrap();
+        for (field, value) in [
+            ("total_deadline", "NaN"),
+            ("schema_version", "2"),
+            ("context_class", "EXTERNAL_ALLOWED"),
+            ("status", "unknown"),
+        ] {
+            let _: usize = session
+                .store
+                .command(
+                    redis::cmd("HSET")
+                        .arg(session.budget_key())
+                        .arg(field)
+                        .arg(value),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                budget.claim_briefing_text_repair().await,
+                Err(StateError::IncompatiblePolicyState)
+            );
+            let _: usize = session
+                .store
+                .command(
+                    redis::cmd("HSET")
+                        .arg(session.budget_key())
+                        .arg(field)
+                        .arg(&original[field]),
+                )
+                .await
+                .unwrap();
+        }
+        let _: usize = session
+            .store
+            .command(
+                redis::cmd("HDEL")
+                    .arg(session.budget_key())
+                    .arg("total_deadline"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            budget.claim_briefing_text_repair().await,
+            Err(StateError::IncompatiblePolicyState)
+        );
+        session.finish().await.unwrap();
     }
 
     #[tokio::test]

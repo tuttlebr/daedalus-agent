@@ -227,6 +227,102 @@ impl BriefingBootstrap {
     }
 }
 
+const BRIEFING_FALLBACK_FEEDBACK: &str = "The proposed daily-summary text was withheld because it publishes an internal desk-status ledger. Return the complete sourced plain-text briefing using the evidence already in this conversation. Keep coverage records internal; put source links and material gaps beside the affected reporting, and explain that validated HTML could not be completed. Do not call tools, restart research, or add facts.";
+
+#[derive(Debug)]
+struct BriefingFallbackContractError;
+
+impl std::fmt::Display for BriefingFallbackContractError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Briefing text fallback failed publication contract")
+    }
+}
+
+impl std::error::Error for BriefingFallbackContractError {}
+
+#[derive(Default)]
+struct BriefingFallbackContract {
+    failed_revision: Option<u64>,
+    repair_revision: Option<u64>,
+    repair_used: bool,
+}
+
+impl BriefingFallbackContract {
+    fn observe(&mut self, renderer: bool, revision: u64, current: u64, outcome: &ToolOutcome) {
+        // Only a configured renderer's raw runtime state is authoritative.
+        // Other tools can carry stale executor state; compacted prose is not a receipt.
+        if renderer
+            && revision == current
+            && !outcome.terminal
+            && matches!(
+                outcome.executor_state["briefing_execution"]["failure_type"].as_str(),
+                Some("input" | "resource" | "validation" | "recovery")
+            )
+        {
+            self.failed_revision = Some(revision);
+        }
+    }
+
+    fn applies(&self, protected: bool, full_skill_loaded: bool, revision: u64) -> bool {
+        protected && full_skill_loaded && self.failed_revision == Some(revision)
+    }
+}
+
+/// Recognize a status-only desk ledger, not ordinary discussion of coverage or
+/// a material source limitation beside a story. This is a publication-format
+/// check, never a factuality, citation-support or complete editorial validator.
+fn briefing_has_desk_ledger(text: &str) -> bool {
+    let lines: Vec<_> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let heading = line
+            .trim()
+            .trim_start_matches('#')
+            .trim()
+            .trim_matches(['*', '_'])
+            .trim()
+            .trim_end_matches(':')
+            .trim();
+        if ![
+            "coverage",
+            "coverage status",
+            "desk coverage",
+            "desk ledger",
+        ]
+        .iter()
+        .any(|expected| heading.eq_ignore_ascii_case(expected))
+        {
+            continue;
+        }
+        let mut statuses = std::collections::HashSet::new();
+        for row in lines[index + 1..]
+            .iter()
+            .map(|row| row.trim())
+            .filter(|row| !row.is_empty())
+            .take(3)
+        {
+            let row = row.trim_start_matches(['-', '*', '+']).trim();
+            let Some((label, value)) = row.split_once(':') else {
+                break;
+            };
+            if value.trim_matches(['*', '_', ' ']).is_empty() {
+                break;
+            }
+            let label = label.trim_matches(['*', '_', ' ']);
+            let Some(status) = ["covered", "quiet", "unavailable"]
+                .iter()
+                .position(|status| label.eq_ignore_ascii_case(status))
+            else {
+                break;
+            };
+            statuses.insert(status);
+            if statuses.len() >= 2 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn ensure_workflow_time(workers: Option<&crate::public_worker::Workers>) -> Result<()> {
     if workers.is_some_and(|workers| workers.remaining().is_zero()) {
         return Err(crate::context_isolation::IsolationError::DeadlineExceeded.into());
@@ -689,6 +785,8 @@ impl Agent {
         let mut response_text = ResponseText::default();
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
+        let mut briefing_fallback_deadline: Option<Instant> = None;
+        let mut briefing_fallback_contract = BriefingFallbackContract::default();
         let mut briefing_renderer_attempted = false;
         let mut unvalidated_html_recoveries = 0;
         // Edition clocks are revision-local. Never persist this visibility
@@ -728,6 +826,8 @@ impl Agent {
                 retrying_decode = false;
             }
             iterations += 1;
+            let briefing_contract_repair =
+                briefing_fallback_contract.repair_revision == Some(self.revision);
             let bootstrap = if briefing_bootstrap.pending(self.revision, &requirement) {
                 Some(BriefingBootstrap::definition(
                     preparation.as_ref().unwrap(),
@@ -737,6 +837,7 @@ impl Agent {
                 None
             };
             let final_synthesis = briefing_text_fallback
+                || briefing_contract_repair
                 || (prepared.daily_summary
                     && (started.elapsed().as_secs_f64() >= prepared.research_budget_seconds
                         || workers
@@ -755,6 +856,7 @@ impl Agent {
                 || (workers.is_some() && prepared.daily_summary);
             let otherwise_available = |tool: &&ToolDefinition| {
                 !briefing_text_fallback
+                    && !briefing_contract_repair
                     && (workers.is_none()
                         || preparation.as_ref().is_some_and(|p|
                         // Schema visibility removes unsafe tools; dispatch
@@ -858,7 +960,7 @@ impl Agent {
             }
             let mut request = CompletionRequest::new("unused")
                 .tools(tools.clone())
-                .tool_choice(if briefing_text_fallback {
+                .tool_choice(if briefing_text_fallback || briefing_contract_repair {
                     rig_core::message::ToolChoice::None
                 } else if bootstrap.is_some() {
                     rig_core::message::ToolChoice::Required
@@ -899,7 +1001,7 @@ impl Agent {
                     "The previous model response could not be decoded. None of its proposed tool calls ran. Reissue a complete response with valid tool arguments using the completed results already in the conversation; do not repeat completed tool actions.",
                 ));
             }
-            if briefing_text_fallback {
+            if briefing_text_fallback && !briefing_contract_repair {
                 request.chat_history.push(Message::user("The briefing renderer arguments remained invalid after the allowed correction. The rejected renderer calls did not run. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research."));
             } else if final_synthesis {
                 request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
@@ -915,14 +1017,28 @@ impl Agent {
             // and between items. A healthy long response keeps streaming; the
             // whole-run deadline bounds total time.
             let inactivity = Duration::from_secs_f64(prepared.model.request_timeout.max(1.0));
-            let mut total_timeout = if briefing_text_fallback {
+            let mut total_timeout = if briefing_text_fallback || briefing_contract_repair {
                 briefing_fallback_started = true;
                 // Configured and validated alongside the research budget. The
                 // single text-only synthesis attempt keeps a total cap.
-                Some(preparation.as_ref().map_or(75.0, |p| {
+                let seconds = preparation.as_ref().map_or(75.0, |p| {
                     p.config
                         .limit("daily_summary_synthesis_retry_timeout_seconds", 75.0)
-                }))
+                });
+                if workers.is_some() {
+                    // Protected correction turns share the original fallback
+                    // cap; another turn or steering cannot renew its deadline.
+                    let deadline = briefing_fallback_deadline
+                        .get_or_insert_with(|| Instant::now() + Duration::from_secs_f64(seconds));
+                    Some(
+                        deadline
+                            .saturating_duration_since(Instant::now())
+                            .as_secs_f64(),
+                    )
+                } else {
+                    // Preserve the legacy per-attempt allowance on steering.
+                    Some(seconds)
+                }
             } else {
                 None
             };
@@ -1075,6 +1191,7 @@ impl Agent {
                 Ok(completed) => completed,
                 Err(error)
                     if !briefing_text_fallback
+                        && !briefing_contract_repair
                         && error.as_ref().is_none_or(|error| {
                             crate::provider::retryable(error)
                                 || (crate::provider::stream_decode_error(error)
@@ -1220,12 +1337,53 @@ impl Agent {
                         .await;
                 }
             }
-            if workers.is_some()
-                && prepared.daily_summary
-                && calls.is_empty()
-                && (partial.to_ascii_lowercase().contains("<html")
-                    || partial.to_ascii_lowercase().contains("<!doctype"))
-            {
+            let fallback_contract_applies = briefing_fallback_contract.applies(
+                workers.is_some(),
+                briefing_bootstrap.loaded,
+                self.revision,
+            ) && calls.is_empty()
+                && self.pending.is_empty()
+                && !requirement.pending();
+            let unvalidated_html =
+                workers.is_some() && prepared.daily_summary && calls.is_empty() && {
+                    let lower = partial.to_ascii_lowercase();
+                    lower.contains("<html") || lower.contains("<!doctype")
+                };
+            let fallback_contract_issue = if !fallback_contract_applies {
+                None
+            } else if briefing_has_desk_ledger(&partial) {
+                Some("internal_desk_ledger")
+            } else if briefing_contract_repair && unvalidated_html {
+                Some("unvalidated_html")
+            } else {
+                None
+            };
+            if fallback_contract_applies && let Some(constraint) = fallback_contract_issue {
+                tracing::warn!(
+                    event = "briefing_fallback_contract_rejected",
+                    constraint,
+                    repair_used = briefing_fallback_contract.repair_used
+                );
+                if briefing_fallback_contract.repair_used || iterations >= prepared.max_iterations {
+                    return Err(anyhow::Error::new(BriefingFallbackContractError)
+                        .context(Phase("briefing_fallback_contract")));
+                }
+                let workers = workers.as_deref().expect("protected fallback scope");
+                if !within_workflow_time(Some(workers), workers.claim_briefing_text_repair())
+                    .await?
+                {
+                    return Err(anyhow::Error::new(BriefingFallbackContractError)
+                        .context(Phase("briefing_fallback_contract")));
+                }
+                // Keep the complete draft and all prior evidence in private
+                // history. The existing fallback phase closes every tool and
+                // routes this one correction through the same local budget.
+                briefing_fallback_contract.repair_used = true;
+                briefing_fallback_contract.repair_revision = Some(self.revision);
+                history.push(Message::user(BRIEFING_FALLBACK_FEEDBACK));
+                continue;
+            }
+            if workers.is_some() && prepared.daily_summary && calls.is_empty() && unvalidated_html {
                 unvalidated_html_recoveries += 1;
                 if unvalidated_html_recoveries > 1 {
                     bail!("Briefing HTML was not validated by the canonical renderer");
@@ -1266,7 +1424,7 @@ impl Agent {
                 }
                 return Ok(());
             }
-            if briefing_text_fallback {
+            if briefing_text_fallback || briefing_contract_repair {
                 bail!("Briefing text fallback proposed tools despite disabled tool access");
             }
             let batch_revision = self.revision;
@@ -1602,6 +1760,15 @@ impl Agent {
                             .as_ref()
                             .is_some_and(|preparation| preparation.skill_tools.contains_key(&name)),
                         &call.function.arguments,
+                        &outcome,
+                    );
+                    briefing_fallback_contract.observe(
+                        preparation.as_ref().is_some_and(|preparation| {
+                            preparation.config.raw["functions"][&name]["_type"]
+                                == "briefing_renderer"
+                        }),
+                        batch_revision,
+                        self.revision,
                         &outcome,
                     );
                     if workers.is_some()
@@ -2284,6 +2451,22 @@ mod tests {
             )
                 .into_response();
         }
+        if matches!(
+            body["name"].as_str(),
+            Some("briefing_renderer_tool" | "edition_renderer")
+        ) && body["arguments"]["edition"]["fixture_validation_failure"] == true
+        {
+            let result = json!({"event":"result","data":{
+                "content":"{\"passed\":false,\"errors\":[\"fixture validation marker\"]}",
+                "is_error":true,
+                "executor_state":{"briefing_execution":{"failure_type":"validation", "stage":"render_daybook.py"}}
+            }});
+            return (
+                [(http::header::CONTENT_TYPE, "application/x-ndjson")],
+                format!("{result}\n"),
+            )
+                .into_response();
+        }
         if query == "stall" {
             let (sender, receiver) = mpsc::channel::<Result<String, std::convert::Infallible>>(4);
             tokio::spawn(async move {
@@ -2622,6 +2805,12 @@ mod tests {
             .remove("__fixture_catalogue_delay_ms")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+        let steering_delay = workflow
+            .as_object_mut()
+            .unwrap()
+            .remove("__fixture_steering_delay_ms")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
         model
             .catalogue_delay_ms
             .store(catalogue_delay, Ordering::Release);
@@ -2742,6 +2931,7 @@ mod tests {
                 } {
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
+                tokio::time::sleep(Duration::from_millis(steering_delay)).await;
                 let steering = crate::control::Command::Steer {
                     command_id: uuid::Uuid::new_v4(),
                     instruction: instruction.into(),
@@ -2823,6 +3013,260 @@ mod tests {
         let mut workflow = protected_clock_workflow(&["clock", "briefing_renderer_tool"]);
         workflow["daily_summary_final_tools"] = json!(["briefing_renderer_tool"]);
         workflow
+    }
+
+    const INTERNAL_DESK_LEDGER: &str = "Draft private marker.\n\n**Coverage Status**\n- **Covered:** Technology, Business\n- **Quiet:** World\n- **Unavailable:** Weather";
+    const VALID_TEXT_FALLBACK: &str = "A supported finding. Source: https://example.org/report. Validated HTML could not be completed.";
+
+    fn renderer_failure(id: &str) -> Option<Vec<Value>> {
+        completed(vec![call(
+            id,
+            "briefing_renderer_tool",
+            r#"{"edition":{"fixture_validation_failure":true}}"#,
+        )])
+    }
+
+    #[test]
+    fn briefing_fallback_ledger_check_is_structural_and_narrow() {
+        for text in [
+            INTERNAL_DESK_LEDGER,
+            "Coverage:\nCovered: Technology\nUnavailable: Weather",
+            "## Desk coverage\n* covered: Technology\n+ quiet: Travel",
+        ] {
+            assert!(briefing_has_desk_ledger(text), "{text}");
+        }
+        for text in [
+            VALID_TEXT_FALLBACK,
+            "The insurance report covered access; unavailable measurements limit the conclusion.",
+            "## Weather\nUnavailable: No forecast was supplied.",
+            "## Coverage status\nThe report describes the changed insurance rules.",
+            "Coverage:\nCovered: Technology",
+            "Sources qualifications: observations were unavailable.",
+        ] {
+            assert!(!briefing_has_desk_ledger(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn briefing_fallback_requires_current_trusted_renderer_state() {
+        let failed = ToolOutcome {
+            executor_state: json!({"briefing_execution":{"failure_type":"validation"}}),
+            ..Default::default()
+        };
+        let mut state = BriefingFallbackContract::default();
+        state.observe(false, 1, 1, &failed);
+        assert!(!state.applies(true, true, 1));
+        state.observe(true, 0, 1, &failed);
+        assert!(!state.applies(true, true, 1));
+        state.observe(
+            true,
+            1,
+            1,
+            &ToolOutcome {
+                content: "{\"passed\":false}".into(),
+                is_error: true,
+                ..Default::default()
+            },
+        );
+        assert!(!state.applies(true, true, 1));
+        state.observe(
+            true,
+            1,
+            1,
+            &ToolOutcome {
+                terminal: true,
+                executor_state: failed.executor_state.clone(),
+                ..Default::default()
+            },
+        );
+        assert!(!state.applies(true, true, 1));
+        state.observe(true, 1, 1, &failed);
+        assert!(state.applies(true, true, 1));
+        assert!(!state.applies(false, true, 1));
+        assert!(!state.applies(true, false, 1));
+        assert!(!state.applies(true, true, 2));
+        state.repair_used = true;
+        state.observe(true, 2, 2, &failed);
+        assert!(state.applies(true, true, 2));
+        assert!(state.repair_used, "steering cannot renew the repair budget");
+        assert!(!BRIEFING_FALLBACK_FEEDBACK.contains("private marker"));
+        assert!(!BRIEFING_FALLBACK_FEEDBACK.contains("https://"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_withholds_ledger_and_repairs_once_locally() {
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary with private evidence.",
+            vec![
+                renderer_failure("first"),
+                renderer_failure("second"),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+                completed(vec![text(VALID_TEXT_FALLBACK)]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 4);
+        let repair = &outcome.requests[3];
+        assert_eq!(repair["tool_choice"], "none");
+        assert!(
+            repair
+                .get("tools")
+                .is_none_or(|tools| tools.as_array().is_some_and(Vec::is_empty))
+        );
+        let history = repair["input"].to_string();
+        for evidence in [
+            "private evidence",
+            "daily_summary_runtime_clock",
+            "fixture validation marker",
+            INTERNAL_DESK_LEDGER,
+            BRIEFING_FALLBACK_FEEDBACK,
+        ] {
+            assert!(
+                history.contains(
+                    &serde_json::to_string(evidence).unwrap()
+                        [1..serde_json::to_string(evidence).unwrap().len() - 1]
+                ),
+                "missing {evidence}"
+            );
+        }
+        assert!(!history.contains("The rejected renderer calls did not run"));
+        assert_eq!(outcome.tool_calls.len(), 2);
+        assert!(!outcome.stream.contains("Draft private marker"));
+        assert_eq!(outcome.stream.matches(VALID_TEXT_FALLBACK).count(), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_second_ledger_fails_without_publication() {
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                renderer_failure("first"),
+                renderer_failure("second"),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+            ],
+        )
+        .await;
+        let error = outcome.result.unwrap_err();
+        assert!(
+            error
+                .downcast_ref::<BriefingFallbackContractError>()
+                .is_some()
+        );
+        assert_eq!(outcome.requests.len(), 4);
+        assert_eq!(outcome.tool_calls.len(), 2);
+        assert!(!outcome.stream.contains("Draft private marker"));
+        assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_preserves_valid_text_and_generic_coverage() {
+        for text in [
+            VALID_TEXT_FALLBACK,
+            "Weather: unavailable forecast. The report covered insurance access.",
+        ] {
+            let outcome = run(
+                rendering_functions(),
+                protected_rendering_workflow(),
+                "Produce my daily summary.",
+                vec![
+                    renderer_failure("first"),
+                    renderer_failure("second"),
+                    completed(vec![self::text(text)]),
+                ],
+            )
+            .await;
+            outcome.result.unwrap();
+            assert_eq!(outcome.requests.len(), 3);
+            assert_eq!(outcome.stream.matches(text).count(), 1);
+            assert!(
+                !outcome.requests.last().unwrap()["input"]
+                    .to_string()
+                    .contains(BRIEFING_FALLBACK_FEEDBACK)
+            );
+        }
+        let outcome = run(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Discuss this insurance coverage example.",
+            vec![
+                renderer_failure("first"),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 2);
+        assert!(outcome.stream.contains("Draft private marker"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_steering_discards_old_failure_eligibility() {
+        let outcome = run_scripted(
+            rendering_functions(),
+            protected_rendering_workflow(),
+            "Produce my daily summary.",
+            vec![
+                renderer_failure("first"),
+                paced(&["Unpublished draft."], 300, false),
+                completed(vec![text(INTERNAL_DESK_LEDGER)]),
+            ],
+            json!({}),
+            Some((
+                2,
+                "Stop the briefing. Return the supplied insurance coverage example as plain text.",
+            )),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 3);
+        assert!(
+            outcome.requests[2]["input"]
+                .to_string()
+                .contains("Stop the briefing")
+        );
+        assert!(
+            !outcome.requests[2]["input"]
+                .to_string()
+                .contains(BRIEFING_FALLBACK_FEEDBACK)
+        );
+        assert!(outcome.stream.contains("Draft private marker"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_fallback_repair_shares_original_synthesis_deadline() {
+        let mut workflow = protected_rendering_workflow();
+        workflow["daily_summary_synthesis_retry_timeout_seconds"] = json!(1);
+        let outcome = run(
+            rendering_functions(),
+            workflow,
+            "Produce my daily summary.",
+            vec![
+                renderer_failure("first"),
+                completed(vec![call("invalid_one", "briefing_renderer_tool", "{}")]),
+                completed(vec![call("invalid_two", "briefing_renderer_tool", "{}")]),
+                paced(&[INTERNAL_DESK_LEDGER], 800, false),
+                paced(&[VALID_TEXT_FALLBACK], 800, false),
+            ],
+        )
+        .await;
+        assert_eq!(
+            outcome.result.unwrap_err().root_cause().to_string(),
+            "Model request timed out"
+        );
+        assert_eq!(outcome.requests.len(), 5);
+        assert!(!outcome.stream.contains("Draft private marker"));
+        assert!(!outcome.stream.contains(VALID_TEXT_FALLBACK));
     }
 
     fn publication_workers(lifetime: Duration) -> Arc<crate::public_worker::Workers> {
@@ -4427,6 +4871,53 @@ mod tests {
         );
         let input = outcome.requests[1]["input"].to_string();
         assert!(input.contains("Tool stream stalled"), "{input}");
+    }
+
+    #[tokio::test]
+    async fn legacy_fallback_steering_preserves_its_per_attempt_timer() {
+        let outcome = run_scripted_with_body(
+            json!({"briefing_renderer_tool":{"_type":"briefing_renderer"}}),
+            json!({"tools":["briefing_renderer_tool"], "max_iterations":8,
+                "daily_summary_synthesis_retry_timeout_seconds":2,
+                "__fixture_steering_delay_ms":1200}),
+            "Prepare my daily briefing",
+            vec![
+                completed(vec![call("first", "briefing_renderer_tool", "{}")]),
+                completed(vec![call("second", "briefing_renderer_tool", "{}")]),
+                paced(&["An interrupted draft must stay hidden."], 3000, false),
+                paced(
+                    &["The legacy fallback retains its original attempt allowance."],
+                    1200,
+                    false,
+                ),
+            ],
+            json!({}),
+            Some((
+                3,
+                "Continue with the available sourced text after this direction.",
+            )),
+            json!({"response_mode":"final_only"}),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 4);
+        assert_eq!(outcome.requests[2]["tool_choice"], "none");
+        assert_eq!(outcome.requests[3]["tool_choice"], "none");
+        assert!(
+            outcome.requests[3]["input"]
+                .to_string()
+                .contains("after this direction")
+        );
+        assert!(
+            !outcome
+                .stream
+                .contains("An interrupted draft must stay hidden")
+        );
+        assert!(
+            outcome
+                .stream
+                .contains("The legacy fallback retains its original attempt allowance.")
+        );
     }
 
     #[tokio::test]
