@@ -76,6 +76,25 @@ def redact(value: Any, secrets: list[str]) -> Any:
     return value
 
 
+def write_private_file(path: Path, text: str) -> None:
+    """Publish one complete local artifact atomically, with durable bytes."""
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w") as destination:
+            destination.write(text)
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def credential_free_config(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -776,7 +795,7 @@ def execute(
 ) -> dict[str, Any]:
     # Import dependencies and Docker fixture helpers only behind explicit --execute.
     sys.path.insert(0, str(HERE))
-    from runtime_fixture import execute_case
+    from runtime_fixture import JOURNAL_NAME, execute_case, recover_case_journal
 
     source_snapshot = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -842,6 +861,35 @@ def execute(
         path.write_text(json.dumps(value, indent=2) + "\n")
         files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     effective_configs = {variant: [] for variant in variants}
+
+    def checkpoint(active_case=None, *, complete=False):
+        value = {
+            "schema_version": 1,
+            "state": "observations_complete" if complete else "incomplete",
+            "review_status": "pending",
+            "workload_sha256": digest(workload),
+            "active_case": active_case,
+            "expected_rows": [
+                {"case_id": case["id"], "repetition": repetition, "variant": variant}
+                for case in selected
+                for repetition in range(repetitions)
+                for variant in variants
+            ],
+            "observed_rows": {
+                variant: report["cases"] for variant, report in measurements.items()
+            },
+            "files": files,
+            "reservations": budget.count,
+            "attempt_ceiling": budget.maximum,
+            "runner_source_sha256": source_snapshot,
+            "execution_resumed": False,
+        }
+        write_private_file(
+            output / "progress.json",
+            json.dumps(redact(value, secrets), indent=2) + "\n",
+        )
+
+    checkpoint()
     # Interleave variants to avoid making one configuration consistently earlier
     # in a changing provider/load window. Calls remain sequential for fairness.
     for case in selected:
@@ -849,7 +897,15 @@ def execute(
             for variant in variants:
                 key = f"{variant}-{case['id']}-{repetition}"
                 case_output = output / key
-                case_output.mkdir()
+                case_output.mkdir(mode=0o700)
+                identity = {
+                    "case_id": case["id"],
+                    "variant": variant,
+                    "repetition": repetition,
+                    "workload_sha256": digest(workload),
+                    "requested_image": args.image,
+                }
+                checkpoint(identity)
                 started = time.monotonic()
                 try:
                     if budget.count >= budget.maximum or budget.remaining() <= 0:
@@ -886,14 +942,25 @@ def execute(
                             "reason": "run did not complete",
                         },
                     }
+                    budget.deadline = time.monotonic()
+                    if (case_output / JOURNAL_NAME).exists():
+                        try:
+                            observed = recover_case_journal(
+                                case_output, identity, failure_kind=type(error).__name__
+                            )
+                        except (OSError, ValueError, TypeError):
+                            observed["journal_recovery_failure"] = True
                 observed = redact(observed, secrets)
                 result = observed.get("result", {})
                 answer = result.get("answer", "")
-                (case_output / "output.txt").write_text(answer)
-                (case_output / "capture.json").write_text(
-                    json.dumps(observed, indent=2) + "\n"
+                write_private_file(case_output / "output.txt", answer)
+                write_private_file(
+                    case_output / "capture.json", json.dumps(observed, indent=2) + "\n"
                 )
-                for name in ["output.txt", "capture.json"]:
+                names = ["output.txt", "capture.json"]
+                if (case_output / JOURNAL_NAME).exists():
+                    names.append(JOURNAL_NAME)
+                for name in names:
                     relative = str((case_output / name).relative_to(output))
                     files[relative] = hashlib.sha256(
                         (output / relative).read_bytes()
@@ -958,6 +1025,30 @@ def execute(
                     ),
                 }
                 report["cases"].append(row)
+                marker = {
+                    "schema_version": 1,
+                    "state": "finalized_observation",
+                    "review_status": "pending",
+                    "identity": identity,
+                    "successful": row["successful"],
+                    "files": {
+                        name: files[str((case_output / name).relative_to(output))]
+                        for name in names
+                    },
+                }
+                write_private_file(
+                    case_output / "case.complete.json",
+                    json.dumps(marker, indent=2) + "\n",
+                )
+                relative = str((case_output / "case.complete.json").relative_to(output))
+                files[relative] = hashlib.sha256(
+                    (output / relative).read_bytes()
+                ).hexdigest()
+                checkpoint()
+    checkpoint(complete=True)
+    files["progress.json"] = hashlib.sha256(
+        (output / "progress.json").read_bytes()
+    ).hexdigest()
     artifact_manifest = {
         "schema_version": 1,
         "workload_sha256": digest(workload),

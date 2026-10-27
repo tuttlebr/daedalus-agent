@@ -12,6 +12,7 @@ import copy
 import hashlib
 import html
 import json
+import os
 import runpy
 import sys
 import threading
@@ -24,6 +25,176 @@ from urllib.parse import parse_qs, urlsplit
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 MAX_BODY = 8 * 1024 * 1024
+JOURNAL_NAME = "capture.journal.jsonl"
+MAX_JOURNAL_RECORD = MAX_BODY * 16
+
+
+class CaseJournal:
+    """Append-only, redacted observations durable before provider dispatch."""
+
+    def __init__(self, output, identity, *, redact, secrets):
+        output.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(output, 0o700)
+        self.path = output / JOURNAL_NAME
+        self.redact = redact
+        self.secrets = secrets
+        self.lock = threading.Lock()
+        self.sequence = 0
+        self.failed = False
+        descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(descriptor)
+        self.record("header", {"schema_version": 1, "identity": identity})
+        directory = os.open(output, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+    def record(self, kind, value):
+        with self.lock:
+            if self.failed:
+                raise OSError("evaluation journal is unavailable")
+            record = self.redact(
+                {
+                    "sequence": self.sequence,
+                    "kind": kind,
+                    "value": value,
+                    "monotonic_ns": time.monotonic_ns(),
+                },
+                self.secrets,
+            )
+            payload = json.dumps(record, separators=(",", ":")).encode() + b"\n"
+            if len(payload) > MAX_JOURNAL_RECORD:
+                self.failed = True
+                raise ValueError("evaluation journal record exceeds its bound")
+            descriptor = os.open(self.path, os.O_WRONLY | os.O_APPEND)
+            try:
+                remaining = memoryview(payload)
+                while remaining:
+                    written = os.write(descriptor, remaining)
+                    if written <= 0:
+                        raise OSError("evaluation journal write failed")
+                    remaining = remaining[written:]
+                os.fsync(descriptor)
+                self.sequence += 1
+            except BaseException:
+                self.failed = True
+                raise
+            finally:
+                os.close(descriptor)
+
+
+def recover_case_journal(output, identity, *, failure_kind):
+    """Recover saved evidence only; this never resumes execution or success."""
+    state = {
+        "result": {
+            "answer": "",
+            "done": False,
+            "errors": [],
+            "starts": [],
+            "ends": [],
+            "terminal": None,
+        },
+        "attempts": [],
+        "captures": [],
+        "source_calls": [],
+        "fault_records": [],
+    }
+    attempts, captures = {}, {}
+    event_type = None
+    count = 0
+    tail = False
+    first_time = last_time = None
+    with (output / JOURNAL_NAME).open("rb") as stream:
+        while line := stream.readline(MAX_JOURNAL_RECORD + 1):
+            if len(line) > MAX_JOURNAL_RECORD or not line.endswith(b"\n"):
+                tail = True
+                break
+            try:
+                record = json.loads(line)
+                if record["sequence"] != count:
+                    raise ValueError
+                kind, value = record["kind"], record["value"]
+                if count == 0:
+                    if kind != "header" or value != {
+                        "schema_version": 1,
+                        "identity": identity,
+                    }:
+                        raise ValueError("evaluation journal identity mismatch")
+                    first_time = record["monotonic_ns"]
+                elif kind == "provider":
+                    capture = value["capture"]
+                    captures[capture["handler_id"]] = capture
+                    if value.get("attempt"):
+                        attempts[value["attempt"]["id"]] = value["attempt"]
+                elif kind == "source":
+                    state["source_calls"].append(value)
+                elif kind in {"observed", "snapshot"}:
+                    state.update(value)
+                    if kind == "snapshot":
+                        attempts = {item["id"]: item for item in state["attempts"]}
+                        captures = {
+                            item["handler_id"]: item for item in state["captures"]
+                        }
+                elif kind == "phase":
+                    state["last_observed_phase"] = value
+                elif kind == "runtime_line":
+                    result = state["result"]
+                    if value.startswith("event: "):
+                        event_type = value[7:]
+                    elif value.startswith("intermediate_data: "):
+                        event = json.loads(value.split(": ", 1)[1])
+                        result[
+                            "ends"
+                            if event["name"].startswith("Function Complete:")
+                            else "starts"
+                        ].append(event)
+                    elif value == "data: [DONE]":
+                        result["done"] = True
+                    elif value.startswith("data: "):
+                        event = json.loads(value[6:])
+                        if event_type == "error":
+                            result["errors"].append(event)
+                        for choice in event.get("choices", []):
+                            result["answer"] += choice.get("delta", {}).get(
+                                "content", ""
+                            )
+                            if choice.get("daedalus_terminal"):
+                                result["terminal"] = choice.get("finish_reason")
+                last_time = record["monotonic_ns"]
+                count += 1
+            except (ValueError, KeyError, TypeError):
+                if count == 0:
+                    raise ValueError("evaluation journal identity is invalid") from None
+                tail = True
+                break
+    if count == 0:
+        raise ValueError("evaluation journal is empty")
+    for attempt in attempts.values():
+        if attempt.get("outcome") == "in_flight":
+            attempt.update(outcome="unknown_after_interruption", latency_ms=None)
+    for capture in captures.values():
+        if capture.get("outcome") in {"in_flight", "fixture_preparation_pending"}:
+            capture["outcome"] = "unknown_after_interruption"
+    state["attempts"], state["captures"] = (
+        list(attempts.values()),
+        list(captures.values()),
+    )
+    state["result"]["done"] = False
+    state["result"]["errors"].append({"kind": failure_kind})
+    state["automatic_output_contract"] = {
+        "passed": False,
+        "reason": "incomplete journal recovery",
+    }
+    state["journal_recovery"] = {
+        "complete_records": count,
+        "incomplete_tail": tail,
+        "execution_resumed": False,
+        "completion": "unknown",
+    }
+    if first_time is not None and last_time is not None:
+        state["journal_observed_span_ms"] = (last_time - first_time) / 1_000_000
+    return state
 
 
 class _ProviderCall:
@@ -132,6 +303,7 @@ def _peers_class(base_class):
             budget,
             timeout,
             max_output_tokens_per_attempt,
+            journal=None,
         ):
             super().__init__()
             if str(HERE) not in sys.path:
@@ -147,6 +319,7 @@ def _peers_class(base_class):
             self.budget = budget
             self.timeout = timeout
             self.max_output_tokens_per_attempt = max_output_tokens_per_attempt
+            self.journal = journal
             self.attempts = []
             self.captures = []
             self.source_calls = []
@@ -166,7 +339,22 @@ def _peers_class(base_class):
         def record_source(self, kind, **fields):
             with self.lock:
                 if not self.capture_frozen:
-                    self.source_calls.append({"kind": kind, **fields})
+                    value = {"kind": kind, **fields}
+                    self.source_calls.append(value)
+                    self.persist("source", value)
+
+        def persist(self, kind, value):
+            if self.journal:
+                try:
+                    self.journal.record(kind, value)
+                except (Exception, KeyboardInterrupt):
+                    self.stop_requested.set()
+                    self.budget.deadline = time.monotonic()
+                    raise
+
+        def persist_provider(self, capture, attempt=None):
+            # Caller holds the peer lock. Persist before any actual dispatch.
+            self.persist("provider", {"capture": capture, "attempt": attempt})
 
         def stop(self):
             self.stop_requested.set()
@@ -269,6 +457,7 @@ def _peers_class(base_class):
                 capture.update(capture_fields or {})
                 if attempt is not None:
                     attempt.update(attempt_fields or {})
+                self.persist_provider(capture, attempt)
                 return True
 
         def admit(self, capture, phase, profile, target):
@@ -301,6 +490,7 @@ def _peers_class(base_class):
                 self.attempt_started[identity] = time.monotonic()
                 self.attempts.append(attempt)
                 self.provider_calls[identity] = _ProviderCall()
+                self.persist_provider(capture, attempt)
                 return attempt, 200
 
         @contextlib.contextmanager
@@ -557,6 +747,7 @@ def _peers_class(base_class):
                                     "outcome": "fixture_preparation_pending",
                                 }
                                 peers.captures.append(self._evaluation_capture)
+                                peers.persist_provider(self._evaluation_capture)
                                 registered = True
                         if not registered:
                             return self.reply(
@@ -775,6 +966,7 @@ def _peers_class(base_class):
                                     attempt["observed_model_versions"] = metadata[
                                         "model_versions"
                                     ]
+                                peers.persist_provider(capture, attempt)
                                 if peers.stop_requested.is_set():
                                     raise TimeoutError
                             delivered = core.redact(
@@ -856,16 +1048,19 @@ def _peers_class(base_class):
                         except (OSError, ConnectionError):
                             pass
                     finally:
-                        with peers.lock:
-                            if not peers.capture_frozen:
-                                if peers.stop_requested.is_set():
-                                    outcome = "cancelled_at_fixture_cleanup"
-                                attempt["latency_ms"] = (
-                                    time.monotonic() - started
-                                ) * 1000
-                                attempt["outcome"] = outcome
-                                capture["outcome"] = outcome
-                        peers._close_call(attempt_id, client, final=True)
+                        try:
+                            with peers.lock:
+                                if not peers.capture_frozen:
+                                    if peers.stop_requested.is_set():
+                                        outcome = "cancelled_at_fixture_cleanup"
+                                    attempt["latency_ms"] = (
+                                        time.monotonic() - started
+                                    ) * 1000
+                                    attempt["outcome"] = outcome
+                                    capture["outcome"] = outcome
+                                    peers.persist_provider(capture, attempt)
+                        finally:
+                            peers._close_call(attempt_id, client, final=True)
 
             return Handler
 
@@ -920,7 +1115,9 @@ def _message(case, workload):
     return "\n\n".join(sections)
 
 
-def _measure_runtime(env, *, message, budget, per_run_timeout, request_metadata):
+def _measure_runtime(
+    env, *, message, budget, per_run_timeout, request_metadata, journal=None
+):
     import httpx
     from leaf_check import runtime_lines
 
@@ -962,6 +1159,8 @@ def _measure_runtime(env, *, message, budget, per_run_timeout, request_metadata)
                 response.raise_for_status()
                 event_type = None
                 for line in runtime_lines(response):
+                    if journal:
+                        journal.record("runtime_line", line)
                     if time.monotonic() - started >= timeout or budget.remaining() <= 0:
                         raise TimeoutError
                     if line.startswith("event: "):
@@ -1141,6 +1340,21 @@ def execute_case(
     from nvidia_docs_check import secure_peer
 
     core, _, _, _ = _helpers(budget)
+    setup_started = time.monotonic()
+    setup_started_ns = time.monotonic_ns()
+    journal = CaseJournal(
+        output,
+        {
+            "case_id": case["id"],
+            "variant": variant,
+            "repetition": repetition,
+            "workload_sha256": core.digest(workload),
+            "requested_image": image,
+        },
+        redact=core.redact,
+        secrets=[route.secret for route in routes.values()],
+    )
+    journal.record("phase", "setup")
     fixture_context = json.loads((bundle / "fixture-environment.json").read_text())
     if fixture_context.get("schema_version") != 2:
         raise ValueError("A reviewed faithful synthetic fixture bundle is required")
@@ -1169,6 +1383,7 @@ def execute_case(
         budget=budget,
         timeout=per_run_timeout,
         max_output_tokens_per_attempt=max_output_tokens_per_attempt,
+        journal=journal,
     )
     observed = {
         "request_metadata": _request_metadata(case),
@@ -1179,7 +1394,6 @@ def execute_case(
             "terminal": None,
             "starts": [],
             "ends": [],
-            "latency_ms": 0.001,
         },
         "attempts": peers.attempts,
         "captures": peers.captures,
@@ -1200,7 +1414,14 @@ def execute_case(
             "reason": "fixture did not complete",
         },
     }
-    setup_started = time.monotonic()
+    journal.record(
+        "observed",
+        {
+            key: value
+            for key, value in observed.items()
+            if key not in {"attempts", "captures", "source_calls", "fault_records"}
+        },
+    )
     root = None
     try:
         with secure_peer(peers) as secure:
@@ -1332,12 +1553,21 @@ def execute_case(
                         "can promote the coordinator, so critic cost/latency may differ"
                     ),
                 }
+                journal.record(
+                    "observed",
+                    {
+                        "image_id": observed["image_id"],
+                        "effective_config": observed["effective_config"],
+                    },
+                )
+                journal.record("phase", "workflow")
                 observed["result"] = _measure_runtime(
                     env,
                     message=_message(case, workload),
                     budget=budget,
                     per_run_timeout=per_run_timeout,
                     request_metadata=observed["request_metadata"],
+                    journal=journal,
                 )
                 observed["effective_config"]["evaluation_request_metadata"] = observed[
                     "request_metadata"
@@ -1362,8 +1592,45 @@ def execute_case(
             "reason": "fixture or runtime execution failed",
         }
     finally:
-        peers.stop()
+        try:
+            journal.record("phase", "cleanup")
+        except (Exception, KeyboardInterrupt) as error:
+            budget.deadline = time.monotonic()
+            observed["journal_failure_kind"] = type(error).__name__
+        try:
+            peers.stop()
+        except (Exception, KeyboardInterrupt) as error:
+            budget.deadline = time.monotonic()
+            observed["result"]["errors"].append({"kind": type(error).__name__})
+            observed["fixture_failure_kind"] = type(error).__name__
+            observed["automatic_output_contract"] = {
+                "passed": False,
+                "reason": "fixture cleanup did not complete",
+            }
+            with peers.lock:
+                for attempt in peers.attempts:
+                    if attempt["outcome"] == "in_flight":
+                        attempt["outcome"] = "unknown_after_cleanup_failure"
+                        attempt["latency_ms"] = (
+                            time.monotonic() - peers.attempt_started[attempt["id"]]
+                        ) * 1000
+                        attempt["latency_scope"] = "observed until cleanup failure"
+                peers.fault_records.append(
+                    {
+                        "kind": "fixture_cleanup_failure",
+                        "failure_kind": type(error).__name__,
+                        "provider_completion": "unknown",
+                    }
+                )
+                peers.capture_frozen = True
         observed["fixture_total_ms"] = (time.monotonic() - setup_started) * 1000
+        if "latency_ms" not in observed["result"]:
+            observed["result"]["latency_ms"] = (
+                time.monotonic_ns() - setup_started_ns
+            ) / 1_000_000
+            observed["latency_scope"] = (
+                "observed fixture elapsed through failure and cleanup; no completed workflow latency"
+            )
     with peers.lock:
         snapshot = dict(observed)
         snapshot["model_versions"] = {
@@ -1375,4 +1642,28 @@ def execute_case(
             attempt.get("phase") == "internal_tool_verification"
             for attempt in snapshot["attempts"]
         )
-    return core.redact(snapshot, [route.secret for route in routes.values()])
+    snapshot = core.redact(snapshot, [route.secret for route in routes.values()])
+    try:
+        journal.record(
+            "observed",
+            {
+                key: value
+                for key, value in snapshot.items()
+                if key not in {"attempts", "captures"}
+            },
+        )
+        by_id = {attempt["id"]: attempt for attempt in snapshot["attempts"]}
+        for capture in snapshot["captures"]:
+            journal.record(
+                "provider",
+                {"capture": capture, "attempt": by_id.get(capture.get("attempt_id"))},
+            )
+    except (Exception, KeyboardInterrupt) as error:
+        budget.deadline = time.monotonic()
+        snapshot["result"]["errors"].append({"kind": type(error).__name__})
+        snapshot["journal_failure_kind"] = type(error).__name__
+        snapshot["automatic_output_contract"] = {
+            "passed": False,
+            "reason": "durable fixture capture failed",
+        }
+    return snapshot
