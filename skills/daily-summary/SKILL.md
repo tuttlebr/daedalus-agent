@@ -41,6 +41,12 @@ actions. Apply the editorial reference's communication guidance to headlines,
 deks, body copy, and any text fallback. Keep the newspaper
 design; let evidence, rather than dramatic phrasing, establish significance.
 
+Before publishing HTML or a text fallback, check each public story's headline,
+dek and body against its own linked source. Split findings from other documents
+into separately sourced stories or briefs. Keep coverage ledgers and privacy
+checks internal; do not repeat restricted values, identifying fragments or
+revealing aliases merely to say they were omitted.
+
 ## Collaboration
 
 This skill owns the complete interactive edition. Load a specialist only when
@@ -102,7 +108,9 @@ requirements below apply to validated editions.
   remain clickable; they are citations, not render dependencies.
 - Link public reporting inline and keep image credits in captions. Put material
   source limitations beside affected reporting.
-- Omit the Editor’s Note, Sources section and desk ledger from HTML and text fallback editions.
+- Omit the Editor’s Note, Sources section, `Coverage:` labels, desk ledger and
+  privacy audit notes from HTML and text fallback editions. Do not repeat a
+  restricted value or its identifying fragments in an omission explanation.
 - Leave no TODOs, placeholders, template tokens, empty sections, Markdown image
   syntax, or fabricated links.
 
@@ -312,9 +320,9 @@ validated HTML in the required single `html` fence. If rendering remains
 unavailable, `attempts_remaining=0`, or workflow time prevents a correction, use
 the returned edition and collected sources to deliver the useful reporting as a
 plain-text briefing with source links. State that the HTML edition could not be
-validated and briefly disclose material source gaps. Do not claim attempts are
-exhausted unless the returned counter says so. Keep unsupported claims out of the
-fallback. Do not restart the research, bypass validation by writing your own HTML,
+validated and put material source gaps beside the affected reporting. Do not
+claim attempts are exhausted unless the returned counter says so. Keep unsupported
+claims out of the fallback. Do not restart the research, bypass validation by writing your own HTML,
 or replace collected reporting with an error-only edition.
 
 ## Failure behavior

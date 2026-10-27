@@ -13,6 +13,9 @@ Lead with a supported conclusion and its consequence; preserve evidence scope
 and uncertainty. Structured provenance supports the reporting but does not
 replace explaining whether a result is observed, reported, estimated, or proposed.
 
+The same publication rules apply to HTML and text fallback: source each story
+as a complete unit, and keep coverage records and privacy checks internal.
+
 ## Root object
 
 ```json
@@ -63,11 +66,11 @@ digits, underscores, and hyphens. The renderer links public headlines to their
 source pages and keeps tool references in validation attributes. There is no
 separate Sources section. Image credits appear only in their figure captions.
 
-A lead or supporting story links a single source. Every claim in its headline,
-dek, and body must be supported by that linked source; naming other documents in
-the label or detail does not cite them. Put facts from other documents in
-separately sourced supporting stories or `briefs` items, each with its own
-`source`.
+A lead or supporting story links a single source. Its headline link and source
+line cite the whole piece: every claim in its headline, dek, and body must be
+supported by that linked source. Naming other documents in the label or detail
+does not cite them. Put facts from other documents in separately sourced
+supporting stories or `briefs` items, each with its own `source`.
 
 ## Validation and fallback
 
@@ -75,9 +78,10 @@ Correct all returned validation errors together and retry once when
 `attempts_remaining=1` and workflow time allows. The renderer permits at most
 two attempts. If rendering remains unavailable, no attempts remain, or workflow
 time prevents the correction, deliver the collected reporting as sourced plain
-text. State that HTML validation could not be completed and disclose material
-source gaps. Describe the returned validation failure truthfully; do not claim
-the tool budget or attempts are exhausted unless the returned counter says so.
+text. Briefly state that HTML validation could not be completed and put material
+source gaps beside the affected reporting. Keep links on the stories they
+support; do not append coverage recaps or privacy audit notes. Describe the
+returned validation failure truthfully; do not claim the tool budget or attempts are exhausted unless the returned counter says so.
 Never publish unvalidated HTML or restart research to replace the fallback.
 
 ## Lead and front page
@@ -167,6 +171,9 @@ briefing tool. The final HTML never loads images or fonts from the network.
 ## Coverage
 
 `coverage` is internal validation data and is never rendered as a desk ledger.
+Do not translate it into `Coverage:` labels or status-only desk lists in a text
+fallback. Omit quiet desks; disclose material source gaps beside affected
+reporting.
 Every policy desk appears exactly once with only `desk_key` and `status`:
 
 ```json

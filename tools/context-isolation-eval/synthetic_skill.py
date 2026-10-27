@@ -22,11 +22,11 @@ PRODUCTION_CONFIG_SHA256 = (
     "7f1b75037bc83156e5732002e95d2bf1b6a9fc981ed175d1d613544c062f676f"
 )
 REVIEWED_SOURCES = {
-    "SKILL.md": "62c81156d03957ef65f96f85821e6f151dddac5cc95b5b2d9072f5d76fc3e1b4",
+    "SKILL.md": "f37f6fe2c1e8430cde4c3f2274da7fcb6006086d2f8fea6bbc90d1d7212f4fb7",
     "references/edition-policy.json": "3909d90766b2bd1eb0094cbe7c6332395a190e39e9f96500a519d92814efbd62",
     "references/research-and-sourcing.md": "69d6fa5d8a5f27986070457e747707973c77fe2200ba48c3bf8287b5b8e6075d",
-    "references/edition-format.md": "d53a1039797bfb0b24f4f64f0931e96857a9aabcfd1a550e28e132ac0259d15b",
-    "references/editorial-spec.md": "ef7afce3db1bf9734711c927cda6415fca1cd406086a3c0559d60249a73e52c7",
+    "references/edition-format.md": "869f67d12b74d2ab412a234f24bc7d50a86cff28e47e6fb2b24e6c3aa5f14775",
+    "references/editorial-spec.md": "76d1387754f88b8428745f002f4d742342d728f3925fb3853aa32361d0b49ff0",
     "scripts/edition_contract.py": "d7a9da020e2c7127aeef0b1963b76ccc2a302535cfa651971228da80dad88d8c",
     "scripts/render_daybook.py": "f69eb69a504017c5e67ca22c9c94e9d512ea9deb5d8b49f88d40ad861183d9d6",
     "scripts/validate_daybook.py": "ddc42c87fd2a6a728914088d092dfc379675ea3762b8219c639e90029774fdb6",

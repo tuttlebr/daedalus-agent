@@ -94,6 +94,10 @@ clinical history, raw mail or attendee details. A missing medical profile does
 not make Health a low-priority desk. Do not infer personal applicability or
 recommend dosing changes.
 
+Keep privacy checks internal. Do not add audit notes about excluded private
+information or repeat restricted values, partial identifiers or revealing aliases
+to describe their omission. This applies to HTML and the text fallback alike.
+
 Use concrete verbs, declarative headlines, explanatory deks and focused
 paragraphs. Avoid promotional language, “revolutionary,” slogans, forced lists
 of three, em dashes and invented consequences. Five to ten minutes is a guide,
