@@ -321,6 +321,250 @@ def restart_memory_fixture(env):
         time.sleep(0.1)
 
 
+def workflow_budget_rows(store):
+    """Inspect only the owned disposable fixture's bounded workflow ledger."""
+    rows = {}
+    for key in store.scan_iter(match="daedalus:workflow-budget:v2:*", count=32):
+        require(len(rows) < 32, "Disposable workflow ledger exceeded fixture bounds")
+        row = {
+            field.decode(): value.decode()
+            for field, value in store.hgetall(key).items()
+        }
+        require(
+            row.get("schema_version") == "1"
+            and row.get("context_class") == "LOCAL_ONLY"
+            and row.get("status") in {"active", "completed"}
+            and store.ttl(key) == -1,
+            "Disposable workflow budget lost its classification or durable lifecycle",
+        )
+        rows[key] = row
+    return rows
+
+
+def lifecycle_counters(peers):
+    with peers.lock:
+        return {
+            "local_provider": len(peers.local),
+            "memory_http": len(peers.memory_requests),
+            "personal_reads": len(peers.personal),
+            "personal_transport": peers.personal_transport,
+            "external": len(peers.external),
+            "sandbox": len(peers.sandbox_requests),
+            "unexpected": len(peers.failures),
+        }
+
+
+def delivered_memory_hashes(requests):
+    """A completed source read must reach the actual local model as native data."""
+    hashes = []
+    for request in requests:
+        contexts = []
+        for message in request["body"].get("input", []):
+            if message.get("role") != "user":
+                continue
+            content = message.get("content", [])
+            parts = [content] if isinstance(content, str) else content
+            for part in parts:
+                text = part if isinstance(part, str) else part.get("text", "")
+                if not text.startswith("[MEMORY_CONTEXT]\n"):
+                    continue
+                payload = json.loads(text.rpartition("\n")[2])
+                require(
+                    payload.get("source") == "automatic_hindsight"
+                    and {
+                        "name": "Fixture project",
+                        "body": "Synthetic project context: 雪🌲.",
+                    }
+                    in payload.get("knowledge_pages", []),
+                    "Native automatic memory omitted the completed synthetic page",
+                )
+                contexts.append(hashlib.sha256(text.encode()).hexdigest())
+        require(
+            len(contexts) == 1, "Local provider did not receive native completed memory"
+        )
+        hashes.extend(contexts)
+    require(hashes, "No actual local provider input proved memory delivery")
+    return hashes
+
+
+def require_budget_progress(original, current, provider_attempts):
+    for field in (
+        "research_deadline",
+        "total_deadline",
+        "max_calls",
+        "max_tokens",
+        "research_ms",
+        "total_ms",
+        "research_closed",
+    ):
+        require(
+            current.get(field) == original.get(field),
+            "Restart or changed policy renewed the shared workflow budget",
+        )
+    require(
+        current.get("status") == "active"
+        and int(current["calls_used"])
+        == int(original["calls_used"]) + provider_attempts
+        and int(current["tokens_used"])
+        == int(original["tokens_used"]) + provider_attempts * 8192,
+        "Resumed workflow accounting did not match actual local provider attempts",
+    )
+
+
+def workflow_lifecycle_requests(
+    env, peers, *, request, before_keys, before_counters, initial_result
+):
+    """Restart synthetic failures without renewing resources or completed reads."""
+    rows = workflow_budget_rows(env["redis"])
+    created = set(rows) - before_keys
+    require(
+        len(created) == 1
+        and sum(row["status"] == "active" for row in rows.values()) == 1,
+        "Local failure did not leave one identifiable active fixture workflow",
+    )
+    key = created.pop()
+    initial = rows[key]
+    first_counts = lifecycle_counters(peers)
+    initial_memory = peers.memory_requests[before_counters["memory_http"] :]
+    initial_contexts = delivered_memory_hashes(
+        peers.local[before_counters["local_provider"] :]
+    )
+    require(
+        len(set(initial_contexts)) == 1, "Initial retries received different memory"
+    )
+    memory_hash = initial_contexts[0]
+    require(
+        initial["status"] == "active"
+        and all(
+            first_counts[field] == before_counters[field]
+            for field in ("external", "personal_reads", "sandbox", "unexpected")
+        )
+        and initial_memory
+        and all(
+            method == "GET" or path.endswith("/memories/recall")
+            for method, path, _ in initial_memory
+        )
+        and int(initial["calls_used"])
+        == first_counts["local_provider"] - before_counters["local_provider"]
+        and int(initial["tokens_used"]) == int(initial["calls_used"]) * 8192,
+        "Initial failed workflow did not complete pure memory reads and tracked local attempts",
+    )
+    observations = [
+        {
+            "phase": "initial_failure",
+            "budget": initial,
+            "counters": first_counts,
+            "memory_context_sha256": initial_contexts,
+            "result": {
+                name: initial_result[name] for name in ("done", "terminal", "errors")
+            },
+        }
+    ]
+
+    def retry(phase, *, cached):
+        previous_counts = lifecycle_counters(peers)
+        previous_budget = workflow_budget_rows(env["redis"])[key]
+        result = measure(env, **request)
+        current_counts = lifecycle_counters(peers)
+        current_rows = workflow_budget_rows(env["redis"])
+        attempts = current_counts["local_provider"] - previous_counts["local_provider"]
+        require(
+            result["errors"]
+            and attempts > 0
+            and set(current_rows) == set(rows)
+            and current_counts["external"] == before_counters["external"]
+            and current_counts["personal_reads"] == before_counters["personal_reads"]
+            and current_counts["sandbox"] == before_counters["sandbox"]
+            and current_counts["unexpected"] == before_counters["unexpected"]
+            and all(
+                item["body"]["model"] == "synthetic-local"
+                for item in peers.local[previous_counts["local_provider"] :]
+            ),
+            "Lifecycle retry widened destinations or changed workflow identity",
+        )
+        require_budget_progress(previous_budget, current_rows[key], attempts)
+        contexts = delivered_memory_hashes(
+            peers.local[previous_counts["local_provider"] :]
+        )
+        require(
+            all(context == memory_hash for context in contexts),
+            "Resumed provider lost or changed completed memory",
+        )
+        observed_memory = peers.memory_requests[previous_counts["memory_http"] :]
+        require(
+            not observed_memory if cached else observed_memory == initial_memory,
+            "Restart repeated completed memory reads or changed policy reused stale evidence",
+        )
+        observations.append(
+            {
+                "phase": phase,
+                "budget": current_rows[key],
+                "counters": current_counts,
+                "additional_provider_attempts": attempts,
+                "additional_memory_reads": len(observed_memory),
+                "memory_context_sha256": contexts,
+                "result": {
+                    name: result[name] for name in ("done", "terminal", "errors")
+                },
+            }
+        )
+
+    restart_memory_fixture(env)
+    retry("same_policy_restart", cached=True)
+    path = env["root"] / "config.yaml"
+    config = yaml.safe_load(path.read_text())
+    before_config = json.loads(json.dumps(config))
+    config["workflow"]["context_isolation"]["policy_version"] = "context-isolation-v2"
+    path.write_text(yaml.safe_dump(config))
+    before_config["workflow"]["context_isolation"]["policy_version"] = (
+        "context-isolation-v2"
+    )
+    require(before_config == config, "Lifecycle probe changed more than policy_version")
+    restart_memory_fixture(env)
+    retry("changed_policy_restart", cached=False)
+
+    # This is an explicitly seeded completion fence, not a successful edition.
+    env["redis"].hset(key, "status", "completed")
+    restart_memory_fixture(env)
+    completed_before = lifecycle_counters(peers)
+    completed_budget = workflow_budget_rows(env["redis"])[key]
+    result = measure(env, **request)
+    require(
+        result["errors"]
+        and lifecycle_counters(peers) == completed_before
+        and workflow_budget_rows(env["redis"])[key] == completed_budget,
+        "Seeded completed workflow issued provider, source or private preparation I/O",
+    )
+    observations.append(
+        {
+            "phase": "seeded_completed_restart",
+            "seeded_state": {"field": "status", "value": "completed"},
+            "actual_successful_completion": False,
+            "budget": completed_budget,
+            "counters": completed_before,
+            "result": {name: result[name] for name in ("done", "terminal", "errors")},
+        }
+    )
+    return {
+        "scope": "Owned synthetic TLS/ACL Redis and disposable backend restarts only; completed status is fixture-admin seeded, not an observed successful edition.",
+        "budget_key_sha256": hashlib.sha256(key).hexdigest(),
+        "request_sha256": hashlib.sha256(
+            json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "initial_memory_reads": len(initial_memory),
+        "initial_memory_context_sha256": memory_hash,
+        "initial_memory_requests_sha256": hashlib.sha256(
+            json.dumps(initial_memory, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "observations": observations,
+        "checks": {
+            "workflow_resume_read_reuse": True,
+            "policy_change_shared_budget": True,
+            "completed_workflow_preparation_fence": True,
+        },
+    }
+
+
 class TextMemoryPeers(MemoryPeers):
     """Private loopback service accepting only synthetic local text writes."""
 
@@ -453,6 +697,7 @@ class IsolationPeers(MemoryPeers):
         super().__init__()
         self.external = []
         self.personal = []
+        self.personal_transport = 0
         self.local = []
         self.telemetry = []
         self.sandbox_requests = []
@@ -596,6 +841,8 @@ class IsolationPeers(MemoryPeers):
                 return self.reply({})
 
             def mcp(self, body):
+                with peers.lock:
+                    peers.personal_transport += 1
                 method = body["method"]
                 if "id" not in body:
                     return self.reply({}, 202)
@@ -2287,11 +2534,19 @@ def check(args):
             )
             before_failure = len(peers.local)
             before_external_failure = len(peers.external)
-            local_failure = measure(
-                env,
-                message="daily summary FAIL_LOCAL_ROUTE_7391 " + PRIVATE["message"],
-                request_fields={"additional_props": {"model_profile": "deep_max"}},
-            )
+            before_failure_budgets = set(workflow_budget_rows(env["redis"]))
+            before_failure_counters = lifecycle_counters(peers)
+            failure_request = {
+                "message": "daily summary FAIL_LOCAL_ROUTE_7391 " + PRIVATE["message"],
+                "extra_headers": {"x-conversation-id": str(uuid.uuid4())},
+                "request_fields": {
+                    "additional_props": {
+                        "model_profile": "deep_max",
+                        "context_workflow_id": str(uuid.uuid4()),
+                    }
+                },
+            }
+            local_failure = measure(env, **failure_request)
             require(
                 local_failure["errors"] and len(peers.local) > before_failure,
                 "Local provider failure was not exercised",
@@ -2314,6 +2569,14 @@ def check(args):
                     for request in peers.local[before_failure:]
                 ),
                 "Explicit high capability widened the private failure route",
+            )
+            report["lifecycle"] = workflow_lifecycle_requests(
+                env,
+                peers,
+                request=failure_request,
+                before_keys=before_failure_budgets,
+                before_counters=before_failure_counters,
+                initial_result=local_failure,
             )
             before = len(peers.local)
             path = env["root"] / "config.yaml"
@@ -2422,6 +2685,7 @@ def check(args):
                     "planning_tool_choice_and_renderer_recovery": True,
                     "full_skill_bootstrap": True,
                     "bootstrap_siblings_not_executed": True,
+                    **report["lifecycle"]["checks"],
                 },
                 result={key: result[key] for key in ("done", "terminal", "errors")},
                 rollback={key: rollback[key] for key in ("done", "terminal", "errors")},
