@@ -459,18 +459,60 @@ impl Preparation {
         let autonomy =
             header(headers, "x-daedalus-execution-scope").eq_ignore_ascii_case("autonomy");
         let (mut prepared, query) = base_prepare(&self.config, body, autonomy)?;
-        let protected = crate::routing::IsolationConfig::from_config(&self.config)?.is_some();
-        crate::context_state::enforce(
-            &self.config,
-            header(headers, "x-user-id"),
-            header(headers, "x-conversation-id"),
-            body["additional_props"]["context_workflow_id"]
-                .as_str()
-                .unwrap_or_else(|| header(headers, "x-run-id")),
-            protected,
-        )
-        .await?;
+        let isolation = crate::routing::IsolationConfig::from_config(&self.config)?;
+        let protected = isolation.is_some();
+        let user = header(headers, "x-user-id");
+        let conversation = header(headers, "x-conversation-id");
+        let workflow_id = body["additional_props"]["context_workflow_id"]
+            .as_str()
+            .unwrap_or_else(|| header(headers, "x-run-id"));
+        crate::context_state::enforce(&self.config, user, conversation, workflow_id, protected)
+            .await?;
         let workflow = self.config.workflow();
+        // Restore the original workflow clock before any catalogue or private
+        // memory I/O. Agent later attaches this same persisted budget, so time
+        // spent preparing never creates a fresh research/synthesis allowance.
+        let recovery = if let Some(policy) = isolation {
+            let route = policy.resolve_coordinator(
+                body["additional_props"]["model_profile"]
+                    .as_str()
+                    .unwrap_or("default"),
+            )?;
+            let state = crate::context_state::SessionState::new(
+                &self.config,
+                user,
+                conversation,
+                workflow_id,
+                &format!(
+                    "{}:{}",
+                    crate::context_isolation::PUBLIC_POLICY,
+                    route.policy_version
+                ),
+            )?;
+            let research = Duration::from_secs_f64(prepared.research_budget_seconds);
+            let synthesis = Duration::from_secs_f64(
+                self.config
+                    .limit("daily_summary_synthesis_retry_timeout_seconds", 75.0),
+            );
+            let budget = state
+                .budget(
+                    prepared.max_iterations.min(u32::MAX as usize) as u32,
+                    (prepared.max_iterations as u64).saturating_mul(8192),
+                    research,
+                    research + synthesis,
+                )
+                .await?;
+            Some(crate::memory::PreparationRecovery {
+                state,
+                budget,
+                origin: workflow["context_isolation"]["trusted_local_services"]["hindsight"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_owned(),
+            })
+        } else {
+            None
+        };
         let selected = names(workflow.get(
             if prepared.daily_summary && workflow.get("daily_summary_tools").is_some() {
                 "daily_summary_tools"
@@ -480,17 +522,34 @@ impl Preparation {
         ))?;
         // Neither operation depends on the other. Keep both futures owned by
         // this request so cancellation or a catalogue failure drops all work.
-        let (tools, context) = tokio::try_join!(
-            self.prepare_tools(http, tools_url, headers, body, &selected),
-            async {
-                if private_sources_allowed(&body["additional_props"]["sourcePolicy"]) {
-                    self.prepare_memory(headers, &query, autonomy, protected)
-                        .await
-                } else {
-                    Ok(None)
-                }
-            },
-        )?;
+        let prepare = async {
+            tokio::try_join!(
+                self.prepare_tools(http, tools_url, headers, body, &selected),
+                async {
+                    if private_sources_allowed(&body["additional_props"]["sourcePolicy"]) {
+                        self.prepare_memory(headers, &query, autonomy, protected, recovery.as_ref())
+                            .await
+                    } else {
+                        Ok(None)
+                    }
+                },
+            )
+        };
+        let (tools, context) = if let Some(recovery) = &recovery {
+            let remaining = recovery.budget.remaining_total();
+            if remaining.is_zero() {
+                return Err(crate::context_state::StateError::DeadlineExceeded.into());
+            }
+            let completed = tokio::time::timeout(remaining, prepare)
+                .await
+                .map_err(|_| crate::context_state::StateError::DeadlineExceeded)??;
+            if recovery.budget.remaining_total().is_zero() {
+                return Err(crate::context_state::StateError::DeadlineExceeded.into());
+            }
+            completed
+        } else {
+            prepare.await?
+        };
         prepared.tools = tools;
         if let Some(context) = context
             && let Some(index) = prepared.messages.iter().rposition(|m| m.role == "user")
@@ -619,6 +678,7 @@ impl Preparation {
         query: &str,
         autonomy: bool,
         protected: bool,
+        recovery: Option<&crate::memory::PreparationRecovery>,
     ) -> Result<Option<String>> {
         if !autonomy {
             let budget = self
@@ -630,7 +690,11 @@ impl Preparation {
             let user = header(headers, "x-user-id");
             let conversation = header(headers, "x-conversation-id");
             match tokio::time::timeout(Duration::from_secs_f64(budget.min(3600.)), async {
-                if protected {
+                if let Some(recovery) = recovery {
+                    self.memory
+                        .recovered_read_only_context(user, query, recovery)
+                        .await
+                } else if protected {
                     self.memory.read_only_context(user, query).await
                 } else {
                     self.memory.context(user, conversation, query).await
@@ -642,6 +706,13 @@ impl Preparation {
                     return Ok(Some(context));
                 }
                 Ok(Ok(_)) => {}
+                Ok(Err(error))
+                    if error
+                        .downcast_ref::<crate::context_state::StateError>()
+                        .is_some() =>
+                {
+                    return Err(error);
+                }
                 _ => tracing::warn!(event = "memory_context_unavailable"),
             }
         }
@@ -833,7 +904,7 @@ mod tests {
         headers.insert("x-user-id", "synthetic-alice".parse().unwrap());
         let context = tokio::time::timeout(
             Duration::from_secs(2),
-            preparation.prepare_memory(&headers, "Summarize my projects", false, true),
+            preparation.prepare_memory(&headers, "Summarize my projects", false, true, None),
         )
         .await
         .expect("optional memory must retain its deadline")
@@ -844,6 +915,307 @@ mod tests {
         assert!(calls[0].ends_with("/knowledge-base/search"));
         peer.abort();
         policy_store.abort();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_memory_resume_reuses_reads_and_fences_completion()
+    {
+        use axum::response::IntoResponse;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
+        let calls = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let second_page = Arc::new(AtomicUsize::new(0));
+        let router = Router::new().fallback(move |method: axum::http::Method, uri: Uri| {
+            let seen = seen.clone();
+            let second_page = second_page.clone();
+            async move {
+                seen.lock().await.push(uri.path().to_owned());
+                if method == axum::http::Method::GET
+                    && uri.path().ends_with("/knowledge-base/search")
+                {
+                    Json(json!({"results":[{"id":"one"},{"id":"two"}]})).into_response()
+                } else if method == axum::http::Method::GET
+                    && uri.path().ends_with("/knowledge-base/pages/one")
+                {
+                    Json(json!({"name":"First page","body":"Completed first page evidence"}))
+                        .into_response()
+                } else if method == axum::http::Method::GET
+                    && uri.path().ends_with("/knowledge-base/pages/two")
+                {
+                    if second_page.fetch_add(1, Ordering::SeqCst) == 0 {
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    } else {
+                        Json(json!({"name":"Second page","body":"Recovered second page evidence"}))
+                            .into_response()
+                    }
+                } else if method == axum::http::Method::POST
+                    && uri.path().ends_with("/memories/recall")
+                {
+                    Json(json!({"results":[{"text":"Completed recall evidence","type":"world"}]}))
+                        .into_response()
+                } else {
+                    axum::http::StatusCode::METHOD_NOT_ALLOWED.into_response()
+                }
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut config = protected_memory_configuration(&base, &redis);
+        config
+            .env
+            .insert("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "5".into());
+        let user = format!("memory-recovery-{}", uuid::Uuid::new_v4());
+        let conversation = uuid::Uuid::new_v4().to_string();
+        let workflow = uuid::Uuid::new_v4().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", user.parse().unwrap());
+        headers.insert("x-conversation-id", conversation.parse().unwrap());
+        headers.insert(
+            "x-run-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        let body = json!({"messages":[{"role":"user","content":"What did I decide earlier about my projects?"}],
+            "additional_props":{"context_workflow_id":workflow}});
+        async fn run(
+            config: Config,
+            base: &str,
+            headers: &HeaderMap,
+            body: &Value,
+        ) -> Result<PreparedRun> {
+            Preparation::new(config)?
+                .prepare(&reqwest::Client::new(), base, headers, body)
+                .await
+        }
+        let first = run(config.clone(), &base, &headers, &body).await.unwrap();
+        assert!(
+            first.messages[0]
+                .content
+                .contains("Completed first page evidence")
+        );
+        assert!(
+            first.messages[0]
+                .content
+                .contains("Completed recall evidence")
+        );
+        assert!(
+            !first.messages[0]
+                .content
+                .contains("Recovered second page evidence")
+        );
+        assert_eq!(calls.lock().await.len(), 4);
+
+        // A new Preparation instance and transport run simulate process/OAuth
+        // resume. Only the failed page may make a second network request.
+        headers.insert(
+            "x-run-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        let resumed = run(config.clone(), &base, &headers, &body).await.unwrap();
+        assert!(
+            resumed.messages[0]
+                .content
+                .contains("Recovered second page evidence")
+        );
+        let observed = calls.lock().await.clone();
+        assert_eq!(observed.len(), 5, "{observed:?}");
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|path| path.ends_with("/knowledge-base/search"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|path| path.ends_with("/memories/recall"))
+                .count(),
+            1
+        );
+
+        let mut excluded = body.clone();
+        excluded["additional_props"]["sourcePolicy"] =
+            json!({"disabledSources":["workspace_data"]});
+        let excluded = run(config.clone(), &base, &headers, &excluded)
+            .await
+            .unwrap();
+        assert!(
+            excluded
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("[MEMORY_CONTEXT]"))
+        );
+        assert_eq!(calls.lock().await.len(), 5);
+
+        let mut changed = config.clone();
+        changed.raw["workflow"]["context_isolation"]["policy_version"] =
+            json!("memory-read-only-v2");
+        let changed_run = run(changed.clone(), &base, &headers, &body).await.unwrap();
+        assert!(
+            changed_run.messages[0]
+                .content
+                .contains("Recovered second page evidence")
+        );
+        assert_eq!(
+            calls.lock().await.len(),
+            9,
+            "new policy must revalidate source evidence"
+        );
+
+        let state = crate::context_state::SessionState::new(
+            &config,
+            &user,
+            &conversation,
+            &workflow,
+            &format!(
+                "{}:memory-read-only-v1",
+                crate::context_isolation::PUBLIC_POLICY
+            ),
+        )
+        .unwrap();
+        let budget = state
+            .budget(
+                128,
+                128 * 8192,
+                Duration::from_secs(300),
+                Duration::from_secs(375),
+            )
+            .await
+            .unwrap();
+        budget.close_research().await.unwrap();
+        let synthesis = run(changed, &base, &headers, &body).await.unwrap();
+        assert!(
+            synthesis.messages[0]
+                .content
+                .contains("Completed recall evidence")
+        );
+        assert_eq!(
+            calls.lock().await.len(),
+            9,
+            "synthesis reuses completed reads"
+        );
+        let mut other_query = body.clone();
+        other_query["messages"][0]["content"] =
+            json!("What did I decide earlier about another project?");
+        let limited = run(config.clone(), &base, &headers, &other_query)
+            .await
+            .unwrap();
+        assert!(
+            limited
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("[MEMORY_CONTEXT]"))
+        );
+        assert_eq!(
+            calls.lock().await.len(),
+            9,
+            "closed research cannot trigger uncached memory reads"
+        );
+
+        state.finish().await.unwrap();
+        let completed = run(config, &base, &headers, &body).await.err().unwrap();
+        assert_eq!(
+            completed.downcast_ref::<crate::context_state::StateError>(),
+            Some(&crate::context_state::StateError::WorkflowCompleted)
+        );
+        assert_eq!(
+            calls.lock().await.len(),
+            9,
+            "completion is rejected before private I/O"
+        );
+        peer.abort();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
+    async fn protected_prep_deadline_covers_catalogue_and_expired_resume()
+     {
+        let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
+        let calls = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let router = Router::new().fallback(move |uri: Uri| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().await.push(uri.path().to_owned());
+                std::future::pending::<Json<Value>>().await
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut config = protected_memory_configuration(&base, &redis);
+        config.raw["functions"]["feed"] = json!({"_type":"rss_feed"});
+        config.raw["workflow"]["tools"] = json!(["clock", "feed"]);
+        config.raw["workflow"]["daily_summary_research_budget_seconds"] = json!(0.1);
+        config.raw["workflow"]["daily_summary_synthesis_retry_timeout_seconds"] = json!(0.1);
+        config
+            .env
+            .insert("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "5".into());
+        let preparation = Preparation::new(config).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-user-id",
+            format!("memory-deadline-{}", uuid::Uuid::new_v4())
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(
+            "x-conversation-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        headers.insert(
+            "x-run-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        let body = json!({"messages":[{"role":"user","content":"Summarize my projects"}],
+            "additional_props":{"context_workflow_id":uuid::Uuid::new_v4().to_string()}});
+        let error = tokio::time::timeout(
+            Duration::from_millis(700),
+            preparation.prepare(&reqwest::Client::new(), &base, &headers, &body),
+        )
+        .await
+        .expect("whole preparation must obey the durable total deadline")
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.downcast_ref::<crate::context_state::StateError>(),
+            Some(&crate::context_state::StateError::DeadlineExceeded)
+        );
+        let initial = calls.lock().await.clone();
+        assert!(
+            initial
+                .iter()
+                .any(|path| path.ends_with("/knowledge-base/search")),
+            "{initial:?}"
+        );
+        assert!(
+            initial
+                .iter()
+                .any(|path| path.ends_with("/runtime/v1/catalog")),
+            "{initial:?}"
+        );
+        headers.insert(
+            "x-run-id",
+            uuid::Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        let error = preparation
+            .prepare(&reqwest::Client::new(), &base, &headers, &body)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.downcast_ref::<crate::context_state::StateError>(),
+            Some(&crate::context_state::StateError::DeadlineExceeded)
+        );
+        assert_eq!(
+            *calls.lock().await,
+            initial,
+            "expired resume performed preparation I/O"
+        );
+        peer.abort();
     }
 
     #[tokio::test]

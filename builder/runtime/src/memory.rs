@@ -57,6 +57,14 @@ pub struct Memory {
     bootstrap: std::sync::Mutex<HashMap<String, Instant>>,
     bootstrap_locks: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
 }
+
+/// Local recovery for the fixed automatic search/page/recall reads. It carries
+/// no export authority, provider state or permission to generate memory.
+pub struct PreparationRecovery {
+    pub state: crate::context_state::SessionState,
+    pub budget: crate::context_state::DurableBudget,
+    pub origin: String,
+}
 /// Backs off after a failed bootstrap, including one dropped on Stop or its
 /// preparation deadline, as the baseline's negative cache does. Concurrent
 /// callers keep waiting for an attempt that is still in flight.
@@ -114,6 +122,62 @@ impl Memory {
         self.http
             .request(method, user, suffix, body, query, timeout)
             .await
+    }
+
+    async fn context_request(
+        &self,
+        method: reqwest::Method,
+        user: &str,
+        suffix: &str,
+        body: Option<Value>,
+        query: &[(&str, &str)],
+        recovery: Option<&PreparationRecovery>,
+    ) -> Result<Value> {
+        let Some(recovery) = recovery else {
+            return self.request(method, user, suffix, body, query).await;
+        };
+        const READ: &str = "__protected_memory_preparation_read";
+        let arguments = json!({"origin":recovery.origin,"method":method.as_str(),
+            "path":suffix,"body":body,"query":query});
+        if let Some(cached) = recovery.state.lookup_read(READ, &arguments).await? {
+            return serde_json::from_str(&cached.content)
+                .map_err(|_| crate::context_state::StateError::IncompatiblePolicyState.into());
+        }
+        match recovery.budget.check_research_open().await {
+            Ok(()) => {}
+            Err(crate::context_state::StateError::DeadlineExceeded) => {
+                bail!("Automatic memory research is closed");
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let timeout = recovery
+            .budget
+            .remaining_research()
+            .min(recovery.budget.remaining_total());
+        if timeout.is_zero() {
+            bail!("Automatic memory research is closed");
+        }
+        let response =
+            tokio::time::timeout(timeout, self.request(method, user, suffix, body, query))
+                .await
+                .map_err(|_| anyhow!("Automatic memory read deadline exceeded"))??;
+        if recovery.budget.remaining_research().is_zero()
+            || recovery.budget.remaining_total().is_zero()
+        {
+            bail!("Automatic memory read deadline exceeded");
+        }
+        recovery
+            .state
+            .record_read(
+                READ,
+                &arguments,
+                &crate::agent::ToolOutcome {
+                    content: serde_json::to_string(&response)?,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        Ok(response)
     }
     pub async fn health(&self) -> Result<()> {
         tokio::time::timeout(
@@ -320,18 +384,24 @@ impl Memory {
             cached_text
         }
     }
-    async fn pages(&self, user: &str, query: &str) -> Result<Vec<Value>> {
+    async fn pages(
+        &self,
+        user: &str,
+        query: &str,
+        recovery: Option<&PreparationRecovery>,
+    ) -> Result<Vec<Value>> {
         // This is a retrieval hint, not the coordinator's input. Bound the GET
         // URL so long authorized context cannot overflow producer URL parsers;
         // precise recall still receives the original query in its POST body.
         let hint = clip(query, 3000);
         let response = self
-            .request(
+            .context_request(
                 reqwest::Method::GET,
                 user,
                 "knowledge-base/search",
                 None,
                 &[("q", &hint), ("limit", "2")],
+                recovery,
             )
             .await?;
         let ids: Vec<_> = response["results"]
@@ -351,20 +421,36 @@ impl Memory {
                     u.path().trim_start_matches('/').to_string()
                 })
                 .unwrap();
-            self.request(
+            self.context_request(
                 reqwest::Method::GET,
                 user,
                 &format!("knowledge-base/pages/{encoded}"),
                 None,
                 &[],
+                recovery,
             )
             .await
         }))
         .await;
-        Ok(details.into_iter().filter_map(|r|r.ok()).filter_map(|v|{let body=v["body"].as_str().unwrap_or("").trim();if body.is_empty()||body=="Generating content..."{None}else{Some(json!({"name":clip(v["name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Knowledge Page"),200),"body":clip(body,1800)}))}}).collect())
+        let mut completed = Vec::new();
+        for result in details {
+            match result {
+                Ok(value) => completed.push(value),
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::context_state::StateError>()
+                        .is_some() =>
+                {
+                    return Err(error);
+                }
+                Err(_) => {}
+            }
+        }
+        Ok(completed.into_iter().filter_map(|v|{let body=v["body"].as_str().unwrap_or("").trim();if body.is_empty()||body=="Generating content..."{None}else{Some(json!({"name":clip(v["name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Knowledge Page"),200),"body":clip(body,1800)}))}}).collect())
     }
     pub async fn context(&self, user: &str, conversation: &str, query: &str) -> Result<String> {
-        self.context_inner(user, conversation, query, false).await
+        self.context_inner(user, conversation, query, false, None)
+            .await
     }
 
     /// Protected automatic preparation reads existing evidence only. Creating
@@ -372,7 +458,17 @@ impl Memory {
     /// service URL alone does not constrain those downstream destinations.
     /// The caller resolves trusted policy and durable enrollment first.
     pub async fn read_only_context(&self, user: &str, query: &str) -> Result<String> {
-        self.context_inner(user, "", query, true).await
+        self.context_inner(user, "", query, true, None).await
+    }
+
+    pub async fn recovered_read_only_context(
+        &self,
+        user: &str,
+        query: &str,
+        recovery: &PreparationRecovery,
+    ) -> Result<String> {
+        self.context_inner(user, "", query, true, Some(recovery))
+            .await
     }
 
     async fn context_inner(
@@ -381,6 +477,7 @@ impl Memory {
         conversation: &str,
         query: &str,
         read_only: bool,
+        recovery: Option<&PreparationRecovery>,
     ) -> Result<String> {
         if !self.enabled || query.trim().is_empty() {
             return Ok(String::new());
@@ -405,7 +502,7 @@ impl Memory {
             self.initialize(user).await?;
         }
         let recall = || {
-            self.request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[])
+            self.context_request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[], recovery)
         };
         // A past-lookup query always recalls raw facts, so that read need not
         // wait for page search. Otherwise recall remains a fallback for no pages.
@@ -418,16 +515,32 @@ impl Memory {
                     self.session_brief(user, conversation, query).await
                 }
             },
-            self.pages(user, query),
+            self.pages(user, query, recovery),
             async { if lookup { Some(recall().await) } else { None } }
         );
-        let pages = pages.unwrap_or_default();
+        let pages = match pages {
+            Err(error)
+                if error
+                    .downcast_ref::<crate::context_state::StateError>()
+                    .is_some() =>
+            {
+                return Err(error);
+            }
+            result => result.unwrap_or_default(),
+        };
         let recalled = match early {
             Some(result) => Some(result),
             None if pages.is_empty() => Some(recall().await),
             None => None,
         };
         let mut facts = Vec::new();
+        if let Some(Err(error)) = &recalled
+            && error
+                .downcast_ref::<crate::context_state::StateError>()
+                .is_some()
+        {
+            return Err(recalled.unwrap().unwrap_err());
+        }
         if let Some(Ok(response)) = recalled {
             facts=response["results"].as_array().into_iter().flatten().filter(|v|v.is_object()).take(6).filter(|v|!v["text"].as_str().unwrap_or("").trim().is_empty()).map(|v|json!({"text":clip(v["text"].as_str().unwrap(),1000),"type":v["type"],"mentioned_at":v["mentioned_at"]})).collect();
         }

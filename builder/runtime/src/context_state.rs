@@ -216,7 +216,8 @@ fn arguments_hash(value: &Value) -> String {
 pub fn cacheable_read(name: &str) -> bool {
     matches!(
         name,
-        "get_memory"
+        "__protected_memory_preparation_read"
+            | "get_memory"
             | "nws_weather_tool"
             | "public_briefing_worker"
             | "gmail_mcp_server__search_threads"
@@ -804,6 +805,21 @@ impl DurableBudget {
     pub fn remaining_research(&self) -> Duration {
         self.research_deadline
             .saturating_duration_since(Instant::now())
+    }
+
+    /// Reusing completed private evidence is allowed during synthesis, but an
+    /// uncached automatic memory read must not reopen a closed research phase.
+    /// This check does not consume the public search/scrape call allowance.
+    pub async fn check_research_open(&self) -> Result<()> {
+        let outcome: i64 = self.store.command(redis::cmd("EVAL")
+            .arg("local s=redis.call('HMGET',KEYS[1],'status','schema_version','context_class','research_closed','research_deadline','total_deadline'); if s[1]=='completed' then return -4 end; if s[1]~='active' or s[2]~='1' or s[3]~='LOCAL_ONLY' or not tonumber(s[5]) or not tonumber(s[6]) then return -1 end; local c=redis.call('TIME'); local n=tonumber(c[1])*1000+math.floor(tonumber(c[2])/1000); if s[4]~='0' or tonumber(s[5])<=n or tonumber(s[6])<=n then return -2 end; return 1")
+            .arg(1).arg(&self.key)).await.map_err(|_| StateError::PolicyStateUnavailable)?;
+        match outcome {
+            1 => Ok(()),
+            -2 => Err(StateError::DeadlineExceeded),
+            -4 => Err(StateError::WorkflowCompleted),
+            _ => Err(StateError::IncompatiblePolicyState),
+        }
     }
 
     /// Count actual collector transport attempts, including nested searches and

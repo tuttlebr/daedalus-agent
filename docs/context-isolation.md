@@ -109,6 +109,17 @@ GET retrieval hint, keeping percent-encoded URLs within producer parser limits.
 The recall POST query and the coordinator's original input and attachments retain
 their complete authorized content.
 
+The durable workflow budget is restored before catalogue discovery and memory
+reads. Expired or completed jobs fail before either operation; preparation uses
+the original total deadline rather than starting a new allowance afterward.
+Successful search, page and recall responses are cached separately as local-only
+completed reads, scoped to the authenticated owner, conversation, workflow,
+context policy, registered memory origin and exact request. A resumed job can
+retry a failed page without repeating its successful reads. Excluding workspace
+sources also excludes this recovery cache. Once research closes, preparation may
+reuse completed evidence but cannot issue an uncached memory request. These are
+raw read responses, not a generated session brief or permission to export memory.
+
 Hindsight's HTTP origin alone does not establish transitive locality. Before
 allowing protected text mutations, verify its main, retention, reflection,
 consolidation and mental-model-refresh model routes, including retries and
