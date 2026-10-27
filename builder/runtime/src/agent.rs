@@ -2687,6 +2687,12 @@ mod tests {
         });
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "synthetic-user".parse().unwrap());
+        // Match the HTTP entrypoint's shared conversation identity during
+        // both preparation and the Agent's persisted workflow lookup.
+        headers.insert(
+            "x-conversation-id",
+            "synthetic-conversation".parse().unwrap(),
+        );
         let handle = Arc::new(RunHandle {
             telemetry: tokio::sync::Mutex::new(None),
             user: "synthetic-user".into(),
