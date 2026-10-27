@@ -245,6 +245,32 @@ counters, deadlines and completion status. A new explicit UUID starts a new
 workflow. Provider sessions are rebuilt separately and never resume private
 context externally.
 
+Each protected request places an opaque, runtime-owned namespace before its
+existing message/instruction content: a prefix on the first Chat system/developer content,
+or on Responses `instructions`. Chat requests without a leading instruction
+message receive a first system message containing only the namespace. Existing
+instruction text, content parts and message order are preserved. The prefix
+precedes application instructions and task
+evidence. Public workers have no tools or source-bearing template preamble and
+derive their namespace from authenticated user/run,
+task identity, evidence and context/destination policy; retries retain it, while
+a changed scope receives a different prefix. The provider `user` field carries
+the same opaque value for affinity; it alone is not a cache boundary. Caller
+cache keys, continuation IDs and arbitrary metadata remain forbidden.
+
+This is logical separation of content-bearing prompt prefixes. It relies on a
+prefix cache deriving later block keys from preceding token blocks, so a
+different first namespace prevents reuse of the following task content. A
+provider's static template, reasoning instruction or configured tool catalog
+may still share blocks before the first application message. Public workers
+expose no tool catalog, so their evidence follows the discriminator. This does
+not partition a task-specific or private catalog that a coordinator template
+renders before the first message; stronger separation for such a catalog needs
+separately verified backend cache controls. This does not claim physical cache
+deletion, dedicated provider tenancy, or verified propagation of a vendor-specific
+cache salt. No instruction-following by the model is needed for the prefix
+separation.
+
 Redis policy enrollment is checked before preparation on every request, including
 when the isolation stanza is absent or disabled. Unavailable policy storage
 stops the request. The retained Python preparation path cannot process an enabled

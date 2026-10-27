@@ -644,7 +644,7 @@ impl Workers {
                     PublicPhase::Comparison => "public_comparison",
                     PublicPhase::SectionDraft => "public_section_draft",
                 }, attempt + 1);
-                let body = worker_request(&route.model, &task, &route.extra_body);
+                let body = worker_request(&route.model, &task, &route.extra_body)?;
                 let endpoint = format!("{}/{}", route.model.base_url.trim_end_matches('/'),
                     if route.model.api_type == "responses" {"responses"} else {"chat/completions"});
                 if let Some(handle) = self.handle.get() { handle.metrics.model_calls.fetch_add(1, Ordering::Relaxed); }
@@ -897,7 +897,7 @@ fn worker_request(
     model: &crate::agent::ModelConfig,
     task: &crate::context_isolation::WorkerTask,
     extra: &Value,
-) -> Value {
+) -> Result<Value> {
     let text = task.external_payload().to_string();
     let mut body = if model.api_type == "responses" {
         json!({"model":model.model_name,"input":[{"role":"user","content":text}],"store":false,"max_output_tokens":task.limits.max_output_tokens,"user":task.namespace()})
@@ -907,7 +907,13 @@ fn worker_request(
     if let Some(extra) = extra.as_object() {
         body.as_object_mut().unwrap().extend(extra.clone());
     }
-    body
+    crate::provider::prefix_isolated_context(
+        &mut body,
+        task.namespace(),
+        model.api_type == "responses",
+    )
+    .map_err(anyhow::Error::msg)?;
+    Ok(body)
 }
 
 fn worker_text(response: &Value, api: &str) -> Result<String> {
@@ -1011,7 +1017,7 @@ mod tests {
         }
         let text = body["input"][0]["content"]
             .as_str()
-            .or_else(|| body["messages"][0]["content"].as_str())
+            .or_else(|| body["messages"][1]["content"].as_str())
             .unwrap();
         let payload: Value = serde_json::from_str(text).unwrap();
         let source = &payload["evidence"][0];
@@ -1265,6 +1271,41 @@ mod tests {
             assert_ne!(requests[1].1["user"], requests[2].1["user"]);
             for (path, body) in requests.iter() {
                 assert!(!path.contains("local"));
+                let namespace = body["user"].as_str().unwrap();
+                assert_eq!(namespace.len(), 64);
+                assert!(
+                    namespace
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                );
+                let prefix = format!("DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n");
+                let text = if api == "responses" {
+                    assert_eq!(body["instructions"], prefix);
+                    assert_eq!(body["input"].as_array().unwrap().len(), 1);
+                    body["input"][0]["content"].as_str().unwrap()
+                } else {
+                    assert_eq!(
+                        body["messages"][0],
+                        json!({"role":"system","content":prefix})
+                    );
+                    assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+                    assert_eq!(body["messages"][1]["role"], "user");
+                    body["messages"][1]["content"].as_str().unwrap()
+                };
+                let payload: Value = serde_json::from_str(text).unwrap();
+                assert_eq!(payload["context_class"], "EXTERNAL_ALLOWED");
+                assert_eq!(
+                    payload["evidence"][0]["url"],
+                    "https://news.example.com/technology"
+                );
+                assert_eq!(
+                    body[if api == "responses" {
+                        "max_output_tokens"
+                    } else {
+                        "max_tokens"
+                    }],
+                    2048
+                );
                 let serialized = body.to_string();
                 assert!(!serialized.contains("PRIVATE-"));
                 assert!(!serialized.contains("confidential diagnosis"));

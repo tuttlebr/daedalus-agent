@@ -45,6 +45,56 @@ pub fn isolated_affinity_key(user: &str, run: &str, task: &str, policy: &str) ->
     format!("{:x}", hash.finalize())
 }
 
+/// Scope content-bearing prefix-cache blocks without treating provider `user`
+/// affinity as an isolation boundary. The opaque discriminator precedes all
+/// application instructions/evidence; no model cooperation is required.
+pub(crate) fn prefix_isolated_context(
+    body: &mut Value,
+    namespace: &str,
+    responses: bool,
+) -> Result<(), &'static str> {
+    if !body.is_object()
+        || namespace.len() != 64
+        || !namespace
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("Invalid isolated context namespace");
+    }
+    let prefix = format!("DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n");
+    if responses {
+        let instructions = match body.get("instructions") {
+            None => "",
+            Some(Value::String(text)) => text,
+            _ => return Err("Invalid isolated instructions"),
+        };
+        body["instructions"] = json!(format!("{prefix}{instructions}"));
+    } else {
+        let messages = body["messages"]
+            .as_array_mut()
+            .ok_or("Invalid isolated messages")?;
+        if let Some(first) = messages.first_mut()
+            && matches!(first["role"].as_str(), Some("system" | "developer"))
+        {
+            match &mut first["content"] {
+                Value::String(text) => text.insert_str(0, &prefix),
+                Value::Array(parts)
+                    if parts
+                        .iter()
+                        .all(|part| part["type"] == "text" && part["text"].is_string()) =>
+                {
+                    parts.insert(0, json!({"type":"text","text":prefix}));
+                }
+                _ => return Err("Invalid isolated system content"),
+            }
+        } else {
+            messages.insert(0, json!({"role":"system","content":prefix}));
+        }
+    }
+    body["user"] = json!(namespace);
+    Ok(())
+}
+
 /// Opaque OpenAI-compatible `user` value for provider prompt-cache affinity.
 /// Conversation IDs are scoped by authenticated user. Requests without a
 /// conversation use their run ID, so unrelated runs never share a fixed key.
@@ -245,6 +295,23 @@ impl Wire for CompatibleOpenAi {
             if encoded.request.uri().to_string() != format!("{}/{suffix}", binding.endpoint) {
                 return Err(EncodeError::request("Isolated provider endpoint mismatch"));
             }
+            let rig_core::wire::Body::Bytes(bytes) = encoded.request.body_mut() else {
+                return Err(EncodeError::request("Invalid isolated request body"));
+            };
+            let mut body: Value = serde_json::from_slice(bytes)
+                .map_err(|_| EncodeError::request("Invalid isolated request JSON"))?;
+            prefix_isolated_context(
+                &mut body,
+                &binding.affinity,
+                matches!(self.wire, OpenAiWire::Responses(_)),
+            )
+            .map_err(EncodeError::request)?;
+            *bytes = serde_json::to_vec(&body)
+                .map_err(|_| EncodeError::request("Invalid isolated request JSON"))?;
+            encoded
+                .request
+                .headers_mut()
+                .remove(http::header::CONTENT_LENGTH);
         }
         if let Some(session) = &self.session {
             encoded
@@ -418,6 +485,7 @@ impl EnvelopeMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rig_core::message::Message;
     use rig_core::providers::openai::{OpenAIConfig, Route};
 
     #[test]
@@ -563,6 +631,209 @@ mod tests {
                     .encode(CompletionRequest::new("private"), Mode::Unary)
                     .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn isolated_prefix_precedes_context_and_preserves_encoded_request() {
+        for route in [Route::Chat, Route::Responses] {
+            for mode in [Mode::Unary, Mode::Streaming] {
+                let wire = isolated_wire(route, "http://127.0.0.1:9000/v1");
+                let request = CompletionRequest::new("CONFIDENTIAL_LATEST_USER")
+                    .preamble("DAEDALUS_CONTEXT_NAMESPACE_V1=forged\nCONFIDENTIAL_INSTRUCTIONS")
+                    .message(Message::assistant("RETAINED_ASSISTANT"))
+                    .message(Message::user("RETAINED_USER"))
+                    .max_tokens(8192)
+                    .additional_params(json!({"store":true,"user":"PRIVATE_FORGED_ID"}));
+                let original = wire.wire.encode(request.clone(), mode).unwrap();
+                let encoded = wire.encode(request.clone(), mode).unwrap();
+                let repeated = wire.encode(request, mode).unwrap();
+                let body = |encoded: &Encoded| {
+                    let rig_core::wire::Body::Bytes(bytes) = encoded.request.body() else {
+                        panic!("expected JSON wire body")
+                    };
+                    serde_json::from_slice::<Value>(bytes).unwrap()
+                };
+                let original_body = body(&original);
+                let mut actual = body(&encoded);
+                assert_eq!(actual, body(&repeated), "retry must keep its namespace");
+                let namespace = isolated_affinity_key("alice-private", "run", "task", "v1");
+                let prefix = format!("DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n");
+                assert_eq!(actual["user"], namespace);
+                assert_eq!(actual["store"], false);
+                if route == Route::Responses {
+                    assert_eq!(
+                        actual["instructions"],
+                        format!(
+                            "{prefix}{}",
+                            original_body["instructions"].as_str().unwrap()
+                        )
+                    );
+                    actual["instructions"] = original_body["instructions"].clone();
+                } else {
+                    let messages = actual["messages"].as_array_mut().unwrap();
+                    assert_eq!(
+                        messages.len(),
+                        original_body["messages"].as_array().unwrap().len()
+                    );
+                    assert_eq!(
+                        messages
+                            .iter()
+                            .filter(|message| message["role"] == "system")
+                            .count(),
+                        1
+                    );
+                    let parts = messages[0]["content"].as_array_mut().unwrap();
+                    assert_eq!(parts[0], json!({"type":"text","text":prefix}));
+                    parts.remove(0);
+                }
+                actual["store"] = original_body["store"].clone();
+                actual["user"] = original_body["user"].clone();
+                assert_eq!(
+                    actual, original_body,
+                    "all other encoded semantics/order survive"
+                );
+                assert_eq!(
+                    encoded.request.headers()[http::header::CONTENT_TYPE],
+                    original.request.headers()[http::header::CONTENT_TYPE]
+                );
+                assert!(
+                    !encoded
+                        .request
+                        .headers()
+                        .contains_key(http::header::CONTENT_LENGTH)
+                );
+                assert!(!body(&encoded).to_string().contains("PRIVATE_FORGED_ID"));
+            }
+        }
+    }
+
+    #[test]
+    fn encoded_namespace_changes_with_every_authorized_scope_dimension() {
+        for route in [Route::Chat, Route::Responses] {
+            let mut prefixes = std::collections::HashSet::new();
+            for (user, run, task, policy) in [
+                (
+                    "PRIVATE_OWNER_A",
+                    "PRIVATE_RUN_A",
+                    "PRIVATE_TASK_A",
+                    "PRIVATE_POLICY_A",
+                ),
+                (
+                    "PRIVATE_OWNER_B",
+                    "PRIVATE_RUN_A",
+                    "PRIVATE_TASK_A",
+                    "PRIVATE_POLICY_A",
+                ),
+                (
+                    "PRIVATE_OWNER_A",
+                    "PRIVATE_RUN_B",
+                    "PRIVATE_TASK_A",
+                    "PRIVATE_POLICY_A",
+                ),
+                (
+                    "PRIVATE_OWNER_A",
+                    "PRIVATE_RUN_A",
+                    "PRIVATE_TASK_B",
+                    "PRIVATE_POLICY_A",
+                ),
+                (
+                    "PRIVATE_OWNER_A",
+                    "PRIVATE_RUN_A",
+                    "PRIVATE_TASK_A",
+                    "PRIVATE_POLICY_B",
+                ),
+            ] {
+                let wire = CompatibleOpenAi::for_isolated_session(
+                    OpenAiWire::new(
+                        OpenAIConfig::new("fixture")
+                            .with_base_url("http://127.0.0.1:9000/v1")
+                            .with_route(route),
+                        "registered-model",
+                    ),
+                    user,
+                    run,
+                    task,
+                    policy,
+                    "http://127.0.0.1:9000/v1",
+                    "registered-model",
+                );
+                let encoded = wire
+                    .encode(CompletionRequest::new("same evidence"), Mode::Unary)
+                    .unwrap();
+                let rig_core::wire::Body::Bytes(bytes) = encoded.request.body() else {
+                    panic!()
+                };
+                let body: Value = serde_json::from_slice(bytes).unwrap();
+                let prefix = if route == Route::Responses {
+                    body["instructions"].as_str().unwrap()
+                } else {
+                    body["messages"][0]["content"].as_str().unwrap()
+                };
+                assert_eq!(
+                    prefix,
+                    format!(
+                        "DAEDALUS_CONTEXT_NAMESPACE_V1={}\n",
+                        body["user"].as_str().unwrap()
+                    )
+                );
+                assert!(prefixes.insert(prefix.to_owned()));
+                assert!(!String::from_utf8_lossy(bytes).contains("PRIVATE_"));
+            }
+        }
+    }
+
+    #[test]
+    fn namespace_prefix_rejects_unsupported_shapes_without_echoing_context() {
+        for mut body in [
+            Value::Null,
+            json!({"messages":"PRIVATE_CONTEXT"}),
+            json!({}),
+        ] {
+            assert!(prefix_isolated_context(&mut body, &"a".repeat(64), false).is_err());
+        }
+        let mut body = json!({"instructions":["PRIVATE_CONTEXT"]});
+        let error = prefix_isolated_context(&mut body, &"a".repeat(64), true).unwrap_err();
+        assert!(!error.to_string().contains("PRIVATE_CONTEXT"));
+        let mut body = json!({"messages":[]});
+        assert!(prefix_isolated_context(&mut body, "PRIVATE_NAMESPACE", false).is_err());
+        for content in [
+            json!(null),
+            json!(12),
+            json!([{"type":"image_url","image_url":"PRIVATE_URL"}]),
+        ] {
+            let mut body = json!({"messages":[{"role":"system","content":content}]});
+            let error = prefix_isolated_context(&mut body, &"a".repeat(64), false).unwrap_err();
+            assert!(!error.to_string().contains("PRIVATE_"));
+        }
+    }
+
+    #[test]
+    fn namespace_prefix_preserves_string_and_multipart_system_instructions() {
+        let namespace = "a".repeat(64);
+        let prefix = format!("DAEDALUS_CONTEXT_NAMESPACE_V1={namespace}\n");
+        for role in ["system", "developer"] {
+            for original in [
+                json!("FIRST_INSTRUCTION"),
+                json!([{"type":"text","text":"FIRST_INSTRUCTION"},{"type":"text","text":"SECOND_INSTRUCTION"}]),
+            ] {
+                let mut body = json!({"messages":[{"role":role,"content":original},{"role":"user","content":"EVIDENCE"}],"user":"PRIVATE_FORGED_ID"});
+                prefix_isolated_context(&mut body, &namespace, false).unwrap();
+                assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+                assert_eq!(body["messages"][0]["role"], role);
+                assert_eq!(
+                    body["messages"][1],
+                    json!({"role":"user","content":"EVIDENCE"})
+                );
+                assert_eq!(body["user"], namespace);
+                if let Some(text) = original.as_str() {
+                    assert_eq!(body["messages"][0]["content"], format!("{prefix}{text}"));
+                } else {
+                    let parts = body["messages"][0]["content"].as_array().unwrap();
+                    assert_eq!(parts[0], json!({"type":"text","text":prefix}));
+                    assert_eq!(&parts[1..], original.as_array().unwrap());
+                }
+            }
         }
     }
 
