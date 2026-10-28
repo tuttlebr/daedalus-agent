@@ -334,6 +334,8 @@ It omits prompts, tool arguments, results, identities, and credentials. The run
 records how many responses actually reported usage so missing usage is not
 mistaken for a measured zero. Steering and completion remain independent of
 telemetry availability.
+Cleanup accepts unknown token totals and omits them from spans, so partial
+usage reports cannot prevent release of a failed or cancelled run.
 Routing attributes are retained as the current selection and written once at
 termination, alongside the outcome and counters. Repeated tool calls therefore
 cannot exhaust the span attribute limit and discard terminal metrics.

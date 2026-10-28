@@ -1945,6 +1945,9 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         break
                     time.sleep(0.02)
                 events = [record.get("fields", {}) for record in records]
+                assert not any(
+                    event.get("event") == "run_cleanup_failed" for event in events
+                ), "Run cleanup must accept missing provider usage and release its context"
                 required_events = {
                     "run_started",
                     "prepare_finished",

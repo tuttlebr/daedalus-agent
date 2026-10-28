@@ -338,6 +338,10 @@ jobs:
           "$RUNNER_TEMP/runtime-check/bin/python" builder/runtime_http_check.py \
             --image docker.io/your-user/daedalus:backend-0.1.0 \
             --redis-image docker.io/your-user/daedalus:redis-0.1.0
+          "$RUNNER_TEMP/runtime-check/bin/python" builder/runtime_http_check.py \
+            --image docker.io/your-user/daedalus:backend-0.1.0 \
+            --redis-image docker.io/your-user/daedalus:redis-0.1.0 \
+            --preparation python
 
       - name: Export runtime image digests
         id: image_digests

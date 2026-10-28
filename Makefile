@@ -75,6 +75,7 @@ rust-coverage: ## instrument Rust tests and retain LCOV evidence
 runtime: rust-check ## build Rust and exercise the deployable backend over HTTP
 	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
 	uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image $(RUNTIME_IMAGE) $(if $(RUNTIME_REDIS_IMAGE),--redis-image $(RUNTIME_REDIS_IMAGE))
+	uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image $(RUNTIME_IMAGE) $(if $(RUNTIME_REDIS_IMAGE),--redis-image $(RUNTIME_REDIS_IMAGE)) --preparation python
 
 migration-baseline: ## rebuild a retained source baseline when no immutable image override is supplied
 	@if [ "$(MIGRATION_BASELINE_IMAGE)" = "daedalus:migration-baseline-7dc4e1d" ]; then \
@@ -192,6 +193,7 @@ docker: ## validate all shipped image references, build and scan runtime images
 		docker compose config --quiet; \
 		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)"; \
+		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)" --preparation python; \
 		for service in backend frontend redis; do \
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \

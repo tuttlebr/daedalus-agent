@@ -66,7 +66,8 @@ class ToolCall(BaseModel):
 class RunReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     outcome: Literal["completed", "failed"]
-    metrics: dict[str, int] = Field(default_factory=dict)
+    # Cancelled or partially reported provider attempts have unknown totals.
+    metrics: dict[str, int | None] = Field(default_factory=dict)
 
 
 class CatalogRequest(BaseModel):
@@ -584,8 +585,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 "output_tokens",
                 "reported_usage_calls",
             ):
-                if key in body.metrics:
-                    run.span.set_attribute(key, body.metrics[key])
+                if (value := body.metrics.get(key)) is not None:
+                    run.span.set_attribute(key, value)
             run.span.end()
         log_event(
             "tool_run_released",

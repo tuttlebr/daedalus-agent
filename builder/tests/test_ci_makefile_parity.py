@@ -70,12 +70,20 @@ def test_local_runtime_http_checks_provision_the_same_dependencies_as_ci():
         if "builder/runtime_http_check.py" in step.get("run", "")
     )
     assert '"$RUNNER_TEMP/runtime-check/bin/pip" install httpx pyyaml' in command
+    assert command.count("builder/runtime_http_check.py") == 2
+    assert command.count("--preparation python") == 1
     local = [
         line.strip()
         for line in _MAKEFILE.read_text().splitlines()
         if "builder/runtime_http_check.py" in line
     ]
-    assert len(local) == 2  # standalone runtime and Compose docker gates
+    assert len(local) == 4  # both preparation modes in runtime and Compose gates
+    for standalone in (True, False):
+        invocations = [
+            line for line in local if ("$(RUNTIME_IMAGE)" in line) == standalone
+        ]
+        assert len(invocations) == 2
+        assert sum("--preparation python" in line for line in invocations) == 1
     for invocation in local:
         assert invocation.startswith(
             "uv run --no-project --python 3.12 --with httpx --with pyyaml python "
