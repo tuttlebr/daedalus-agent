@@ -66,6 +66,28 @@ if _USE_REAL_REDIS and "redis" in _EXTERNAL_MOCKS:
 for _mod_name in _EXTERNAL_MOCKS:
     sys.modules.setdefault(_mod_name, MagicMock())
 
+# Keep patched APIs in the instance dictionary. Pytest restores that dictionary
+# on teardown; deleting a lazily created MagicMock child instead blocks later
+# tests from accessing it (pytest 9.2 and newer).
+for _mod_name, _attributes in {
+    "fastapi": ("APIRouter",),
+    "pymilvus": ("DataType", "MilvusClient"),
+    "redis": ("from_url", "RedisError"),
+}.items():
+    _module = sys.modules.get(_mod_name)
+    if isinstance(_module, MagicMock):
+        for _attribute in _attributes:
+            setattr(_module, _attribute, getattr(_module, _attribute))
+if isinstance(sys.modules["openai"], MagicMock):
+    _client = sys.modules["openai"].AsyncOpenAI.return_value
+    _client.close = _client.close
+if isinstance(sys.modules["fastapi"], MagicMock):
+    _router = sys.modules["fastapi"].APIRouter.return_value
+    _router.post = _router.post
+if isinstance(sys.modules.get("redis"), MagicMock):
+    _exceptions = sys.modules["redis"].exceptions
+    _exceptions.NoPermissionError = _exceptions.NoPermissionError
+
 
 # ---------------------------------------------------------------------------
 # httpx mock: real exception classes so isinstance() works in mcp_patches

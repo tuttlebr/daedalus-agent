@@ -20,6 +20,8 @@ uses the digest-pinned upstream unprivileged nginx slim image.
   Existing Rust executables in the upstream image are retained.
   The locked optional rclone and Go module tooling dependencies are also patched
   to 1.75.1 and 0.41.0 so the full source inventory passes its existing gate.
+  Go JOSE is pinned to 4.1.6 for
+  [bounded RSA JWK parsing](https://github.com/go-jose/go-jose/security/advisories/GHSA-mgcc-cww5-fp2q).
 
 The central `deployment-images.json` inventory records every consuming service
 and build directory. `scripts/check_image_inventory.py --scan-upstream` builds
