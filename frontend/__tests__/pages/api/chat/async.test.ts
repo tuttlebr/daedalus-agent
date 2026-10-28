@@ -2592,15 +2592,6 @@ describe('chat/async streaming + finalize (characterization)', () => {
     },
   );
 
-  it('assigns the trusted job identity to context recovery instead of client metadata', async () => {
-    const { jobId, fetchSpy } = await runStreamTurn(
-      ['data: {"choices":[{"delta":{"content":"Done"}}]}\n', 'data: [DONE]\n'],
-      { additionalProps: { context_workflow_id: 'another-users-workflow' } },
-    );
-    const forwarded = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(forwarded.additional_props.context_workflow_id).toBe(jobId);
-  });
-
   it.each([null, '', 'automatic', 'daedalus/max', 1, true, {}, []])(
     'rejects invalid profile %j before storing or queuing a job',
     async (profile) => {

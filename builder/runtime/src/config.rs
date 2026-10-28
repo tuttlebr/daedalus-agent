@@ -225,17 +225,6 @@ impl Config {
     pub fn variable(&self, key: &str, default: &str) -> String {
         self.env.get(key).cloned().unwrap_or_else(|| default.into())
     }
-    /// Operator attestation for this service's complete LOCAL TEXT processing
-    /// chain. This does not attest vision processing or a model alias name.
-    pub fn hindsight_local_text_origin(&self) -> Result<Option<String>> {
-        let value = self.variable("DAEDALUS_HINDSIGHT_LOCAL_TEXT_ORIGIN", "");
-        if value.trim().is_empty() {
-            return Ok(None);
-        }
-        crate::hindsight::local_origin(&value)
-            .map(Some)
-            .ok_or_else(|| anyhow!("Invalid Hindsight local text processing origin"))
-    }
     pub fn workflow(&self) -> &Value {
         &self.raw["workflow"]
     }
@@ -257,8 +246,13 @@ impl Config {
         &self.raw["llms"][self.workflow()["llm_name"].as_str().unwrap_or("")]
     }
     fn validate(&self) -> Result<()> {
-        self.hindsight_local_text_origin()?;
         let workflow = self.workflow();
+        if workflow
+            .get("context_isolation")
+            .is_some_and(|value| !value.is_null() && value["enabled"] != false)
+        {
+            bail!("workflow.context_isolation is retired; remove it before starting this runtime");
+        }
         if workflow["_type"] != "daedalus_rust_agent" {
             bail!("workflow._type must be daedalus_rust_agent");
         }
@@ -462,7 +456,6 @@ impl Config {
                 bail!("Invalid model_routes");
             }
         }
-        let isolated = crate::routing::IsolationConfig::from_config(self)?.is_some();
         for field in ["request_model_profiles", "skill_model_profiles"] {
             let mappings = workflow
                 .get(field)
@@ -472,7 +465,7 @@ impl Config {
             for (key, value) in mappings {
                 if (field == "request_model_profiles" && key != "daily_summary")
                     || !["default", "deep"].iter().any(|s| value == s)
-                    || (!isolated && value == "deep" && !routes.contains_key("deep"))
+                    || (value == "deep" && !routes.contains_key("deep"))
                 {
                     bail!("Invalid automatic model mapping");
                 }
@@ -530,6 +523,35 @@ pub fn validate_model(model: &Value) -> Result<()> {
 mod concurrency_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn retired_context_isolation_cannot_silently_enable_unprotected_execution() {
+        let make = |isolation: Value| {
+            Config::new(
+                json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                    "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","context_isolation":isolation}}),
+                Default::default(),
+            )
+        };
+        for isolation in [Value::Null, json!({"enabled":false})] {
+            make(isolation).unwrap();
+        }
+        for isolation in [
+            json!({"enabled":true}),
+            json!({}),
+            json!(true),
+            json!({"enabled":"false"}),
+        ] {
+            let error = make(isolation)
+                .err()
+                .expect("retired protection must not be silently ignored");
+            assert!(
+                error
+                    .to_string()
+                    .contains("workflow.context_isolation is retired")
+            );
+        }
+    }
 
     fn configured(kind: &str, limit: Value) -> Result<Config> {
         Config::new(

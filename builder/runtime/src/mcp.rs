@@ -253,14 +253,11 @@ impl Mcp {
             .try_acquire_owned()
             .map_err(|_| anyhow!("MCP connection capacity reached"))?;
         let group = &self.config.raw["function_groups"][name];
-        let mut http = reqwest::Client::builder()
+        let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never());
-        if self.config.workflow()["context_isolation"]["enabled"] == true {
-            http = http.no_proxy();
-        }
-        let http = http.build()?;
+            .retry(reqwest::retry::never())
+            .build()?;
         let limit = crate::output::Settings::new(&self.config)
             .max_original
             .saturating_mul(6)

@@ -116,9 +116,6 @@ jobs:
         working-directory: builder
         run: pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
 
-      - name: Check context isolation evaluation guards
-        run: python -m unittest discover -s tools/context-isolation-eval/tests -p 'test_*.py'
-
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -337,14 +334,10 @@ jobs:
       - name: Exercise backend runtime and exact approvals over HTTP
         run: |
           python3 -m venv "$RUNNER_TEMP/runtime-check"
-          "$RUNNER_TEMP/runtime-check/bin/pip" install httpx pyyaml redis
+          "$RUNNER_TEMP/runtime-check/bin/pip" install httpx pyyaml
           "$RUNNER_TEMP/runtime-check/bin/python" builder/runtime_http_check.py \
             --image docker.io/your-user/daedalus:backend-0.1.0 \
             --redis-image docker.io/your-user/daedalus:redis-0.1.0
-          "$RUNNER_TEMP/runtime-check/bin/python" builder/context_isolation_http_check.py \
-            --image docker.io/your-user/daedalus:backend-0.1.0 \
-            --redis-image docker.io/your-user/daedalus:redis-0.1.0 \
-            --report "$RUNNER_TEMP/context-isolation-http.json"
 
       - name: Export runtime image digests
         id: image_digests

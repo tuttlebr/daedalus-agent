@@ -61,29 +61,12 @@ impl Telemetry {
             );
         }
         let timeout = raw["timeout"].as_f64().unwrap_or(3.).clamp(0.1, 30.);
-        let mut exporter = opentelemetry_otlp::SpanExporter::builder()
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs_f64(timeout))
             .with_headers(headers)
             .with_retry_policy(opentelemetry_otlp::RetryPolicy::default().with_max_retries(0));
-        if config.workflow()["context_isolation"]["enabled"] == true {
-            // The registry pins the exporter to a trusted local service. Keep
-            // proxy environment and redirects from changing that destination.
-            // Like OTLP's default client, build the blocking client off Tokio.
-            let client = std::thread::spawn(move || {
-                reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs_f64(timeout))
-                    .redirect(reqwest::redirect::Policy::none())
-                    .retry(reqwest::retry::never())
-                    .no_proxy()
-                    .build()
-            })
-            .join()
-            .map_err(|_| anyhow!("Invalid telemetry configuration"))?
-            .map_err(|_| anyhow!("Invalid telemetry configuration"))?;
-            exporter = exporter.with_http_client(client);
-        }
         let exporter = exporter
             .build()
             .map_err(|_| anyhow!("Invalid telemetry configuration"))?;
@@ -228,11 +211,7 @@ mod tests {
             json!({
                 "telemetry":{"endpoint":endpoint},
             "llms":{"main":{"base_url":"http://127.0.0.1:9000/v1","model_name":"fixture"}},
-            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","context_isolation":{
-                "enabled":true,"policy_version":"context-isolation-v1","coordinator":"local",
-                "destinations":{"local":{"llm":"main","trust":"trusted_local","transport":"direct"}},
-                "worker_profiles":{},"trusted_local_services":{"telemetry":endpoint,"redis":"redis://daedalus-redis.daedalus.svc.cluster.local:6379/0"}
-            }}
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}
             }),
             Default::default(),
         )

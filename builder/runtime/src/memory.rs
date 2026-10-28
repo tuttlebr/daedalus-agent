@@ -57,14 +57,6 @@ pub struct Memory {
     bootstrap: std::sync::Mutex<HashMap<String, Instant>>,
     bootstrap_locks: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
 }
-
-/// Local recovery for the fixed automatic search/page/recall reads. It carries
-/// no export authority, provider state or permission to generate memory.
-pub struct PreparationRecovery {
-    pub state: crate::context_state::SessionState,
-    pub budget: crate::context_state::DurableBudget,
-    pub origin: String,
-}
 /// Backs off after a failed bootstrap, including one dropped on Stop or its
 /// preparation deadline, as the baseline's negative cache does. Concurrent
 /// callers keep waiting for an attempt that is still in flight.
@@ -122,62 +114,6 @@ impl Memory {
         self.http
             .request(method, user, suffix, body, query, timeout)
             .await
-    }
-
-    async fn context_request(
-        &self,
-        method: reqwest::Method,
-        user: &str,
-        suffix: &str,
-        body: Option<Value>,
-        query: &[(&str, &str)],
-        recovery: Option<&PreparationRecovery>,
-    ) -> Result<Value> {
-        let Some(recovery) = recovery else {
-            return self.request(method, user, suffix, body, query).await;
-        };
-        const READ: &str = "__protected_memory_preparation_read";
-        let arguments = json!({"origin":recovery.origin,"method":method.as_str(),
-            "path":suffix,"body":body,"query":query});
-        if let Some(cached) = recovery.state.lookup_read(READ, &arguments).await? {
-            return serde_json::from_str(&cached.content)
-                .map_err(|_| crate::context_state::StateError::IncompatiblePolicyState.into());
-        }
-        match recovery.budget.check_research_open().await {
-            Ok(()) => {}
-            Err(crate::context_state::StateError::DeadlineExceeded) => {
-                bail!("Automatic memory research is closed");
-            }
-            Err(error) => return Err(error.into()),
-        }
-        let timeout = recovery
-            .budget
-            .remaining_research()
-            .min(recovery.budget.remaining_total());
-        if timeout.is_zero() {
-            bail!("Automatic memory research is closed");
-        }
-        let response =
-            tokio::time::timeout(timeout, self.request(method, user, suffix, body, query))
-                .await
-                .map_err(|_| anyhow!("Automatic memory read deadline exceeded"))??;
-        if recovery.budget.remaining_research().is_zero()
-            || recovery.budget.remaining_total().is_zero()
-        {
-            bail!("Automatic memory read deadline exceeded");
-        }
-        recovery
-            .state
-            .record_read(
-                READ,
-                &arguments,
-                &crate::agent::ToolOutcome {
-                    content: serde_json::to_string(&response)?,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        Ok(response)
     }
     pub async fn health(&self) -> Result<()> {
         tokio::time::timeout(
@@ -384,24 +320,16 @@ impl Memory {
             cached_text
         }
     }
-    async fn pages(
-        &self,
-        user: &str,
-        query: &str,
-        recovery: Option<&PreparationRecovery>,
-    ) -> Result<Vec<Value>> {
-        // This is a retrieval hint, not the coordinator's input. Bound the GET
-        // URL so long authorized context cannot overflow producer URL parsers;
-        // precise recall still receives the original query in its POST body.
+    async fn pages(&self, user: &str, query: &str) -> Result<Vec<Value>> {
+        // Bound the URL while preserving the full query for POST recall.
         let hint = clip(query, 3000);
         let response = self
-            .context_request(
+            .request(
                 reqwest::Method::GET,
                 user,
                 "knowledge-base/search",
                 None,
                 &[("q", &hint), ("limit", "2")],
-                recovery,
             )
             .await?;
         let ids: Vec<_> = response["results"]
@@ -410,7 +338,6 @@ impl Memory {
             .flatten()
             .filter_map(|v| v["id"].as_str())
             .filter(|s| !s.trim().is_empty())
-            .take(2)
             .collect();
         let details = join_all(ids.iter().map(|id| async move {
             let encoded: String = reqwest::Url::parse("http://fixture.invalid/")
@@ -421,64 +348,19 @@ impl Memory {
                     u.path().trim_start_matches('/').to_string()
                 })
                 .unwrap();
-            self.context_request(
+            self.request(
                 reqwest::Method::GET,
                 user,
                 &format!("knowledge-base/pages/{encoded}"),
                 None,
                 &[],
-                recovery,
             )
             .await
         }))
         .await;
-        let mut completed = Vec::new();
-        for result in details {
-            match result {
-                Ok(value) => completed.push(value),
-                Err(error)
-                    if error
-                        .downcast_ref::<crate::context_state::StateError>()
-                        .is_some() =>
-                {
-                    return Err(error);
-                }
-                Err(_) => {}
-            }
-        }
-        Ok(completed.into_iter().filter_map(|v|{let body=v["body"].as_str().unwrap_or("").trim();if body.is_empty()||body=="Generating content..."{None}else{Some(json!({"name":clip(v["name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Knowledge Page"),200),"body":clip(body,1800)}))}}).collect())
+        Ok(details.into_iter().filter_map(|r|r.ok()).filter_map(|v|{let body=v["body"].as_str().unwrap_or("").trim();if body.is_empty()||body=="Generating content..."{None}else{Some(json!({"name":clip(v["name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Knowledge Page"),200),"body":clip(body,1800)}))}}).collect())
     }
     pub async fn context(&self, user: &str, conversation: &str, query: &str) -> Result<String> {
-        self.context_inner(user, conversation, query, false, None)
-            .await
-    }
-
-    /// Protected automatic preparation reads existing evidence only. Creating
-    /// pages or reflecting can enqueue model work inside Hindsight; a local
-    /// service URL alone does not constrain those downstream destinations.
-    /// The caller resolves trusted policy and durable enrollment first.
-    pub async fn read_only_context(&self, user: &str, query: &str) -> Result<String> {
-        self.context_inner(user, "", query, true, None).await
-    }
-
-    pub async fn recovered_read_only_context(
-        &self,
-        user: &str,
-        query: &str,
-        recovery: &PreparationRecovery,
-    ) -> Result<String> {
-        self.context_inner(user, "", query, true, Some(recovery))
-            .await
-    }
-
-    async fn context_inner(
-        &self,
-        user: &str,
-        conversation: &str,
-        query: &str,
-        read_only: bool,
-        recovery: Option<&PreparationRecovery>,
-    ) -> Result<String> {
         if !self.enabled || query.trim().is_empty() {
             return Ok(String::new());
         }
@@ -498,49 +380,25 @@ impl Memory {
         if user.is_empty() {
             return Err(anyhow!("Authenticated user required"));
         }
-        if !read_only {
-            self.initialize(user).await?;
-        }
+        self.initialize(user).await?;
         let recall = || {
-            self.context_request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[], recovery)
+            self.request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[])
         };
         // A past-lookup query always recalls raw facts, so that read need not
         // wait for page search. Otherwise recall remains a fallback for no pages.
         let lookup = PAST_LOOKUP.is_match(query);
         let (brief, pages, early) = tokio::join!(
-            async {
-                if read_only {
-                    String::new()
-                } else {
-                    self.session_brief(user, conversation, query).await
-                }
-            },
-            self.pages(user, query, recovery),
+            self.session_brief(user, conversation, query),
+            self.pages(user, query),
             async { if lookup { Some(recall().await) } else { None } }
         );
-        let pages = match pages {
-            Err(error)
-                if error
-                    .downcast_ref::<crate::context_state::StateError>()
-                    .is_some() =>
-            {
-                return Err(error);
-            }
-            result => result.unwrap_or_default(),
-        };
+        let pages = pages.unwrap_or_default();
         let recalled = match early {
             Some(result) => Some(result),
             None if pages.is_empty() => Some(recall().await),
             None => None,
         };
         let mut facts = Vec::new();
-        if let Some(Err(error)) = &recalled
-            && error
-                .downcast_ref::<crate::context_state::StateError>()
-                .is_some()
-        {
-            return Err(recalled.unwrap().unwrap_err());
-        }
         if let Some(Ok(response)) = recalled {
             facts=response["results"].as_array().into_iter().flatten().filter(|v|v.is_object()).take(6).filter(|v|!v["text"].as_str().unwrap_or("").trim().is_empty()).map(|v|json!({"text":clip(v["text"].as_str().unwrap(),1000),"type":v["type"],"mentioned_at":v["mentioned_at"]})).collect();
         }
@@ -634,13 +492,6 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Barrier;
 
-    struct PolicyPeer(tokio::task::JoinHandle<()>);
-    impl Drop for PolicyPeer {
-        fn drop(&mut self) {
-            self.0.abort();
-        }
-    }
-
     #[derive(Clone)]
     struct Peer {
         rendezvous: Option<Arc<Barrier>>,
@@ -672,14 +523,13 @@ mod tests {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new().fallback(reply).with_state(peer);
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
         let config = Config::new(
             json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
             [
                 ("HINDSIGHT_API_URL".into(), base),
                 ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
-                ("REDIS_URL".into(), redis),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
             ]
             .into(),
         )
@@ -692,7 +542,6 @@ mod tests {
         .await
         .expect("a past-lookup recall must not wait for page search");
         server.abort();
-        policy_store.abort();
         let calls = calls.lock().await.clone();
         (result, calls)
     }
@@ -737,100 +586,43 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy)]
-    enum ReadReply {
-        Pages,
-        MissingBank,
-        Unavailable,
-        MissingPages,
-    }
-
-    /// The real HTTP peer rejects every endpoint that could initialize or
-    /// generate memory. Its overfull search result also exercises the client
-    /// bound rather than trusting the server's requested limit.
-    async fn read_only_peer(
-        reply: ReadReply,
-    ) -> (Memory, Arc<Mutex<Vec<Value>>>, tokio::task::JoinHandle<()>) {
-        use axum::{body::Bytes, response::IntoResponse};
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let seen = calls.clone();
-        let router = Router::new().fallback(
-            move |method: axum::http::Method, uri: Uri, body: Bytes| {
-                let seen = seen.clone();
-                async move {
-                    seen.lock().await.push(json!({
-                        "method":method.as_str(), "path":uri.path(), "query":uri.query(),
-                        "body":serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null)
-                    }));
-                    let search = method == axum::http::Method::GET
-                        && uri.path().ends_with("/knowledge-base/search");
-                    let page = method == axum::http::Method::GET
-                        && uri.path().contains("/knowledge-base/pages/");
-                    let recall = method == axum::http::Method::POST
-                        && uri.path().ends_with("/memories/recall");
-                    if !(search || page || recall) {
-                        return axum::http::StatusCode::METHOD_NOT_ALLOWED.into_response();
-                    }
-                    match reply {
-                        ReadReply::MissingBank => {
-                            return axum::http::StatusCode::NOT_FOUND.into_response();
-                        }
-                        ReadReply::Unavailable => {
-                            return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
-                        }
-                        ReadReply::MissingPages if page => {
-                            return axum::http::StatusCode::NOT_FOUND.into_response();
-                        }
-                        _ => {}
-                    }
-                    Json(if search {
-                        json!({"results":[{"id":"one"},{"id":"two"},{"id":"unexpected-third"}]})
-                    } else if page {
-                        json!({"name":"Synthetic existing page","body":"Existing supported preference"})
-                    } else {
-                        json!({"results":(0..9).map(|index|json!({
-                            "text":format!("Recall fact {index}: {}", "x".repeat(if index == 0 {1500} else {700})),"type":"world"
-                        })).collect::<Vec<_>>()})
-                    }).into_response()
-                }
-            },
-        );
+    #[tokio::test]
+    async fn page_search_bounds_unicode_get_hint_without_changing_recall_query() {
+        use axum::body::Bytes;
+        type Calls = Arc<Mutex<Vec<Value>>>;
+        async fn capture(State(calls): State<Calls>, uri: Uri, body: Bytes) -> Json<Value> {
+            calls.lock().await.push(json!({
+                "path": uri.path(), "query": uri.query(),
+                "body": serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
+            }));
+            Json(json!({"results": []}))
+        }
+        let calls = Calls::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
-        let server = tokio::spawn(async move {
-            let _policy = PolicyPeer(policy_store);
-            axum::serve(listener, router).await.unwrap()
-        });
+        let router = Router::new().fallback(capture).with_state(calls.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let config = Config::new(
             json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
             [
                 ("HINDSIGHT_API_URL".into(), base),
                 ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
-                ("REDIS_URL".into(), redis),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
             ]
             .into(),
         )
         .unwrap();
-        (Memory::new(&config).unwrap(), calls, server)
-    }
-
-    #[tokio::test]
-    async fn page_search_bounds_unicode_get_hint_without_changing_recall_query() {
+        let memory = Memory::new(&config).unwrap();
         let long = format!(
             "What did I decide earlier? {} ORIGINAL_QUERY_END",
             "界🙂?#%&=".repeat(1200)
         );
         for query in ["What did I decide earlier?", long.as_str()] {
-            let (memory, calls, peer) = read_only_peer(ReadReply::Pages).await;
-            memory
-                .read_only_context("synthetic-alice", query)
-                .await
-                .unwrap();
-            peer.abort();
-            let calls = calls.lock().await;
-            let search = calls
+            calls.lock().await.clear();
+            memory.context("synthetic-alice", "", query).await.unwrap();
+            let captured = calls.lock().await;
+            let search = captured
                 .iter()
                 .find(|call| {
                     call["path"]
@@ -840,120 +632,19 @@ mod tests {
                 })
                 .unwrap();
             let encoded = search["query"].as_str().unwrap();
-            // Even four-byte UTF-8 characters, fully percent-encoded, remain
-            // below the producer's 16-bit URL query-length boundary.
             assert!(encoded.len() < 36_100, "{}", encoded.len());
             let url = reqwest::Url::parse(&format!("http://fixture.invalid/?{encoded}")).unwrap();
             let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
             assert_eq!(pairs["q"], query.chars().take(3000).collect::<String>());
             assert_eq!(pairs["limit"], "2");
-            let recall = calls
+            let recall = captured
                 .iter()
                 .find(|call| call["path"].as_str().unwrap().ends_with("memories/recall"))
                 .unwrap();
             assert_eq!(recall["body"]["query"], query);
             assert_eq!(recall["body"]["max_tokens"], 600);
         }
-    }
-
-    #[tokio::test]
-    async fn protected_context_reads_existing_evidence_without_generating_synthesis() {
-        let query = "Summarize my projects and what I decided earlier";
-        assert!(SYNTHESIS.is_match(query));
-        assert!(PAST_LOOKUP.is_match(query));
-        let (memory, calls, peer) = read_only_peer(ReadReply::Pages).await;
-        let result = memory
-            .read_only_context("synthetic-alice", query)
-            .await
-            .unwrap();
-        peer.abort();
-        assert!(result.contains("Existing supported preference"));
-        assert!(result.contains("Recall fact 0"));
-        assert!(!result.contains("Recall fact 6"));
-        let payload: Value = serde_json::from_str(result.lines().last().unwrap()).unwrap();
-        assert!(payload["session_brief"].is_null());
-        assert_eq!(payload["precise_facts"].as_array().unwrap().len(), 6);
-        assert!(chars(payload["precise_facts"][0]["text"].as_str().unwrap()) <= 1000);
-        assert!(chars(&payload.to_string()) <= 6000);
-        let calls = calls.lock().await;
-        assert_eq!(calls.len(), 4, "{calls:?}");
-        assert_eq!(
-            calls
-                .iter()
-                .filter(|c| c["path"]
-                    .as_str()
-                    .unwrap()
-                    .contains("/knowledge-base/pages/"))
-                .count(),
-            2
-        );
-        assert!(
-            !calls
-                .iter()
-                .any(|c| c["path"].as_str().unwrap().contains("unexpected-third"))
-        );
-        let recall = calls
-            .iter()
-            .find(|c| c["path"].as_str().unwrap().ends_with("/memories/recall"))
-            .unwrap();
-        assert_eq!(recall["body"]["budget"], "low");
-        assert_eq!(recall["body"]["max_tokens"], 600);
-        assert_eq!(recall["body"]["trace"], false);
-        assert!(calls.iter().all(|c| {
-            c["path"]
-                .as_str()
-                .unwrap()
-                .contains(&bank_id("synthetic-alice"))
-        }));
-    }
-
-    #[tokio::test]
-    async fn protected_context_does_not_initialize_missing_or_unavailable_banks() {
-        for reply in [ReadReply::MissingBank, ReadReply::Unavailable] {
-            let (memory, calls, peer) = read_only_peer(reply).await;
-            assert!(
-                memory
-                    .read_only_context("synthetic-alice", "Summarize my projects")
-                    .await
-                    .unwrap()
-                    .is_empty()
-            );
-            peer.abort();
-            let calls = calls.lock().await;
-            assert_eq!(calls.len(), 2, "{calls:?}");
-            assert!(
-                calls[0]["path"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with("/knowledge-base/search")
-            );
-            assert!(
-                calls[1]["path"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with("/memories/recall")
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn protected_context_recalls_when_existing_pages_cannot_be_read() {
-        let (memory, calls, peer) = read_only_peer(ReadReply::MissingPages).await;
-        let result = memory
-            .read_only_context("synthetic-alice", "Review my project preferences")
-            .await
-            .unwrap();
-        peer.abort();
-        assert!(result.contains("Recall fact 0"));
-        assert!(!result.contains("Existing supported preference"));
-        let calls = calls.lock().await;
-        assert_eq!(calls.len(), 4, "{calls:?}");
-        assert!(
-            calls.last().unwrap()["path"]
-                .as_str()
-                .unwrap()
-                .ends_with("/memories/recall")
-        );
+        server.abort();
     }
 
     /// Holds each bank configuration read until a permit is released. Every
@@ -985,18 +676,14 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new().fallback(held).with_state(peer);
-        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
-        let server = tokio::spawn(async move {
-            let _policy = PolicyPeer(policy_store);
-            axum::serve(listener, router).await.unwrap()
-        });
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let config = Config::new(
             json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
             [
                 ("HINDSIGHT_API_URL".into(), base),
                 ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
-                ("REDIS_URL".into(), redis),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
             ]
             .into(),
         )

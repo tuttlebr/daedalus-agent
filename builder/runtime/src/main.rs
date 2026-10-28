@@ -9,8 +9,6 @@ mod authorization_tests;
 mod collection_api;
 mod collections;
 mod config;
-mod context_isolation;
-mod context_state;
 mod control;
 mod document_api;
 mod document_batch;
@@ -71,10 +69,8 @@ mod profile_import;
 mod protocol;
 mod provider;
 mod public_http;
-mod public_worker;
 mod reranker_order;
 mod response_policy;
-mod routing;
 mod storage;
 mod telemetry;
 mod tool_contracts;
@@ -267,7 +263,10 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         }
         runs.insert(run_id.clone(), handle.clone());
     }
-    let events = Events::new(run_id.clone(), sender);
+    let events = Events {
+        run_id: run_id.clone(),
+        sender,
+    };
     let cleanup = app.preparation.is_none().then(|| {
         app.http
             .delete(format!("{}/runtime/run", app.tools_url))
@@ -386,7 +385,7 @@ async fn supervise(
             tracing::info!(event = "cancellation_received");
             Err(anyhow::anyhow!("Run cancelled by user"))
         },
-        _ = events.closed() => Err(anyhow::anyhow!("Client disconnected")),
+        _ = events.sender.closed() => Err(anyhow::anyhow!("Client disconnected")),
         result = run => match result {
             Ok(result) => result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out"))),
             // A panic payload can quote private values; report only the fact.
@@ -420,21 +419,6 @@ async fn supervise(
             "Model response did not complete" => "Model response did not complete",
             "Model request timed out" => "Model request timed out",
             "Client disconnected" => "Client disconnected",
-            _ if failure.downcast_ref::<routing::PolicyError>().is_some() => {
-                "No permitted model destination is available; private context remains local"
-            }
-            _ if failure
-                .downcast_ref::<context_state::StateError>()
-                .is_some() =>
-            {
-                "Context isolation state could not be restored safely; private context remains local"
-            }
-            _ if failure
-                .downcast_ref::<context_isolation::IsolationError>()
-                .is_some() =>
-            {
-                "Context policy or shared workflow budget prevented this request; completed evidence remains local"
-            }
             _ if details.phase == "model_stream" && details.kind == "json" => {
                 "Model response could not be decoded; completed output has been preserved"
             }
@@ -795,9 +779,6 @@ async fn mcp_readiness(preparation: &preparation::Preparation, response: Respons
 async fn main() -> anyhow::Result<()> {
     logging::init();
     let http = reqwest::Client::builder()
-        // This client carries authenticated private requests only to local
-        // application components, never through an ambient outbound proxy.
-        .no_proxy()
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
@@ -974,7 +955,10 @@ mod tests {
         let handle = run("alice", "conversation", false);
         runs.lock().await.insert("defective".into(), handle.clone());
         let (sender, mut receiver) = mpsc::channel(8);
-        let events = Events::new("defective", sender);
+        let events = Events {
+            run_id: "defective".into(),
+            sender,
+        };
         let supervisor = tokio::spawn(supervise(
             runs.clone(),
             "defective".into(),
@@ -1001,7 +985,10 @@ mod tests {
     #[tokio::test]
     async fn non_streaming_responses_keep_the_terminal_reason_and_caller_events() {
         let (sender, mut receiver) = mpsc::channel(16);
-        let events = Events::new("run-1", sender);
+        let events = Events {
+            run_id: "run-1".into(),
+            sender,
+        };
         events
             .event(
                 "oauth_required",
@@ -1092,7 +1079,10 @@ mod tests {
         runs.lock().await.insert("failed".into(), handle.clone());
         // A one-slot output channel holds the supervisor in its terminal events.
         let (sender, mut receiver) = mpsc::channel(1);
-        let events = Events::new("failed", sender);
+        let events = Events {
+            run_id: "failed".into(),
+            sender,
+        };
         let failed = async move {
             let _inbox = inbox;
             anyhow::bail!("synthetic model failure")

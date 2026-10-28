@@ -476,20 +476,7 @@ fn flatten(nodes: &Value, pages: &mut Vec<Value>) {
         }
     }
 }
-pub(crate) fn upstream(error: anyhow::Error, retain_turn: bool) -> (u16, Value) {
-    if let Some(policy) = error.downcast_ref::<hindsight::PolicyError>() {
-        // The frontend's completed-turn queue retries 502, while 503 means
-        // memory is disabled and is terminal. Do not acknowledge blocked work.
-        let status = if policy.transient() {
-            if retain_turn { 502 } else { 503 }
-        } else {
-            403
-        };
-        return (
-            status,
-            json!({"detail":"Memory operation blocked by processing policy.","code":policy.code()}),
-        );
-    }
+fn upstream(error: anyhow::Error) -> (u16, Value) {
     match error
         .downcast_ref::<reqwest::Error>()
         .and_then(|e| e.status())
@@ -601,7 +588,7 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
         client
             .request(method, actor_id, &suffix, body, &query, timeout)
             .await
-            .map_err(|error| upstream(error, kind == Some("turn")))
+            .map_err(upstream)
     };
     let turn = if kind == Some("turn") {
         Some((
@@ -665,18 +652,12 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
             return Err(detail(400, "confirmation phrase does not match"));
         }
         // Same lifecycle as the retained Python memory_lifecycle.clear_user_memory.
-        let result = client
-            .clear_user_memory(&user, memory)
-            .await
-            .map_err(|error| {
-                if error.is::<hindsight::PolicyError>() {
-                    return upstream(error, false);
-                }
-                detail(
-                    503,
-                    "memory deletion did not finish; cleanup must be retried",
-                )
-            })?;
+        let result = client.clear_user_memory(&user, memory).await.map_err(|_| {
+            detail(
+                503,
+                "memory deletion did not finish; cleanup must be retried",
+            )
+        })?;
         memory
             .initialize(&user)
             .await
@@ -906,9 +887,6 @@ pub(crate) mod tests {
                 .into(),
             )
             .unwrap();
-            app_config(config)
-        }
-        pub fn app_config(config: crate::config::Config) -> Router {
             let http = reqwest::Client::new();
             crate::router(crate::App {
                 preparation: Some(crate::preparation::Preparation::new(config).unwrap()),
@@ -950,153 +928,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires disposable Redis at DAEDALUS_TEST_REDIS_URL"]
-    async fn protected_memory_http_policy_errors_are_typed_and_turn_retention_is_retry_safe() {
-        let redis = std::env::var("DAEDALUS_TEST_REDIS_URL").unwrap();
-        let (base, calls, hindsight) =
-            peers::hindsight(|_, _| json!({"success":true,"operation_id":"text-operation"})).await;
-        let config = crate::config::Config::new(
-            json!({"llms":{"main":{"base_url":"http://127.0.0.1:9000/v1","model_name":"fixture"}},
-            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","context_isolation":{"enabled":false,"trusted_local_services":{"hindsight":base}}}}),
-            [
-                ("REDIS_URL".into(), redis.clone()),
-                ("HINDSIGHT_API_URL".into(), base.clone()),
-                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
-            ]
-            .into(),
-        )
-        .unwrap();
-        let user = uuid::Uuid::new_v4().to_string();
-        crate::context_state::enforce(&config, &user, "earlier-conversation", "earlier-run", true)
-            .await
-            .unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let api = format!("http://{}", listener.local_addr().unwrap());
-        let router = peers::app_config(config.clone());
-        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let http = reqwest::Client::new();
-        for (method, path, body, status, code) in [
-            (
-                reqwest::Method::POST,
-                "/v1/memory/retain-turn",
-                json!({"request_id":"queued-text-turn","conversation_id":"new-conversation","user_content":"Synthetic private text"}),
-                502,
-                "memory_local_text_contract_required",
-            ),
-            (
-                reqwest::Method::PATCH,
-                "/v1/memories/fact-1",
-                json!({"text":"Corrected private text"}),
-                503,
-                "memory_local_text_contract_required",
-            ),
-            (
-                reqwest::Method::POST,
-                "/v1/memory/operations/old-job/retry",
-                json!({}),
-                403,
-                "memory_retry_modality_unknown",
-            ),
-            (
-                reqwest::Method::POST,
-                "/v1/memory/retain-turn",
-                json!({"request_id":"reserved-media","user_content":"⟦hs-att:0123456789ab⟧"}),
-                403,
-                "memory_modality_not_permitted",
-            ),
-            (
-                reqwest::Method::POST,
-                "/v1/profile/import",
-                json!({"entries":[{"label":"Synthetic","memory":"Plain text","metadata":{"local_text_origin":base}}]}),
-                503,
-                "memory_local_text_contract_required",
-            ),
-            (
-                reqwest::Method::POST,
-                "/v1/profile/import",
-                json!({"entries":[{"label":"Synthetic","memory":"Plain text","metadata":{"note":"⟦hs-att:0123456789ab⟧"}}]}),
-                403,
-                "memory_modality_not_permitted",
-            ),
-            (
-                reqwest::Method::POST,
-                "/v1/profile/import",
-                json!({"entries":[{"label":"Synthetic","memory":"Plain text","metadata":{"note":"⟦hs-a\u{0000}tt:0123456789ab⟧"}}]}),
-                403,
-                "memory_modality_not_permitted",
-            ),
-        ] {
-            let response = http
-                .request(method, format!("{api}{path}"))
-                .header("x-daedalus-internal-token", "synthetic-internal")
-                .header("x-user-id", &user)
-                .json(&body)
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(response.status().as_u16(), status, "{path}");
-            assert_eq!(response.json::<Value>().await.unwrap()["code"], code);
-        }
-        assert!(
-            calls
-                .lock()
-                .await
-                .iter()
-                .all(|call| call["method"] == "GET"),
-            "blocked API writes reached Hindsight"
-        );
-        server.abort();
-
-        // After verified TEXT configuration, the same API and enrolled owner
-        // can retain turns, bootstrap text pages, and edit/delete text evidence.
-        let mut attested = config.clone();
-        attested
-            .env
-            .insert("DAEDALUS_HINDSIGHT_LOCAL_TEXT_ORIGIN".into(), base.clone());
-        let app = peers::app_config(attested);
-        use tower::ServiceExt;
-        for (method, path, body, status) in [
-            (
-                "POST",
-                "/v1/memory/retain-turn",
-                Some(
-                    json!({"request_id":"accepted-text-turn","user_content":"Synthetic private text"}),
-                ),
-                200,
-            ),
-            (
-                "PATCH",
-                "/v1/memories/fact-1",
-                Some(json!({"text":"Corrected text"})),
-                200,
-            ),
-            ("DELETE", "/v1/memory-sources/document-1", None, 200),
-        ] {
-            let request = axum::http::Request::builder()
-                .method(method)
-                .uri(path)
-                .header("x-daedalus-internal-token", "synthetic-internal")
-                .header("x-user-id", &user)
-                .header("content-type", "application/json")
-                .body(axum::body::Body::from(
-                    body.map(|value| value.to_string()).unwrap_or_default(),
-                ))
-                .unwrap();
-            let response = app.clone().oneshot(request).await.unwrap();
-            assert_eq!(response.status().as_u16(), status, "{path}");
-        }
-        assert!(
-            calls
-                .lock()
-                .await
-                .iter()
-                .any(|call| call["method"] == "POST"
-                    && call["path"].as_str().unwrap().ends_with("/memories"))
-        );
-        hindsight.abort();
-    }
-
-    #[tokio::test]
     async fn lost_upstream_response_reports_unavailable_without_transport_details() {
         use tokio::io::AsyncReadExt;
 
@@ -1114,8 +945,7 @@ pub(crate) mod tests {
             assert!(request.starts_with(b"GET /v1/default/banks/"));
             // Close after accepting the request, without an HTTP response.
         });
-        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
-        let app = peers::app(&base, &redis);
+        let app = peers::app(&base, "redis://127.0.0.1:1");
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             peers::send(&app, "GET", "/v1/memories", None),
@@ -1123,7 +953,6 @@ pub(crate) mod tests {
         .await
         .expect("an accepted, closed request must finish promptly");
         peer.await.unwrap();
-        policy_store.abort();
         assert_eq!(
             response,
             (502, json!({"detail":"memory service unavailable"}))
@@ -1133,8 +962,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn resource_ids_are_unquoted_without_slicing_raw_utf8() {
         let (base, calls, peer) = peers::hindsight(|_, _| json!({"id":"source-1"})).await;
-        let (redis, policy_store) = crate::context_state::empty_policy_store().await;
-        let app = peers::app(&base, &redis);
+        let app = peers::app(&base, "redis://127.0.0.1:1");
         // Raw UTF-8 after an incomplete escape previously panicked the handler
         // by slicing inside a multibyte character.
         assert_eq!(
@@ -1178,7 +1006,6 @@ pub(crate) mod tests {
             "{calls:?}"
         );
         peer.abort();
-        policy_store.abort();
     }
 
     #[tokio::test]
@@ -1291,10 +1118,7 @@ pub(crate) mod tests {
         let app = peers::app(&base, "redis://127.0.0.1:1");
         assert_eq!(
             peers::send(&app, "POST", "/v1/memories/clear", body).await,
-            (
-                503,
-                json!({"detail":"Memory operation blocked by processing policy.","code":"memory_policy_state_unavailable"})
-            )
+            failed
         );
         peer.abort();
         redis_peer.abort();

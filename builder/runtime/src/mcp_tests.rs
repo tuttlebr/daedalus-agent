@@ -110,7 +110,13 @@ fn config(url: &str) -> Config {
 }
 fn emit() -> (Emitter, tokio::sync::mpsc::Receiver<bytes::Bytes>) {
     let (sender, receiver) = tokio::sync::mpsc::channel(128);
-    (Emitter::Chat(Events::new("synthetic", sender)), receiver)
+    (
+        Emitter::Chat(Events {
+            run_id: "synthetic".into(),
+            sender,
+        }),
+        receiver,
+    )
 }
 fn count(peer: &Peer, method: &str) -> usize {
     peer.requests
