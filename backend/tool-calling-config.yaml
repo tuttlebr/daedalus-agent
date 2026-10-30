@@ -351,14 +351,76 @@ function_groups:
     # Reviewed read-only surface from daedalus-context. Write, exec, agent, and
     # Helm mutation tools remain unavailable even if the upstream role drifts.
     include:
+      # Kubernetes — Core & Discovery (Read-Only)
       - getAPIResources
       - listResources
       - getResource
+      - describeResource
       - getPodsLogs
+      - getNodeMetrics
+      - getPodMetrics
       - getEvents
+      - getIngresses
+
+      # Kubernetes — Enhanced Resource Inspection (Read-Only)
+      - getResourceYAML
+      - getResourceDiff
+      - getNamespaceResources
       - getResourceOwners
+
+      # Kubernetes — Monitoring & Observability (Read-Only)
+      - getClusterHealth
       - getClusterSummary
+      - getResourceQuotas
+      - getLimitRanges
+      - getTopPods
+      - getTopNodes
+
+      # Kubernetes — Debugging & Troubleshooting (Read-Only)
+      - getPodDebugInfo
+      - getServiceEndpoints
+      - getNetworkPolicies
+      - getSecurityContext
+      - getResourceHistory
+      - validateManifest
+
+      # Kubernetes — GPU Debugging & Troubleshooting (Read-Only)
+      - getGPUClusterOverview
+      - diagnoseGPUScheduling
+      - getGPUOperatorHealth
+
+      # Kubernetes — Navigation (Read-Only)
+      - listNamespaces
+      - getRolloutStatus
       - listContexts
+
+      # Kubernetes — Write Operations (server must not be read-only)
+      - createResource
+      - createResourceYAML
+      - deleteResource
+      - rolloutRestart
+      - scaleResource
+      - remediateGPUIssue
+
+      # Kubernetes — Dangerous Optional Capabilities
+      - execInPod
+      - runKubectlCommand
+
+      # Agent
+      - devopsAgent
+
+      # Helm — Read-Only
+      - helmList
+      - helmGet
+      - helmHistory
+      - helmRepoList
+
+      # Helm — Write Operations
+      - helmInstall
+      - helmUpgrade
+      - helmUninstall
+      - helmRollback
+      - helmRepoAdd
     tool_overrides:
       getAPIResources: &k8s_read_only
         approval_policy: read_only
