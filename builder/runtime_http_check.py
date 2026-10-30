@@ -249,6 +249,7 @@ class Peers:
                             "OMITTED_TOOL_RECOVER",
                             "MODEL_STEER",
                             "MODEL_PROGRESS",
+                            "MODEL_QUIET",
                             "TOOL_STEER",
                             "OUTPUT_RETRIEVAL",
                             "APPROVAL",
@@ -360,6 +361,9 @@ class Peers:
                             }
                         )
                     text = "Visible answer after active model generation."
+                elif scenario == "MODEL_QUIET":
+                    time.sleep(17)
+                    text = "Visible answer after a quiet model wait."
                 elif (
                     scenario == "RENDERER_FALLBACK"
                     and body.get("tool_choice") == "none"
@@ -1599,6 +1603,14 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "Visible answer after active model generation." in active
                 assert '"finish_reason":"stop"' in active
                 # activity does not trigger another model call
+                assert len(peers.requests) == before + 1
+                before = len(peers.requests)
+                quiet = chat("GATEWAY_MODEL_QUIET", "model-quiet")
+                # Transport liveness is independent of model progress: a
+                # pending provider request must not hit the frontend idle limit.
+                assert ": run active\n\n" in quiet, quiet
+                assert "Visible answer after a quiet model wait." in quiet
+                assert '"finish_reason":"stop"' in quiet
                 assert len(peers.requests) == before + 1
                 # Hold five separate conversations at the provider boundary.
                 peers.release_model.clear()

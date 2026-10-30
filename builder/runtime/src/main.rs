@@ -91,12 +91,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, mpsc};
-use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -297,7 +296,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         .instrument(span),
     );
     if streaming {
-        let stream = ReceiverStream::new(receiver).map(Ok::<_, Infallible>);
+        let stream = response_stream(receiver, Duration::from_secs(15));
         return (
             [
                 (header::CONTENT_TYPE, "text/event-stream"),
@@ -315,6 +314,22 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     }
     let (status, body) = completion(&String::from_utf8_lossy(&stream));
     (StatusCode::from_u16(status).unwrap(), Json(body)).into_response()
+}
+
+/// Keep the transport alive across preparation and quiet provider waits. These
+/// comments report only that the run is pending; they do not reset model/tool
+/// deadlines, expose private reasoning, or keep a disconnected run alive.
+fn response_stream(
+    receiver: mpsc::Receiver<bytes::Bytes>,
+    idle: Duration,
+) -> impl futures::Stream<Item = Result<bytes::Bytes, Infallible>> {
+    futures::stream::unfold(receiver, move |mut receiver| async move {
+        let frame = match tokio::time::timeout(idle, receiver.recv()).await {
+            Ok(frame) => frame?,
+            Err(_) => bytes::Bytes::from_static(b": run active\n\n"),
+        };
+        Some((Ok(frame), receiver))
+    })
 }
 
 /// Collect a run's SSE output into one Chat Completions response. The streaming
@@ -882,7 +897,43 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn quiet_response_stream_sends_keepalives_without_changing_output() {
+        let (sender, receiver) = mpsc::channel(8);
+        let stream = response_stream(receiver, Duration::from_millis(20));
+        tokio::pin!(stream);
+        for _ in 0..2 {
+            let frame = tokio::time::timeout(Duration::from_secs(1), stream.next())
+                .await
+                .expect("a quiet live run must not leave the HTTP stream idle")
+                .unwrap()
+                .unwrap();
+            assert_eq!(frame, ": run active\n\n");
+        }
+        let answer = bytes::Bytes::from_static(b"data: retained answer\n\n");
+        sender.send(answer.clone()).await.unwrap();
+        sender
+            .send(bytes::Bytes::from_static(b"data: [DONE]\n\n"))
+            .await
+            .unwrap();
+        drop(sender);
+        assert_eq!(stream.next().await.unwrap().unwrap(), answer);
+        assert_eq!(stream.next().await.unwrap().unwrap(), "data: [DONE]\n\n");
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_a_quiet_response_stream_notifies_the_run_of_disconnect() {
+        let (sender, receiver) = mpsc::channel(8);
+        let stream = Box::pin(response_stream(receiver, Duration::from_millis(20)));
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(1), sender.closed())
+            .await
+            .expect("client disconnect must still cancel the run");
+    }
 
     fn run(user: &str, conversation: &str, autonomy: bool) -> Arc<RunHandle> {
         Arc::new(RunHandle {

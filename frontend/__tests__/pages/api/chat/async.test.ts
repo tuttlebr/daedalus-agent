@@ -3748,6 +3748,74 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   });
 
+  it('keeps a quiet model wait alive with transport comments without replaying the request', async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    try {
+      mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+      mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+      const store = wireRedisStore();
+      const fetchSpy = stubFetch(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                streamController = controller;
+              },
+            }),
+          ),
+      );
+      const res = makeRes();
+      await handler(
+        {
+          method: 'POST',
+          headers: { cookie: 'sid=current-session' },
+          body: {
+            messages: [{ role: 'user', content: 'render retained evidence' }],
+          },
+        } as any,
+        res,
+      );
+      const jobId = res.json.mock.calls[0][0].jobId;
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      const execution = executeQueuedJob(store, jobId);
+      await vi.advanceTimersByTimeAsync(0);
+
+      for (
+        let elapsed = 0;
+        elapsed <= STREAM_READ_IDLE_TIMEOUT_MS;
+        elapsed += 15_000
+      ) {
+        await vi.advanceTimersByTimeAsync(15_000);
+        streamController.enqueue(encoder.encode(': run active\n\n'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(store.get(statusKey)?.status).toBe('streaming');
+        expect(store.get(statusKey)?.finalizedAt).toBeUndefined();
+      }
+      streamController.enqueue(
+        encoder.encode(
+          'data: {"choices":[{"delta":{"content":"Retained evidence rendered."}}]}\n\n' +
+            'data: [DONE]\n\n',
+        ),
+      );
+      streamController.close();
+      await execution;
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: 'Retained evidence rendered.',
+        intermediateSteps: [],
+      });
+      expect(JSON.stringify(publishedEvents())).not.toContain('run active');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('finalizes the connection timeout with its cause and releases the user slot', async () => {
     vi.useFakeTimers();
     try {

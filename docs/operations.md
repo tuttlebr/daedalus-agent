@@ -209,6 +209,12 @@ failed attempt never run. The daily-briefing text-only synthesis attempt also ha
 a total cap, `workflow.daily_summary_synthesis_retry_timeout_seconds`, and is not
 retried. The runtime enforces a separate 30-minute deadline for the entire agent
 run, including model and tool calls; that deadline bounds total model time.
+The HTTP response stream sends a keepalive comment after 15 seconds without
+output, including during preparation and quiet model waits. These comments
+keep the stream worker's `STREAM_READ_IDLE_TIMEOUT_MS` transport watchdog from
+ending an admitted run before the backend's own deadline. They do not reset
+model or tool timeouts, trigger another model call, or become visible answer
+text. A broken connection still reaches the transport idle timeout.
 Invalid configuration logs identify fields and validation categories while
 omitting configured values and credentials.
 
