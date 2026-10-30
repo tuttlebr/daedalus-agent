@@ -569,9 +569,6 @@ def validate_daybook(
         errors.append("lead story desk must match the selected manifest lead_desk")
     if parser.lead_layouts and parser.lead_layouts[0] not in LEAD_LAYOUTS:
         errors.append("lead grid data-lead-layout must be split")
-    lead_words = re.findall(r"\b[\w'’-]+\b", " ".join(parser.lead_story_text))
-    if len(lead_words) > 340:
-        errors.append("lead story exceeds the bounded opening package")
     for previous, current in zip(parser.heading_levels, parser.heading_levels[1:]):
         if current > previous + 1:
             errors.append("heading levels must not skip")
@@ -762,6 +759,10 @@ def validate_daybook(
                 )
 
     words = re.findall(r"\b[\w'’-]+\b", " ".join(parser.text_chunks))
+    # Opening length is editorial guidance, not a reason to discard a sourced
+    # edition or spend another model turn. Include captions and credits in this
+    # diagnostic count without treating them as invalid reporting.
+    lead_words = re.findall(r"\b[\w'’-]+\b", " ".join(parser.lead_story_text))
     return {
         "passed": not errors,
         "errors": errors,
@@ -772,6 +773,7 @@ def validate_daybook(
             "stories": len(parser.story_attrs),
             "source_images": len(image_urls),
             "words": len(words),
+            "lead_words": len(lead_words),
         },
     }
 

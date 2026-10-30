@@ -271,7 +271,11 @@ object from the day's actual reporting. Supply structured text, tables, lists,
 briefs, figures, and source objects only. Never include raw HTML, CSS, Markdown,
 or template tokens.
 
-Keep the selected news lead within the format's 220-word and five-row budgets.
+Aim for about 220 words across the selected news lead's one or two paragraphs;
+this is an editorial target, not a validation limit. A somewhat longer lead is
+acceptable when it preserves useful reporting and avoids another model pass.
+Do not rerun synthesis or rendering solely to shorten an otherwise valid edition.
+An optional snapshot still has at most five rows.
 Continue a lead’s deeper reporting in its department. Reserve
 `operations_details` for warranted operational exceptions. Put all remaining calendar and mail items in
 their arrays; the renderer moves overflow down the personal rail without

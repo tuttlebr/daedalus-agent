@@ -212,6 +212,45 @@ def test_renderer_deadline_does_not_override_adapter_command_timeout(tmp_path):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("sandbox_python", [True, False])
+@pytest.mark.parametrize("paragraph_words", [220, 260])
+def test_longer_lead_delivers_on_first_attempt_without_llm_correction(
+    tmp_path, sandbox_python, paragraph_words
+):
+    sandbox = Sandbox(tmp_path, python=sandbox_python)
+    value = edition()
+    paragraph = " ".join(f"evidence{index}" for index in range(paragraph_words))
+    value["lead"]["paragraphs"] = [paragraph]
+    value["lead"]["snapshot"] = {
+        "columns": ["Condition", "Result"],
+        "rows": [
+            [f"Workload {index}", "Measured under synthetic conditions " * 6]
+            for index in range(5)
+        ],
+    }
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=value))
+            )
+
+            assert result["passed"], result
+            assert result["terminal"] is True
+            assert result["execution_path"] == (
+                "sandbox" if sandbox_python else "local_recovery"
+            )
+            assert run.attempts["briefing"] == 1
+            assert run.terminal_reason == "validated_artifact"
+            assert run.terminal_content.startswith("```html\n<!DOCTYPE html>")
+            assert paragraph in run.terminal_content
+            assert "Workload 4" in run.terminal_content
+            assert f'href="{value["lead"]["source"]["url"]}"' in run.terminal_content
+            assert result["metrics"]["lead_words"] > 340
+
+    asyncio.run(scenario())
+
+
 def test_one_correction_then_success(tmp_path):
     sandbox = Sandbox(tmp_path)
     invalid = edition()

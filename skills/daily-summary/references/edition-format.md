@@ -90,8 +90,11 @@ Never publish unvalidated HTML or restart research to replace the fallback.
 one or two `paragraphs`, and a `source`. `verdict`, `snapshot` and `figure` are optional. A linked lead photo uses the
 same figure object as the supported block below.
 Choose the strongest current news; Opinion, Weather and Email & Calendar cannot
-be the reported-news lead. The paragraph total is at most 220
-words. The snapshot has `columns` and at most five same-width `rows`.
+be the reported-news lead. Aim for about 220 words across the paragraphs, but
+word counts are editorial targets, not validation limits. Longer paragraphs,
+snapshot text, source captions and attribution do not trigger a correction or
+text fallback. Preserve the supplied reporting; do not rerun merely to shorten
+it. The snapshot has `columns` and at most five same-width `rows`.
 
 ```json
 {

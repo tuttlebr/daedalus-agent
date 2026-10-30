@@ -47,8 +47,11 @@ lead when their implications warrant it. Opinion is separate and cannot serve
 as the reported-news lead. Cluster health has no reserved front-page position:
 only a current consequential incident or explicit request warrants research.
 
-Use one headline, one dek, one or two lead paragraphs totaling at most 220
-words, and optionally one five-row table. `verdict` is optional and useful only
+Use one headline, one dek, one or two lead paragraphs targeting about 220
+words, and optionally one table with at most five rows. Opening word counts
+guide editing; they do not invalidate an edition. Accept a somewhat longer
+lead to preserve reporting and avoid another model pass. Captions, table text
+and attribution never cause a word-count rejection. `verdict` is optional and useful only
 for an actual operational condition. Continue an important mechanism or detailed
 comparison in the same desk below the lead; do not cut it just to hit a reading
 time. Do not duplicate the lead story in full.

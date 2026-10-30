@@ -393,8 +393,6 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
         _text(item, f"edition.lead.paragraphs[{index}]")
         for index, item in enumerate(paragraphs_raw)
     ]
-    if _words(paragraphs) > 220:
-        raise RenderError("edition.lead.paragraphs exceeds the 220-word opening budget")
     source = _source(lead.get("source"), "edition.lead.source")
     registry.add(source)
     snapshot = ""

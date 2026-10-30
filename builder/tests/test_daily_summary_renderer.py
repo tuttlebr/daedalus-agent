@@ -311,12 +311,42 @@ def test_renderer_escapes_all_editor_supplied_text():
     assert "&amp; recovery" in document
 
 
-def test_renderer_rejects_opening_copy_over_budget():
+@pytest.mark.parametrize("paragraph_words", [220, 260])
+@pytest.mark.parametrize("extra", ["snapshot", "figure", "source"])
+def test_opening_length_does_not_reject_or_drop_sourced_reporting(
+    tmp_path, paragraph_words, extra
+):
     edition = _edition()
-    edition["lead"]["paragraphs"] = ["word " * 221]
+    paragraph = " ".join(f"evidence{index}" for index in range(paragraph_words))
+    edition["lead"]["paragraphs"] = [paragraph]
+    detail = " ".join(f"detail{index}" for index in range(130))
+    if extra == "snapshot":
+        edition["lead"]["snapshot"] = {
+            "columns": ["Condition", "Result"],
+            "rows": [["Synthetic measurement", detail]],
+        }
+    elif extra == "figure":
+        edition["lead"]["figure"] = {
+            "type": "figure",
+            "url": "https://example.org/source-photo.png",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+            "source_page": edition["lead"]["source"]["url"],
+            "credit": "Synthetic source photographer",
+            "caption": detail,
+        }
+    else:
+        edition["lead"]["source"]["detail"] = detail
+    original = copy.deepcopy(edition)
 
-    with pytest.raises(renderer.RenderError, match="220-word opening budget"):
-        _render(edition)
+    document, manifest, _ = _render(edition)
+    result = _validate(tmp_path, document, manifest)
+
+    assert result["passed"], result["errors"]
+    assert result["metrics"]["lead_words"] > 340
+    assert paragraph in document
+    assert detail in document
+    assert f'href="{edition["lead"]["source"]["url"]}"' in document
+    assert edition == original
 
 
 def test_renderer_rejects_unknown_fields_and_raw_html_shortcuts():

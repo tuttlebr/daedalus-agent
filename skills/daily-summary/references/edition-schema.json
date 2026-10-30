@@ -551,6 +551,7 @@
         },
         "paragraphs": {
           "type": "array",
+          "description": "One or two lead paragraphs. Aim for about 220 words total; length is an editorial target, not a validation limit. Preserve useful reporting rather than requesting a rewrite solely to shorten it.",
           "items": {
             "type": "string"
           },
