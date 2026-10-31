@@ -437,6 +437,10 @@ jobs:
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          # Authenticate repository-owner lookup so a shared runner's public
+          # API rate limit cannot be mistaken for a missing organization license.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail closed: an empty file list or a missing filter tool must not let
       # the step pass without running Bandit.
