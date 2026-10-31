@@ -181,6 +181,13 @@
           0 2px 6px rgb(var(--palette-slate) / 0.05);
         /* A tinted fill, not white: white selection disappears on white glass. */
         --glass-selection: rgb(var(--palette-navy) / 0.08);
+        --navigation-sheen: linear-gradient(
+          135deg,
+          rgb(var(--palette-white) / 0.55),
+          rgb(var(--palette-white) / 0) 45%,
+          rgb(var(--palette-glacier) / 0.12)
+        );
+        --navigation-rim: rgb(var(--palette-slate) / 0.1);
         --canvas-wash: 0.22;
         /* Destructive actions only; errors keep mauve. White text measures 5.62:1. */
         --destructive: 198 40 40; /* #C62828 */
@@ -215,6 +222,13 @@
         --glass-shadow: 0 12px 36px -12px rgb(0 0 0 / 0.48),
           0 2px 8px rgb(0 0 0 / 0.15);
         --glass-selection: rgb(var(--palette-steel) / 0.38);
+        --navigation-sheen: linear-gradient(
+          135deg,
+          rgb(var(--palette-white) / 0.1),
+          rgb(var(--palette-white) / 0) 45%,
+          rgb(var(--palette-steel) / 0.12)
+        );
+        --navigation-rim: rgb(0 0 0 / 0.2);
         --canvas-wash: 0.12;
         /* Navy text on this fill measures 8.72:1; as text on raised blue, 4.72:1. */
         --destructive: 255 161 152; /* #FFA198 */
@@ -243,6 +257,9 @@
         /* Opaque by default: unsupported browsers get the same readable hierarchy. */
         --glass-background: rgb(var(--glass-tint));
         --glass-filter: none;
+        --navigation-background: rgb(var(--glass-tint));
+        --navigation-reflection: none;
+        --navigation-filter: none;
         --glass-radius: 1.75rem;
         /* Floating panels keep one inset from the window edge. On a pointer device
            their corners are concentric with the window's: Safari web-app windows on
@@ -377,6 +394,11 @@
         :root {
           --glass-background: rgb(var(--glass-tint) / var(--glass-opacity));
           --glass-filter: blur(24px) saturate(1.35);
+          /* Navigation needs a little more tint for labels over moving content.
+             A smaller blur keeps its edge and background context distinct. */
+          --navigation-background: rgb(var(--glass-tint) / 0.86);
+          --navigation-reflection: var(--navigation-sheen);
+          --navigation-filter: blur(18px) saturate(1.2);
         }
       }
       @media (min-width: 768px) and (pointer: fine) {

@@ -128,6 +128,13 @@ quiet content layer. Reading surfaces and form controls remain solid. Shared
 colors and material tokens live in `styles/appearance.css`; components use
 `app-chrome` for glass and `app-card` for content. Avoid nesting glass surfaces.
 
+Navigation and toolbar surfaces share an additional reflective edge and an
+18px backdrop blur. The sidebar retains its denser fill for history labels;
+grouped toolbar commands share a single backdrop. Reflections use background
+layers, so they do not intercept input or clip focus rings. Keep foreground
+and material changes immediate when switching appearance; only press feedback
+animates on these controls.
+
 System, Light, and Dark appearance are available in the sidebar. Glass becomes
 opaque when backdrop filters are unsupported or reduced transparency or
 increased contrast is requested. Reduced motion disables decorative animation;

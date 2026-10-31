@@ -425,6 +425,7 @@ test('glass navigation adapts to contrast and transparency preferences', async (
       const channels = style.backgroundColor.match(/[\d.]+/g)!.map(Number);
       return {
         opacity: channels[3] ?? 1,
+        reflection: style.backgroundImage,
         filter:
           style.backdropFilter ||
           style.getPropertyValue('-webkit-backdrop-filter'),
@@ -447,6 +448,7 @@ test('glass navigation adapts to contrast and transparency preferences', async (
     const solid = await material();
     expect(solid.opacity).toBe(1);
     expect(solid.filter).toBe('none');
+    expect(solid.reflection).toBe('none');
     await navigate(page, 'Memory');
     await assertFits(page);
     expect(
@@ -480,11 +482,90 @@ test('glass navigation adapts to contrast and transparency preferences', async (
       const solid = await material();
       expect(solid.opacity).toBe(1);
       expect(solid.filter).toBe('none');
+      expect(solid.reflection).toBe('none');
       await page.screenshot({
         path: testInfo.outputPath(`reduced-transparency-${colorScheme}.png`),
       });
     }
     await session.detach();
+  }
+});
+
+test('navigation and toolbar labels stay readable while appearance changes', async ({
+  page,
+}) => {
+  await openApp(page);
+  for (const colorScheme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-theme',
+      colorScheme,
+    );
+    // Sample the actual frames, not just the settled theme. Interpolating a
+    // button's foreground while its glass fill changes immediately can make
+    // labels disappear even when both final appearances pass contrast checks.
+    const failures = await page.evaluate(async () => {
+      const parse = (color: string) => color.match(/[\d.]+/g)!.map(Number);
+      const blend = (foreground: number[], background: number[]) => {
+        const alpha = foreground[3] ?? 1;
+        return foreground
+          .slice(0, 3)
+          .map((channel, i) => channel * alpha + background[i] * (1 - alpha));
+      };
+      const luminance = (color: number[]) => {
+        const channels = color.slice(0, 3).map((channel) => {
+          const v = channel / 255;
+          return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
+        return (
+          channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        );
+      };
+      const controls = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.app-nav-item, .app-toolbar-button, .chat-header-action',
+        ),
+      ).filter((element) => element.getClientRects().length);
+      const failures: { label: string; contrast: number }[] = [];
+      for (let frame = 0; frame < 20; frame++) {
+        for (const control of controls) {
+          const ancestors: Element[] = [];
+          for (
+            let node: Element | null = control;
+            node;
+            node = node.parentElement
+          )
+            ancestors.unshift(node);
+          // This flow has the app canvas behind its chrome. Moving-content
+          // and optical-layer checks remain part of the screenshot review.
+          const background = ancestors.reduce(
+            (color, node) =>
+              blend(parse(getComputedStyle(node).backgroundColor), color),
+            [255, 255, 255],
+          );
+          const foreground = blend(
+            parse(getComputedStyle(control).color),
+            background,
+          );
+          const a = luminance(foreground);
+          const b = luminance(background);
+          const contrast = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+          const minimum = control.textContent?.trim() ? 4.5 : 3;
+          if (contrast < minimum) {
+            failures.push({
+              label:
+                control.getAttribute('aria-label') || control.textContent || '',
+              contrast,
+            });
+          }
+        }
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+      }
+      return failures;
+    });
+    expect(failures).toEqual([]);
   }
 });
 
