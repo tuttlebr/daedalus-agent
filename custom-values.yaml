@@ -23,13 +23,13 @@ images:
   # before Helm runs.
   backend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: backend-0.1.1
-    digest: ''
+    tag: backend-approval-b9394f6b
+    digest: 'sha256:b8820275b017d33bc468009e26a5c5e01cfcbd6b30444118882782b7e0504a15'
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: frontend-all-tabs-safe-top-6b0ee1b9
-    digest: 'sha256:8b93ba198cf2397a238b42e4d21c0fdabf6dced9d8fab43ce51bfcf21832c578'
+    tag: frontend-approval-b9394f6b
+    digest: 'sha256:076a258b9f772eb09cc5513becaa6f8edc85c1d46d767bfc9ec078876bd506f9'
     pullPolicy: Always
   nginx:
     repository: mirror.gcr.io/nginxinc/nginx-unprivileged
