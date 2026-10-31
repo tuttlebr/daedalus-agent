@@ -1286,6 +1286,7 @@ body:has(dialog[open]) .app-install-prompt {
 @media (forced-colors: active) {
   :root {
     --glass-filter: none;
+    --navigation-background: Canvas;
     --navigation-reflection: none;
     --navigation-filter: none;
   }
@@ -1300,7 +1301,8 @@ body:has(dialog[open]) .app-install-prompt {
   .app-inspector,
   .app-menu,
   .app-popover,
-  .app-dialog-panel {
+  .app-dialog-panel,
+  .app-view-tabs .app-segmented {
     background: Canvas;
     border: 1px solid CanvasText;
     box-shadow: none;

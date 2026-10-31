@@ -491,6 +491,43 @@ test('glass navigation adapts to contrast and transparency preferences', async (
   }
 });
 
+test('forced colors keep navigation and toolbar groups opaque', async ({
+  page,
+}) => {
+  await openApp(page);
+  await navigate(page, 'Create');
+  await page.emulateMedia({ forcedColors: 'active' });
+  const materials = await page
+    .locator(
+      '.app-navigation-cluster, .app-bottom-nav, .app-toolbar-group, .app-view-tabs .app-segmented',
+    )
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => element.getClientRects().length)
+        .map((element) => {
+          const style = getComputedStyle(element);
+          const channels = style.backgroundColor.match(/[\d.]+/g)!.map(Number);
+          return {
+            opacity: channels[3] ?? 1,
+            reflection: style.backgroundImage,
+            shadow: style.boxShadow,
+            filter:
+              style.backdropFilter ||
+              style.getPropertyValue('-webkit-backdrop-filter'),
+          };
+        }),
+    );
+  expect(materials.length).toBeGreaterThan(0);
+  for (const material of materials) {
+    expect(material).toEqual({
+      opacity: 1,
+      reflection: 'none',
+      shadow: 'none',
+      filter: 'none',
+    });
+  }
+});
+
 test('navigation and toolbar labels stay readable while appearance changes', async ({
   page,
 }) => {
