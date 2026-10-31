@@ -815,8 +815,10 @@ def test_deployed_tool_surface_is_optimized():
         # Bound the static catalog. Hue intentionally discovers its full remote
         # catalog, so its size is checked against tools/list at runtime.
         static_tools = [name for name in workflow_tools if name != "hue_mcp_server"]
-        # Three focused reads replace weather and repository HTML fallbacks.
-        assert _effective_operation_count(config, static_tools) <= 98, path
+        # The expanded Kubernetes/Helm allowlist remains discovery-gated;
+        # exposing it must not eagerly load every schema into the first prompt.
+        assert config["function_groups"]["k8s_mcp_server"]["defer_discovery"] is True
+        assert _effective_operation_count(config, static_tools) <= 135, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -1173,6 +1175,52 @@ def test_interactive_oauth_is_wired_through_tool_service():
 
 
 def test_mcp_approval_policy_follows_explicit_include_lists():
+    # New infrastructure operations are exposed, but lack the exact local
+    # read-only evidence of the original eight tools. Their default policy
+    # must continue to require approval, including read-like tool names.
+    k8s_approval_required = {
+        "describeResource",
+        "getNodeMetrics",
+        "getPodMetrics",
+        "getIngresses",
+        "getResourceYAML",
+        "getResourceDiff",
+        "getNamespaceResources",
+        "getClusterHealth",
+        "getResourceQuotas",
+        "getLimitRanges",
+        "getTopPods",
+        "getTopNodes",
+        "getPodDebugInfo",
+        "getServiceEndpoints",
+        "getNetworkPolicies",
+        "getSecurityContext",
+        "getResourceHistory",
+        "validateManifest",
+        "getGPUClusterOverview",
+        "diagnoseGPUScheduling",
+        "getGPUOperatorHealth",
+        "listNamespaces",
+        "getRolloutStatus",
+        "createResource",
+        "createResourceYAML",
+        "deleteResource",
+        "rolloutRestart",
+        "scaleResource",
+        "remediateGPUIssue",
+        "execInPod",
+        "runKubectlCommand",
+        "devopsAgent",
+        "helmList",
+        "helmGet",
+        "helmHistory",
+        "helmRepoList",
+        "helmInstall",
+        "helmUpgrade",
+        "helmUninstall",
+        "helmRollback",
+        "helmRepoAdd",
+    }
     allowlisted = {
         "espn_mcp_server": {
             "account_status",
@@ -1239,6 +1287,7 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         },
         "docs_mcp_server": {"read_doc", "update_doc"},
         "k8s_mcp_server": {
+            *k8s_approval_required,
             "getAPIResources",
             "listResources",
             "getResource",
@@ -1263,6 +1312,7 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         },
     }
     approval_required = {
+        "k8s_mcp_server": k8s_approval_required,
         "calendar_mcp_server": {
             "update_event",
             "delete_event",
@@ -1275,9 +1325,13 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         groups = _config(path)["function_groups"]
         for group_name, expected_tools in allowlisted.items():
             group = groups[group_name]
+            overrides = group.get("tool_overrides", {})
+            assert set(overrides) <= expected_tools, path
             policies = {
-                tool_name: override.get("approval_policy")
-                for tool_name, override in group.get("tool_overrides", {}).items()
+                tool_name: overrides.get(tool_name, {}).get(
+                    "approval_policy", group.get("approval_policy", "approval_required")
+                )
+                for tool_name in group["include"]
             }
             assert set(group["include"]) == expected_tools, path
             read_only = {
