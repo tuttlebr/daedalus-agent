@@ -28,8 +28,8 @@ images:
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: frontend-approval-b9394f6b
-    digest: 'sha256:076a258b9f772eb09cc5513becaa6f8edc85c1d46d767bfc9ec078876bd506f9'
+    tag: frontend-liquid-glass-277b5189
+    digest: 'sha256:3d25a07e5d144fc91c5993a12d524f3d9ae24be0cf4d15b7becdb84b5966e6db'
     pullPolicy: Always
   nginx:
     repository: mirror.gcr.io/nginxinc/nginx-unprivileged
