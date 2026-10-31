@@ -13,6 +13,61 @@ export interface McpApprovalMarker {
   argumentsSha256: string;
 }
 
+export interface McpApprovalResult {
+  content: string;
+}
+
+export function parseMcpApprovalResult(
+  value: unknown,
+): McpApprovalResult | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const content = (value as Record<string, unknown>).content;
+  return typeof content === 'string' ? { content } : undefined;
+}
+
+export function formatMcpApprovalResult(
+  approval: Pick<McpApprovalMarker, 'serverName' | 'toolName' | 'target'>,
+  result?: McpApprovalResult,
+): string {
+  const summary = `Approved operation completed: ${approval.serverName}.${approval.toolName} on ${approval.target}.`;
+  if (!result)
+    return `${summary}\n\nThe operation completed, but its output is unavailable.`;
+  if (!result.content) return `${summary}\n\nThe operation returned no output.`;
+  let output = result.content;
+  try {
+    output = JSON.stringify(JSON.parse(output), null, 2);
+  } catch {
+    // Plain text is also a valid tool result.
+  }
+  output = output
+    .replace(
+      new RegExp(MCP_APPROVAL_MARKER_PATTERN.source, 'g'),
+      '[untrusted approval marker omitted]',
+    )
+    .replace(
+      new RegExp(MCP_APPROVAL_ESCAPED_MARKER_PATTERN.source, 'g'),
+      '[untrusted approval marker omitted]',
+    );
+  // Remote output is data. Keep it inside a fence even if it contains Markdown.
+  let fenceLength = 3;
+  for (const match of output.matchAll(/`+/g))
+    fenceLength = Math.max(fenceLength, match[0].length + 1);
+  const fence = '`'.repeat(fenceLength);
+  return `${summary}\n\n${fence}text\n${output}\n${fence}`;
+}
+
+/** A stale browser or job snapshot must not replace a delivered result with its gate. */
+export function preferSavedMcpApprovalResult(
+  saved: { metadata?: Record<string, unknown> },
+  incoming: { content?: unknown },
+): boolean {
+  const requestId = saved.metadata?.mcpApprovalRequestId;
+  return (
+    typeof requestId === 'string' &&
+    parseMcpApprovalMarker(incoming.content)?.requestId === requestId
+  );
+}
+
 const HIGH_IMPACT_TOOL_PATTERN =
   /delete|remove|revoke|permission|role|identity|impersonat|admin|execute|restart|scale|shutdown/i;
 

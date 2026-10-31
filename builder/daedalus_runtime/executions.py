@@ -82,6 +82,9 @@ class Executions:
                 "serverName": body.server_name,
                 "toolName": body.tool_name,
                 "argumentsSha256": body.arguments_sha256,
+                # Returned only through owner-authenticated execution routes.
+                # Chat needs the output, not just a receipt that the call ran.
+                "content": outcome.get("content", ""),
             }
         except asyncio.CancelledError:
             record.status = "cancelled"

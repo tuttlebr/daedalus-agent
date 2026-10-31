@@ -483,6 +483,38 @@ describe('chat/async backend pinning helpers', () => {
     ]);
   });
 
+  it('answers follow-ups from the saved approval result even when the browser still has the gate', () => {
+    const requestId = 'approval_request_12345';
+    const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        requestId,
+        serverName: 'k8s_mcp_server',
+        toolName: 'getNamespaceResources',
+        target: 'daedalus',
+        summary: 'Read pods',
+        argumentsSha256: 'a'.repeat(64),
+      }),
+    ).toString('base64url')}-->`;
+    const saved = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'Approved operation completed. pod-a Running',
+      metadata: { mcpApprovalRequestId: requestId },
+    };
+    const followup = {
+      id: 'u2',
+      role: 'user',
+      content: 'What were the results?',
+    };
+    expect(
+      mergeSubmittedMessagesWithStoredHistory(
+        [saved],
+        [{ id: 'a1', role: 'assistant', content: marker }, followup],
+      ),
+    ).toEqual([saved, followup]);
+  });
+
   it('preserves prior assistant content so follow-ups have real context', () => {
     const prior =
       'A detailed prior assistant response the user wants to reuse.';

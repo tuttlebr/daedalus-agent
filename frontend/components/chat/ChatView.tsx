@@ -1465,6 +1465,7 @@ export const ChatView = memo(() => {
                   <MessageBubble
                     key={msg.id || `msg-${messageIndex}`}
                     message={msg}
+                    conversationId={selectedConversationId || undefined}
                     messageIndex={messageIndex}
                     isStreaming={isAssistantStreaming}
                     activityProgress={

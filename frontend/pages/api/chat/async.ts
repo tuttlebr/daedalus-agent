@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { preferSavedMcpApprovalResult } from '@/utils/app/mcpApproval';
 import { getSession } from '@/utils/auth/session';
 import { Logger } from '@/utils/logger';
 import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
@@ -169,7 +170,13 @@ export function mergeSubmittedMessagesWithStoredHistory(
       if (fromStore) storedIds.add(id);
       return;
     }
-    if (preferStored && !fromStore && storedIds.has(id)) return;
+    if (
+      !fromStore &&
+      storedIds.has(id) &&
+      (preferStored ||
+        preferSavedMcpApprovalResult(merged[existingIndex], message))
+    )
+      return;
 
     merged[existingIndex] = {
       ...merged[existingIndex],

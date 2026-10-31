@@ -327,6 +327,15 @@ gate refuses an operation that would need approval instead of recording an
 approval nobody can answer; the worker records the refusal as a blocked run.
 Uncertain remote mutations are never automatically retried.
 
+Approving an MCP request executes its exact stored call. Successful execution
+returns the tool output through owner-authenticated status endpoints, and the
+frontend replaces the approval prompt with that result in the saved conversation.
+Status polling retries result delivery without executing the operation again.
+Follow-up submissions and job finalization preserve the saved result even when
+a browser or an earlier job still holds the approval prompt. Reopened approvals
+can recover their conversation after the original chat job expires, using the
+authenticated owner and matching request marker.
+
 ## Optional telemetry
 
 Optional Phoenix export records content-free run counters and tool phase spans.

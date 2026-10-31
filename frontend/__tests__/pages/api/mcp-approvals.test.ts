@@ -2,6 +2,7 @@ import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
 import handler from '@/pages/api/mcp-approvals/[requestId]';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
 import { getNatBaseUrl } from '@/server/chat/backendSelection';
 import {
   getMcpApprovalPreview,
@@ -9,6 +10,7 @@ import {
   resolveMcpApprovalDecision,
   revokeMcpApprovalToken,
 } from '@/server/chat/mcpApproval';
+import { saveMcpApprovalResult } from '@/server/chat/mcpApprovalResult';
 import { buildNatRequestHeaders } from '@/server/chat/natMessages';
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
@@ -40,6 +42,10 @@ vi.mock('@/server/session/redis', () => ({
   sessionKey: (parts: string[]) => parts.join(':'),
 }));
 vi.mock('@/server/mcpOAuth', () => ({ saveOAuthCallbackTarget: vi.fn() }));
+vi.mock('@/server/chat/mcpApprovalResult', () => ({
+  saveMcpApprovalResult: vi.fn(),
+}));
+vi.mock('@/server/atomicJson', () => ({ updateJsonAtomically: vi.fn() }));
 vi.mock('@/utils/fetchWithTimeout', () => ({ fetchWithTimeout: vi.fn() }));
 
 describe('MCP approval rejection', () => {
@@ -181,6 +187,47 @@ describe('MCP approval rejection', () => {
       end: vi.fn().mockReturnThis(),
     } as any;
   }
+
+  it('retries saving a completed result without executing the operation again', async () => {
+    const state = {
+      requestId: 'approval_request_12345',
+      userId: 'alice',
+      decision: 'approved',
+      status: 'completed',
+      conversationId: 'conversation-1',
+      executionId: 'execution-1',
+      backendBaseUrl: 'http://backend:8000',
+      approval: { serverName: 'fixture', toolName: 'inspect' },
+      result: { content: 'pod-a Running' },
+      updatedAt: 1,
+    };
+    vi.mocked(jsonGet).mockResolvedValue(state);
+    vi.mocked(saveMcpApprovalResult)
+      .mockRejectedValueOnce(new Error('Storage unavailable'))
+      .mockResolvedValueOnce(true);
+    const req = { method: 'GET', query: { requestId: state.requestId } } as any;
+    const first = response();
+    await handler(req, first);
+    expect(first.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'completed',
+        result: state.result,
+        conversationPending: true,
+      }),
+    );
+    const second = response();
+    await handler(req, second);
+    expect(second.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'completed',
+        result: state.result,
+        conversationPending: false,
+      }),
+    );
+    expect(updateJsonAtomically).toHaveBeenCalledTimes(1);
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+    expect(resolveMcpApprovalDecision).not.toHaveBeenCalled();
+  });
 
   it.each([
     'short',

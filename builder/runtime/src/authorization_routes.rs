@@ -78,10 +78,13 @@ impl Executions {
                 ),
             )
             .await;
-            let payload = if result.is_ok_and(|r| !r.is_error && !r.terminal) {
-                json!({"status":"completed","result":{"status":"completed","serverName":body.server_name,"toolName":body.tool_name,"argumentsSha256":body.arguments_sha256}})
-            } else {
-                json!({"status":"failed","error":FAILED})
+            let payload = match result {
+                Ok(outcome) if !outcome.is_error && !outcome.terminal => {
+                    // This owner-authenticated response is the only handoff back
+                    // to chat after the approval boundary ended the agent run.
+                    json!({"status":"completed","result":{"status":"completed","serverName":body.server_name,"toolName":body.tool_name,"argumentsSha256":body.arguments_sha256,"content":outcome.content}})
+                }
+                _ => json!({"status":"failed","error":FAILED}),
             };
             sender.send_replace(payload);
         });

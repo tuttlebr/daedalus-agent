@@ -10,6 +10,7 @@ import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 
 interface MessageBubbleProps {
+  conversationId?: string;
   message: Message;
   messageIndex: number;
   isStreaming?: boolean;
@@ -22,6 +23,7 @@ interface MessageBubbleProps {
  */
 export const MessageBubble = memo(
   ({
+    conversationId,
     message,
     messageIndex,
     isStreaming = false,
@@ -68,6 +70,7 @@ export const MessageBubble = memo(
     // Assistant and agent messages
     return (
       <AssistantMessage
+        conversationId={conversationId}
         message={message}
         messageIndex={messageIndex}
         isStreaming={isStreaming}

@@ -620,8 +620,17 @@ def check(image, redis_image, rollback_image):
                     "Approval dispatched more than once",
                 )
                 winner = next(r for r in results if r.status_code == 200)
+                require(
+                    "Synthetic result 雪🌲" in winner.json()["result"]["content"],
+                    "Approved execution discarded the tool output",
+                )
                 owner_base = str(winner.request.url).split("/v1/")[0]
                 status_url = owner_base + "/executions/" + winner.json()["executionId"]
+                require(
+                    client.get(status_url, headers=auth).json()["result"]
+                    == winner.json()["result"],
+                    "Execution polling lost the approved result",
+                )
                 require(
                     client.get(status_url, headers=bob).status_code == 404,
                     "Execution status crossed users",
@@ -823,6 +832,10 @@ def check(image, redis_image, rollback_image):
                 time.sleep(0.05)
             require(
                 status["status"] == "completed", "OAuth operation failed after callback"
+            )
+            require(
+                "Synthetic result 雪🌲" in status["result"]["content"],
+                "OAuth completion discarded the approved result",
             )
             token_call = next(
                 c

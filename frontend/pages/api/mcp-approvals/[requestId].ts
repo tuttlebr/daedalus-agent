@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
+import {
+  parseMcpApprovalResult,
+  parseMcpApprovalMarker,
+  type McpApprovalResult,
+} from '@/utils/app/mcpApproval';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
 import { updateJsonAtomically } from '@/server/atomicJson';
@@ -8,6 +13,7 @@ import {
   getNatBaseUrl,
   resolveAsyncBackendBaseUrls,
 } from '@/server/chat/backendSelection';
+import { isValidConversationId } from '@/server/chat/conversationId';
 import {
   buildMcpApprovalPreview,
   getMcpApprovalPreview,
@@ -16,10 +22,15 @@ import {
   resolveMcpApprovalDecision,
   revokeMcpApprovalToken,
 } from '@/server/chat/mcpApproval';
+import { saveMcpApprovalResult } from '@/server/chat/mcpApprovalResult';
 import { buildNatRequestHeaders } from '@/server/chat/natMessages';
 import type { AsyncJobRequest } from '@/server/chat/types';
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
+import {
+  readConversationForUser,
+  ConversationWriteError,
+} from '@/server/session/conversationStore';
 import { jsonGet, jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
 import { createHash } from 'node:crypto';
 
@@ -45,6 +56,8 @@ interface ApprovalExecutionState {
   error?: string;
   approval?: McpApprovalPreview;
   resultLogged?: boolean;
+  result?: McpApprovalResult;
+  resultSaved?: boolean;
   updatedAt: number;
 }
 
@@ -82,6 +95,52 @@ async function persistState(state: ApprovalExecutionState): Promise<void> {
   );
 }
 
+async function returnState(
+  res: NextApiResponse,
+  state: ApprovalExecutionState,
+  status = 200,
+) {
+  // Persist execution output before delivering it to chat. A failed save can
+  // then be retried by a status read without replaying the approved operation.
+  let conversationPending =
+    state.status === 'completed' &&
+    Boolean(state.conversationId && state.approval) &&
+    !state.resultSaved;
+  if (conversationPending) {
+    try {
+      if (
+        await saveMcpApprovalResult({
+          userId: state.userId,
+          requestId: state.requestId,
+          conversationId: state.conversationId!,
+          approval: state.approval!,
+          result: state.result,
+        })
+      ) {
+        await updateJsonAtomically<ApprovalExecutionState>(
+          statusKey(state.userId, state.requestId),
+          (current) =>
+            current && current.userId === state.userId
+              ? { ...current, resultSaved: true }
+              : null,
+          APPROVAL_STATUS_TTL_SECONDS,
+        );
+        conversationPending = false;
+      }
+    } catch {
+      console.warn('MCP approval result delivery will be retried');
+    }
+  }
+  return res.status(status).json({
+    status: state.status,
+    authUrl: state.authUrl,
+    error: state.error,
+    approval: state.approval,
+    result: state.result,
+    conversationPending,
+  });
+}
+
 async function loadOwnedJob(
   jobId: unknown,
   userId: string,
@@ -104,6 +163,36 @@ async function handlePost(
     return res
       .status(400)
       .json({ error: 'Decision must be approved or denied' });
+  }
+
+  const job = await loadOwnedJob(req.body?.jobId, userId);
+  let conversationId = job?.conversationId;
+  // Approvals outlive async job records. On a reopened thread, recover its
+  // destination only from an owned conversation containing this exact gate.
+  if (!conversationId && isValidConversationId(req.body?.conversationId)) {
+    try {
+      const conversation = await readConversationForUser(
+        userId,
+        req.body.conversationId,
+      );
+      if (
+        conversation?.messages?.some(
+          (message: { role?: string; content?: unknown }) =>
+            message.role === 'assistant' &&
+            parseMcpApprovalMarker(message.content)?.requestId === requestId,
+        )
+      ) {
+        conversationId = req.body.conversationId;
+      }
+    } catch (error) {
+      if (
+        !(
+          error instanceof ConversationWriteError &&
+          error.reason === 'forbidden'
+        )
+      )
+        throw error;
+    }
   }
 
   let resolved: Awaited<ReturnType<typeof resolveMcpApprovalDecision>>;
@@ -134,7 +223,6 @@ async function handlePost(
   }
 
   const approvalToken = resolved.approvalToken!;
-  const job = await loadOwnedJob(req.body?.jobId, userId);
   const backendBaseUrl = job
     ? getNatBaseUrl(job)
     : (await resolveAsyncBackendBaseUrls())[0];
@@ -155,7 +243,7 @@ async function handlePost(
           { 'Content-Type': 'application/json' },
           natSessionId,
           job?.timezone,
-          job?.conversationId,
+          conversationId,
           requestId,
           approvalToken,
         ),
@@ -180,7 +268,7 @@ async function handlePost(
       backendBaseUrl,
       natSessionId,
       timezone: job?.timezone,
-      conversationId: job?.conversationId,
+      conversationId,
       error: 'The approved operation could not reach the backend',
       updatedAt: Date.now(),
     }).catch(() => {});
@@ -210,7 +298,7 @@ async function handlePost(
       backendBaseUrl,
       natSessionId,
       timezone: job?.timezone,
-      conversationId: job?.conversationId,
+      conversationId,
       error,
       updatedAt: Date.now(),
     });
@@ -230,12 +318,16 @@ async function handlePost(
     backendBaseUrl,
     natSessionId,
     timezone: job?.timezone,
-    conversationId: job?.conversationId,
+    conversationId,
     executionId:
       typeof payload.executionId === 'string' ? payload.executionId : undefined,
     authUrl: typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
     oauthState:
       typeof payload.oauthState === 'string' ? payload.oauthState : undefined,
+    result:
+      payload.status === 'completed'
+        ? parseMcpApprovalResult(payload.result)
+        : undefined,
     updatedAt: Date.now(),
   };
   // The backend waits for fast operations, so execute can already be final.
@@ -252,11 +344,7 @@ async function handlePost(
   }
   await persistState(state);
   if (terminal) logApprovalEvent('result', userId, approval, state.status);
-  return res.status(response.status).json({
-    status: state.status,
-    authUrl: state.authUrl,
-    approval: state.approval,
-  });
+  return returnState(res, state, response.status);
 }
 
 async function handleGet(
@@ -283,12 +371,7 @@ async function handleGet(
     !state.backendBaseUrl ||
     TERMINAL_STATUSES.includes(state.status)
   ) {
-    return res.status(200).json({
-      status: state.status,
-      authUrl: state.authUrl,
-      error: state.error,
-      approval: state.approval,
-    });
+    return returnState(res, state);
   }
 
   const response = await fetchWithTimeout(
@@ -345,6 +428,10 @@ async function handleGet(
             ? payload.oauth_state
             : current.oauthState,
         error: typeof payload.error === 'string' ? payload.error : undefined,
+        result:
+          payload.status === 'completed'
+            ? parseMcpApprovalResult(payload.result)
+            : current.result,
         updatedAt: Date.now(),
       };
       shouldLog = !next.resultLogged && TERMINAL_STATUSES.includes(next.status);
@@ -366,12 +453,7 @@ async function handleGet(
       userId,
     );
   }
-  return res.status(200).json({
-    status: updated.status,
-    authUrl: updated.authUrl,
-    error: updated.error,
-    approval: updated.approval,
-  });
+  return returnState(res, updated);
 }
 
 export default async function handler(

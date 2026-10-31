@@ -122,14 +122,68 @@ describe('McpApprovalCard', () => {
           (button) => button.textContent === 'Approve',
         )!;
         await act(async () => approve.click());
-        expect(container.textContent).toContain('Update completed');
+        expect(container.textContent).toContain('Operation completed');
         await act(async () => {
           finish();
           await initial.catch(() => {});
         });
-        expect(container.textContent).toContain('Update completed');
+        expect(container.textContent).toContain('Operation completed');
         expect(container.querySelectorAll('button')).toHaveLength(0);
         expect(container.textContent).not.toContain('Old status failed');
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
+  it.each(['immediate', 'polled', 'reload'])(
+    'shows the approved output after %s completion',
+    async (mode) => {
+      const result = { content: 'pod-a Running\npod-b Running' };
+      const completed = json({ status: 'completed', result });
+      const kubernetesApproval = {
+        ...approval,
+        serverName: 'k8s_mcp_server',
+        toolName: 'getNamespaceResources',
+      };
+      const fetchMock = vi.fn();
+      if (mode === 'reload') fetchMock.mockResolvedValueOnce(completed);
+      else {
+        fetchMock.mockResolvedValueOnce(json({ status: 'pending' }));
+        if (mode === 'polled')
+          fetchMock.mockResolvedValueOnce(json({ status: 'running' }));
+        fetchMock.mockResolvedValueOnce(completed);
+      }
+      vi.stubGlobal('fetch', fetchMock);
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            <McpApprovalCard approval={kubernetesApproval} jobId="job-1" />,
+          );
+        });
+        if (mode !== 'reload') {
+          await act(async () => {
+            (container.querySelector('button') as HTMLButtonElement).click();
+          });
+          expect(container.textContent).toContain('Confirm approval');
+          expect(
+            fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST'),
+          ).toHaveLength(0);
+          await act(async () => {
+            (container.querySelector('button') as HTMLButtonElement).click();
+          });
+          if (mode === 'polled')
+            await act(async () => vi.advanceTimersByTimeAsync(1500));
+        }
+        expect(container.textContent).toContain(result.content);
+        expect(container.textContent).toContain('Operation completed');
+        expect(container.querySelectorAll('button')).toHaveLength(0);
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST'),
+        ).toHaveLength(mode === 'reload' ? 0 : 1);
       } finally {
         act(() => root.unmount());
       }

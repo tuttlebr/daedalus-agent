@@ -152,7 +152,7 @@ def test_approved_execution_route_rejects_before_starting_work(
 
 
 @pytest.mark.parametrize("failed", [True, False])
-def test_direct_execution_is_exact_and_does_not_expose_remote_content(failed):
+def test_direct_execution_returns_successful_output_to_its_owner(failed):
     async def run():
         observed = []
 
@@ -177,7 +177,13 @@ def test_direct_execution_is_exact_and_does_not_expose_remote_content(failed):
             )
         ]
         assert record.status == ("failed" if failed else "completed")
-        assert "private document" not in str(record.payload())
+        if failed:
+            assert "private document" not in str(record.payload())
+        else:
+            assert record.payload()["result"]["content"] == "private document"
+            assert (
+                record.payload(initial=True)["result"]["content"] == "private document"
+            )
         await executions.close()
 
     asyncio.run(run())

@@ -24,7 +24,181 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       if (client.status === 'wait') await client.connect();
     });
 
-    afterAll(() => client?.disconnect());
+    afterAll(() => {
+      client?.disconnect();
+      redis?.getPublisher().disconnect();
+    });
+
+    it.each(['immediate', 'polled', 'expired-job'])(
+      'delivers %s execution output to the saved conversation without replaying the call',
+      async (mode) => {
+        const { saveConversationForUser, readConversationForUser } =
+          await import('@/server/session/conversationStore');
+        const requestId = randomUUID();
+        const conversationId = randomUUID();
+        const jobId = randomUUID();
+        const safeUser = createHash('sha256')
+          .update('alice')
+          .digest('hex')
+          .slice(0, 16);
+        const pendingKey = `approval-pending:${safeUser}:${requestId}`;
+        const statusKey = redis.sessionKey([
+          'mcp-approval-status',
+          safeUser,
+          requestId,
+        ]);
+        const jobKey = redis.sessionKey(['async-job-request', jobId]);
+        const canonicalArguments = '{"namespace":"daedalus","types":"pods"}';
+        const digest = createHash('sha256')
+          .update(canonicalArguments)
+          .digest('hex');
+        const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+          JSON.stringify({
+            version: 1,
+            requestId,
+            serverName: 'k8s_mcp_server',
+            toolName: 'getNamespaceResources',
+            target: 'daedalus',
+            summary: 'Read pods',
+            argumentsSha256: digest,
+          }),
+        ).toString('base64url')}-->`;
+        const result = { content: 'pod-a Running\npod-b Running' };
+        await client.set(
+          pendingKey,
+          JSON.stringify({
+            request_id: requestId,
+            user_id: 'alice',
+            action_type: 'mcp_mutation',
+            action: 'Read pods',
+            reason: 'Review',
+            target: 'daedalus',
+            server_name: 'k8s_mcp_server',
+            tool_name: 'getNamespaceResources',
+            canonical_arguments: canonicalArguments,
+            arguments_sha256: digest,
+            created_at: 1,
+          }),
+          'EX',
+          120,
+        );
+        await redis.jsonSetWithExpiry(
+          jobKey,
+          {
+            jobId,
+            userId: 'alice',
+            conversationId,
+            natBaseUrl: 'http://backend:8000',
+          },
+          120,
+        );
+        if (mode === 'expired-job') await client.del(jobKey);
+        await saveConversationForUser(
+          'alice',
+          conversationId,
+          () => ({
+            id: conversationId,
+            name: 'Read pods',
+            messages: [
+              {
+                id: 'a1',
+                role: 'assistant',
+                content: marker,
+                metadata: { jobId },
+              },
+            ],
+          }),
+          true,
+        );
+        vi.mocked(fetchStatus).mockReset();
+        if (mode === 'polled')
+          vi.mocked(fetchStatus).mockResolvedValueOnce(
+            Response.json(
+              { status: 'running', executionId: 'fixture-execution' },
+              { status: 202 },
+            ),
+          );
+        vi.mocked(fetchStatus).mockResolvedValueOnce(
+          Response.json({
+            status: 'completed',
+            executionId: 'fixture-execution',
+            result,
+          }),
+        );
+        const response = () =>
+          ({
+            status: vi.fn().mockReturnThis(),
+            json: vi.fn().mockReturnThis(),
+            setHeader: vi.fn(),
+          } as any);
+        try {
+          const first = response();
+          await handler(
+            {
+              method: 'POST',
+              query: { requestId },
+              body: { decision: 'approved', jobId, conversationId },
+            } as any,
+            first,
+          );
+          let completed = first;
+          if (mode === 'polled') {
+            completed = response();
+            await handler(
+              { method: 'GET', query: { requestId } } as any,
+              completed,
+            );
+          }
+          expect(completed.json).toHaveBeenCalledWith(
+            expect.objectContaining({
+              status: 'completed',
+              result,
+              conversationPending: false,
+            }),
+          );
+          const saved = await readConversationForUser('alice', conversationId);
+          expect(saved?.messages[0].content).toContain(result.content);
+          expect(saved?.messages[0].content).not.toContain(
+            '<!--daedalus-mcp-approval:',
+          );
+          expect(saved?.messages[0].metadata.mcpApprovalRequestId).toBe(
+            requestId,
+          );
+          expect(await redis.jsonGet(statusKey)).toMatchObject({
+            result,
+            resultSaved: true,
+          });
+          const reload = response();
+          await handler({ method: 'GET', query: { requestId } } as any, reload);
+          expect(reload.json).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'completed', result }),
+          );
+          expect(
+            vi
+              .mocked(fetchStatus)
+              .mock.calls.filter(([, init]) => init?.method === 'POST'),
+          ).toHaveLength(1);
+          expect(fetchStatus).toHaveBeenCalledTimes(mode === 'polled' ? 2 : 1);
+          expect(await client.exists(pendingKey)).toBe(0);
+        } finally {
+          // The synthetic backend does not consume the real one-use credential.
+          const headers = vi.mocked(fetchStatus).mock.calls[0]?.[1]
+            ?.headers as Record<string, string>;
+          const token = headers?.['x-daedalus-approval-token'];
+          await client.del(
+            pendingKey,
+            statusKey,
+            jobKey,
+            redis.sessionKey(['conversation', conversationId]),
+            ...(token ? [`approval:${safeUser}:${token}`] : []),
+          );
+          await client.srem(
+            redis.sessionKey(['user', 'alice', 'conversations']),
+            conversationId,
+          );
+        }
+      },
+    );
 
     it.each(
       [
@@ -112,6 +286,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           .mockResolvedValueOnce(
             Response.json({
               status,
+              ...(status === 'completed'
+                ? { result: { content: 'pod-a Running' } }
+                : {}),
               error: status === 'failed' ? 'Fixture failure' : undefined,
             }),
           );
@@ -132,6 +309,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           expect(await redis.jsonGet(key)).toMatchObject({
             status,
             resultLogged: true,
+            ...(status === 'completed'
+              ? { result: { content: 'pod-a Running' } }
+              : {}),
             ...(status === 'failed' ? { error: 'Fixture failure' } : {}),
           });
           const later = response();

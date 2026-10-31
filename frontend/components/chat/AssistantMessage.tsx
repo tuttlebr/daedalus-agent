@@ -61,6 +61,7 @@ function formatGenerationDuration(milliseconds: number): string {
 }
 
 interface AssistantMessageProps {
+  conversationId?: string;
   message: Message;
   messageIndex: number;
   isStreaming?: boolean;
@@ -70,6 +71,7 @@ interface AssistantMessageProps {
 
 export const AssistantMessage = memo(
   ({
+    conversationId,
     message,
     messageIndex,
     isStreaming = false,
@@ -216,6 +218,7 @@ export const AssistantMessage = memo(
           {/* Message content */}
           {mcpApproval && !isStreaming ? (
             <McpApprovalCard
+              conversationId={conversationId}
               approval={mcpApproval}
               jobId={
                 typeof message.metadata?.jobId === 'string'

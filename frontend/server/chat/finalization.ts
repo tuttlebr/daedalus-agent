@@ -1,3 +1,4 @@
+import { preferSavedMcpApprovalResult } from '@/utils/app/mcpApproval';
 import { Logger } from '@/utils/logger';
 
 import {
@@ -120,9 +121,20 @@ function withSavedMetadata(
   conversation: Conversation,
   submittedAt: number | undefined,
 ): Conversation {
+  const savedMessages = new Map<string, Message>(
+    (current?.messages || [])
+      .filter((message: Message) => message.id)
+      .map((message: Message) => [message.id!, message]),
+  );
   const result = {
     ...conversation,
     folderId: current?.folderId ?? conversation.folderId,
+    messages: conversation.messages.map((message) => {
+      const saved = message.id ? savedMessages.get(message.id) : undefined;
+      return saved && preferSavedMcpApprovalResult(saved, message)
+        ? saved
+        : message;
+    }),
   };
   const savedName = current?.name;
   if (

@@ -622,6 +622,92 @@ describe.skipIf(!RUN_REAL_REDIS)(
       }
     });
 
+    it('keeps an approval result delivered after a follow-up took its history snapshot', async () => {
+      const { saveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const approvalJob = `${jobId}-approval`;
+      const approvalConversation = `${conversationId}-approval`;
+      const requestId = 'approval_request_12345';
+      const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+        JSON.stringify({
+          version: 1,
+          requestId,
+          serverName: 'k8s_mcp_server',
+          toolName: 'getNamespaceResources',
+          target: 'daedalus',
+          summary: 'Read pods',
+          argumentsSha256: 'a'.repeat(64),
+        }),
+      ).toString('base64url')}-->`;
+      const pending = {
+        id: 'approval-answer',
+        role: 'assistant',
+        content: marker,
+      };
+      const result = {
+        ...pending,
+        content: 'Approved operation completed. pod-a Running',
+        metadata: { mcpApprovalRequestId: requestId },
+      };
+      const statusKey = redis.sessionKey(['async-job-status', approvalJob]);
+      const conversationKey = redis.sessionKey([
+        'conversation',
+        approvalConversation,
+      ]);
+      await saveConversationForUser(
+        userId,
+        approvalConversation,
+        () => ({
+          id: approvalConversation,
+          name: 'Pods',
+          messages: [result],
+        }),
+        true,
+      );
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        {
+          jobId: approvalJob,
+          status: 'streaming',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        120,
+      );
+      try {
+        await expect(
+          finalization.finalizeSuccess(
+            approvalJob,
+            {
+              jobId: approvalJob,
+              natBaseUrl: 'http://127.0.0.1:1',
+              executionMode: 'stream',
+              messages: [pending],
+              userId,
+              conversationId: approvalConversation,
+              conversationName: 'Pods',
+              assistantMessageId: 'follow-up',
+            },
+            'Here are the results.',
+          ),
+        ).resolves.toBe(true);
+        const saved = await redis.jsonGet(conversationKey);
+        expect(saved.messages[0]).toEqual(result);
+        expect(saved.messages[1].content).toBe('Here are the results.');
+      } finally {
+        await client.del(
+          statusKey,
+          conversationKey,
+          state.finalizationJournalKey(approvalJob),
+        );
+        await client.srem(
+          redis.sessionKey(['user', userId, 'conversations']),
+          approvalConversation,
+        );
+      }
+    });
+
     it.each(['normal', 'recovery', 'deleted'])(
       'respects saved conversation state during %s finalization',
       async (mode) => {

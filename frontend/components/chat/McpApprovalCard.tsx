@@ -12,6 +12,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   requiresAdditionalMcpConfirmation,
+  parseMcpApprovalResult,
+  type McpApprovalResult,
   type McpApprovalMarker,
 } from '@/utils/app/mcpApproval';
 
@@ -34,15 +36,22 @@ function approvalState(status: unknown): ApprovalState {
 }
 
 interface McpApprovalCardProps {
+  conversationId?: string;
   approval: McpApprovalMarker;
   jobId?: string;
 }
 
-export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
+export function McpApprovalCard({
+  approval,
+  jobId,
+  conversationId,
+}: McpApprovalCardProps) {
   const [state, setState] = useState<ApprovalState>('checking');
   const [authUrl, setAuthUrl] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [details, setDetails] = useState<McpApprovalPreview | undefined>();
+  const [result, setResult] = useState<McpApprovalResult | undefined>();
+  const [conversationPending, setConversationPending] = useState(false);
   const [confirmingHighImpact, setConfirmingHighImpact] = useState(false);
   const decisionStarted = useRef(false);
   const statusReadSequence = useRef(0);
@@ -74,6 +83,8 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       // than the polling interval. Only a newer applied response wins.
       latestStatusApplied.current = read;
       setState(approvalState(payload.status));
+      setResult(parseMcpApprovalResult(payload.result));
+      setConversationPending(payload.conversationPending === true);
       setAuthUrl(
         typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
       );
@@ -97,7 +108,11 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
   useEffect(() => {
     // Keep reading while the first status is unknown too: a transient failure
     // would otherwise leave the decision buttons unreachable.
-    if (!['checking', 'running', 'oauth_required'].includes(state)) return;
+    if (
+      !['checking', 'running', 'oauth_required'].includes(state) &&
+      !conversationPending
+    )
+      return;
     const timer = window.setInterval(() => {
       void readStatus().catch((statusError) => {
         setError(
@@ -108,7 +123,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [readStatus, state]);
+  }, [readStatus, state, conversationPending]);
 
   const decide = async (decision: 'approved' | 'denied') => {
     if (
@@ -131,7 +146,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision, jobId }),
+          body: JSON.stringify({ decision, jobId, conversationId }),
         },
       );
       const payload = await response.json();
@@ -139,6 +154,8 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
         throw new Error(payload.error || 'Approval could not be resolved');
       }
       setState(approvalState(payload.status));
+      setResult(parseMcpApprovalResult(payload.result));
+      setConversationPending(payload.conversationPending === true);
       if (typeof payload.authUrl === 'string') {
         setAuthUrl(payload.authUrl);
       }
@@ -202,13 +219,20 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
           )}
 
           {state === 'completed' && (
-            <div className="mt-3 flex items-center gap-1.5 text-sm text-nvidia-green">
-              <IconCheck size={16} /> Update completed
+            <div className="mt-3 text-sm">
+              <div className="flex items-center gap-1.5 text-nvidia-green">
+                <IconCheck size={16} /> Operation completed
+              </div>
+              <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-dark-bg-primary/50 p-2 font-mono text-dark-text-primary">
+                {result
+                  ? result.content || 'The operation returned no output.'
+                  : 'The operation completed, but its output is unavailable.'}
+              </pre>
             </div>
           )}
           {state === 'denied' && (
             <div className="mt-3 flex items-center gap-1.5 text-sm text-dark-text-muted">
-              <IconX size={16} /> Update denied; no action was taken
+              <IconX size={16} /> Operation denied; no action was taken
             </div>
           )}
           {busy && (
@@ -220,8 +244,8 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
               {state === 'checking'
                 ? 'Loading approval…'
                 : state === 'submitting'
-                ? 'Starting update…'
-                : 'Updating…'}
+                ? 'Starting operation…'
+                : 'Running operation…'}
             </div>
           )}
           {state === 'oauth_required' && authUrl && (
