@@ -421,16 +421,16 @@ function_groups:
       - helmUninstall
       - helmRollback
       - helmRepoAdd
-    tool_overrides:
-      getAPIResources: &k8s_read_only
-        approval_policy: read_only
-      listResources: *k8s_read_only
-      getResource: *k8s_read_only
-      getPodsLogs: *k8s_read_only
-      getEvents: *k8s_read_only
-      getResourceOwners: *k8s_read_only
-      getClusterSummary: *k8s_read_only
-      listContexts: *k8s_read_only
+    # tool_overrides:
+    #   getAPIResources: &k8s_read_only
+    #     approval_policy: read_only
+    #   listResources: *k8s_read_only
+    #   getResource: *k8s_read_only
+    #   getPodsLogs: *k8s_read_only
+    #   getEvents: *k8s_read_only
+    #   getResourceOwners: *k8s_read_only
+    #   getClusterSummary: *k8s_read_only
+    #   listContexts: *k8s_read_only
     tool_call_timeout: 120
     server:
       transport: streamable-http
