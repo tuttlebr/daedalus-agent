@@ -98,6 +98,13 @@
     "pinned": false
   },
   {
+    "name": "daedalus-optimize-tool-config",
+    "path": ".agents/skills/daedalus-optimize-tool-config/SKILL.md",
+    "provenance": "agent",
+    "source": "User request in the 2026-11-02 Codex conversation: create a repository skill to evolve backend/tool-calling-config.yaml and optimize tool descriptions and system prompts; implementation authored by the agent from repository sources.",
+    "pinned": false
+  },
+  {
     "name": "daedalus-review-and-remediate",
     "path": ".agents/skills/daedalus-review-and-remediate/SKILL.md",
     "provenance": "derived",

@@ -1,6 +1,6 @@
 ---
 name: kubernetes-specialist
-description: Author, review, or diagnose Kubernetes workloads, Helm resources, networking, policy, storage, and controllers. Daedalus's cluster tools provide read-only evidence; prepare requested changes for an authorized execution environment.
+description: Author, review, or diagnose Kubernetes workloads, Helm resources, networking, policy, storage, and controllers. Use discovered cluster capabilities within the user's scope and runtime gates; prepare patches when authorized execution is unavailable.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
@@ -17,8 +17,9 @@ the requested surface.
 ## Use the available execution surface
 
 Use registered `k8s_mcp_server` schemas for live reads and supported actions.
-Daedalus currently exposes reads only: prepare an exact source patch and
-validation commands for a requested repair when no write capability exists.
+Availability depends on the configured allowlist and server catalog/role;
+the runtime gate governs execution. When an authorized write capability is
+unavailable, prepare an exact source patch and validation commands.
 A tool name or Kubernetes verb does not itself grant permission.
 Use an operator CLI only when the environment actually supplies it; the
 isolated sandbox does not inherit kubeconfig or host/cluster access.

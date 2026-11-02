@@ -1,0 +1,3 @@
+interface:
+  display_name: 'Daedalus Tool Config Optimization'
+  short_description: 'Keep tool prompts concise and aligned with capabilities'

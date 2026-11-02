@@ -61,6 +61,11 @@ locally from the repository root:
 Remove same-named personal copies: Claude Code prefers a personal skill over the
 repository version, and Codex lists both.
 
+Use `daedalus-optimize-tool-config` for capability alignment and prompt/tool
+description efficiency in `backend/tool-calling-config.yaml`. When changing tool
+schemas, exposure, discovery, prompt assembly, or background-work contracts,
+reconcile the affected config and this skill's references in the same change.
+
 Keep these skills current with the code they describe. When a change moves,
 renames, or retires an entry point; shifts ownership between the frontend, Rust
 runtime, and Python tools; or changes CI jobs, Make targets, hooks, test layout,
