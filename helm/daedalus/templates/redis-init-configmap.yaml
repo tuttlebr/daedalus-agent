@@ -85,7 +85,7 @@ data:
         # its exact realtime channels; authentication keyspaces stay excluded.
         write_acl_user "$REDIS_STREAM_WORKER_USERNAME" "$REDIS_STREAM_WORKER_PASSWORD" \
           "${REDIS_STREAM_WORKER_PREVIOUS_PASSWORD:-}" \
-          '~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~generated:* ~image:* ~image-job:*' \
+          '~async-* ~conversation:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~generated:* ~image:* ~image-job:*' \
           '&job:*:status &user:*:chat:*:tokens &user:*:updates'
         # The autonomous process owns only autonomy state, its persisted
         # workspace notes, and its update topic.

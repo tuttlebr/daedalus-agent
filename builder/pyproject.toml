@@ -26,6 +26,10 @@ test = [
     "pyyaml>=6",
     "pillow>=13.0.0,<14",
     "httpcore>=0.18",
+    # Real feed parsing and HTML conversion, so the RSS and public-content
+    # tests that need them run in every pytest environment instead of skipping.
+    "fastfeedparser>=0.5.10,<0.6",
+    "markitdown>=0.1.6,<0.2",
 ]
 
 [tool.setuptools]

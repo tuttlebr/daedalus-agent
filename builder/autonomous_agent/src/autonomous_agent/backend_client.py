@@ -239,7 +239,14 @@ class BackendClient:
                 json=payload,
                 headers=self._headers(execution_id=execution_id),
             ) as resp:
-                resp.raise_for_status()
+                try:
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    # The run record is user-visible; keep the internal URL
+                    # and provider status text out of it.
+                    raise RunAbortedError(
+                        f"backend returned HTTP {exc.response.status_code}"
+                    ) from None
                 resp.encoding = "utf-8"
                 async for line in resp.aiter_lines():
                     if not line:

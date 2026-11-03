@@ -20,7 +20,7 @@ The agent keeps results from tools already started and uses your direction for
 the next model round. See the [request path](docs/architecture.md#request-path)
 for the execution and recovery boundaries.
 
-Forks are encouraged but this is a personal project so I'll likely nver look for
+Forks are encouraged but this is a personal project so I'll likely never look for
 contributions. I maintain this around my own use and available
 time; there is no support team, guaranteed response time, or fixed release
 schedule. Use by two people does not establish suitability for a public service.

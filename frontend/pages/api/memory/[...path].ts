@@ -85,7 +85,7 @@ export default async function handler(
   if (!route) return res.status(404).json({ error: 'Memory route not found.' });
   if (!req.method || !route.methods.includes(req.method)) {
     res.setHeader('Allow', route.methods);
-    return res.status(405).end('Method Not Allowed');
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const query = new URLSearchParams();

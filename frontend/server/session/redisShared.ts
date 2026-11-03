@@ -41,6 +41,11 @@ export const REDIS_CLIENT_OPTIONS: RedisOptions = {
   // return true (not 2) so ioredis never replays a possibly consequential write.
   reconnectOnError: (error) =>
     /^(READONLY|MASTERDOWN)(?: |$)/.test(error.message),
+  // A command whose socket dropped after it was written may have executed.
+  // Never resend it on reconnect: queue entries, counters and publishes are
+  // not idempotent, and every caller already treats a lost reply as a failed
+  // attempt against a fresh snapshot.
+  autoResendUnfulfilledCommands: false,
   connectTimeout: 10_000,
   commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
   retryStrategy: (times) => Math.min(times * 200, 2_000),

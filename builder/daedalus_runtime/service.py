@@ -476,7 +476,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 await redis.aclose()
                 await close_telemetry(telemetry)
 
-    app = FastAPI(title="Daedalus tools", lifespan=lifespan)
+    # The public Rust proxy forwards unknown paths here without the internal
+    # token, so the schema and interactive docs must not exist to be exposed.
+    app = FastAPI(
+        title="Daedalus tools",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     from nat_helpers.front_end import attach_daedalus_routes
 
     attach_daedalus_routes(app)
@@ -681,8 +689,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
                         elapsed_ms=round((time.monotonic() - started) * 1000, 1),
                         is_error=bool(result.get("is_error")),
                         terminal=bool(result.get("terminal")),
-                        approval_required=result.get("terminal_reason")
-                        == "mcp_approval_required",
+                        approval_required=bool(result.get("terminal"))
+                        and result.get("terminal_reason") == "mcp_approval_required",
                     )
                     if explicit:
                         result.setdefault("loaded_skills", [])

@@ -91,9 +91,6 @@ _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 _LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {}
 
 
-_LOCAL_AUTO_APPROVED_MCP_TOOLS: dict[str, frozenset[str]] = {}
-
-
 @dataclass(frozen=True)
 class _McpGroupApprovalPolicy:
     included: frozenset[str]
@@ -119,9 +116,6 @@ _MCP_APPROVAL_MARKER_PREFIX = "<!--daedalus-mcp-approval:"
 
 
 _MCP_APPROVAL_MARKER_SUFFIX = "-->"
-
-
-_PER_USER_MCP_OAUTH_SERVERS: frozenset[str] = frozenset()
 
 
 def _bind_configured_mcp_endpoint(
@@ -244,9 +238,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     """
 
     global _LOCAL_READ_ONLY_MCP_TOOLS
-    global _LOCAL_AUTO_APPROVED_MCP_TOOLS
     global _MCP_GROUP_APPROVAL_POLICIES
-    global _PER_USER_MCP_OAUTH_SERVERS
     global _approval_policy_configured
 
     path = Path(config_path)
@@ -315,9 +307,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
                 )
 
     _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
-    _LOCAL_AUTO_APPROVED_MCP_TOOLS = auto_approved_registry
     _MCP_GROUP_APPROVAL_POLICIES = group_policies
-    _PER_USER_MCP_OAUTH_SERVERS = frozenset(per_user_oauth_servers)
     # Replace, like every other registry: an endpoint binding retained from an
     # earlier load could resolve a now-ambiguous endpoint to another group's
     # policy. Mutate in place so existing references observe the new policy.

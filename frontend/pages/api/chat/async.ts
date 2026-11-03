@@ -46,6 +46,7 @@ import {
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
 import { forwardCancellation } from '@/server/chat/steering';
 import {
+  StreamEnqueueRejectedError,
   enqueueStreamJob,
   getStreamJobPresence,
   streamPayloadKey,
@@ -87,7 +88,7 @@ import {
   setStreamingState,
   clearStreamingState,
 } from '@/server/session/redis';
-import { readJsonFields } from '@/server/session/redisShared';
+import { JOB_ID_PATTERN, readJsonFields } from '@/server/session/redisShared';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
@@ -715,38 +716,53 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    // One commit stores the payload, queues the job, turns a Stop already
-    // recorded for this submission into the job's stop signal, and tells the
-    // user's other sessions the conversation is streaming.
-    await enqueueStreamJob(
-      jobId,
-      { messagesForNat: messagesWithIdentity, verifiedUsername },
-      {
-        userId: verifiedUsername,
-        ...(conversationId ? { conversationId } : {}),
-      },
-      {
-        ...(submissionId
-          ? {
-              submissionKey: submissionKey(
-                'chat',
-                verifiedUsername,
-                submissionId,
-              ),
-            }
-          : {}),
-        ...(conversationId
-          ? {
-              notice: {
-                channel: channels.userUpdates(effectiveUserId),
-                payload: JSON.stringify(
-                  streamingStateEvent(conversationId, true, jobId),
+    // One commit re-checks the slot and conversation guard, stores the
+    // payload, queues the job, turns a Stop already recorded for this
+    // submission into the job's stop signal, and tells the user's other
+    // sessions the conversation is streaming. The next turn's stale-submission
+    // recovery can release the slot after the confirmation above; the commit
+    // then queues nothing and this submission fails like an expired one.
+    try {
+      await enqueueStreamJob(
+        jobId,
+        { messagesForNat: messagesWithIdentity, verifiedUsername },
+        {
+          userId: verifiedUsername,
+          ...(conversationId ? { conversationId } : {}),
+        },
+        {
+          ...(submissionId
+            ? {
+                submissionKey: submissionKey(
+                  'chat',
+                  verifiedUsername,
+                  submissionId,
                 ),
-              },
-            }
-          : {}),
-      },
-    );
+              }
+            : {}),
+          ...(conversationId
+            ? {
+                notice: {
+                  channel: channels.userUpdates(effectiveUserId),
+                  payload: JSON.stringify(
+                    streamingStateEvent(conversationId, true, jobId),
+                  ),
+                },
+              }
+            : {}),
+        },
+      );
+    } catch (error) {
+      if (error instanceof StreamEnqueueRejectedError) {
+        logger.warn(`Job ${jobId}: not queued, ${error.reason}`);
+        throw new ApiRouteError(
+          503,
+          'This response took too long to start. Please try again.',
+          'submission_expired',
+        );
+      }
+      throw error;
+    }
     jobEnqueued = true;
 
     return res.status(200).json({ jobId, status: jobStatus.status });
@@ -815,7 +831,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { jobId } = req.query;
 
-  if (!jobId || typeof jobId !== 'string') {
+  if (typeof jobId !== 'string' || !JOB_ID_PATTERN.test(jobId)) {
     return res.status(400).json({ error: 'Invalid job ID' });
   }
 
@@ -914,7 +930,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       // even when POST has not written the request/status yet.
       await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
     }
-    if (!jobId || typeof jobId !== 'string')
+    if (typeof jobId !== 'string' || !JOB_ID_PATTERN.test(jobId))
       return res.status(400).json({ error: 'Invalid job ID' });
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
@@ -964,8 +980,10 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         // worker replacement; keep its request/payload available until then.
         canceled = true;
         // The durable abort remains authoritative if the run is queued or the
-        // backend is unreachable. Active runs also get an immediate signal.
-        if (jobMeta.executionMode === 'stream')
+        // backend is unreachable. Only a leased job can have a backend run to
+        // signal; a queued one would just wait on a control call that no run
+        // can answer. Active runs get an immediate signal.
+        if (jobMeta.executionMode === 'stream' && presence.lease)
           await forwardCancellation(jobMeta as AsyncJobRequest).catch(() => {
             logger.warn(
               'Backend cancellation unavailable; worker abort remains active',

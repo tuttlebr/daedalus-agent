@@ -165,10 +165,11 @@ checks affected by subsequent edits or new evidence.
 
 Use [capture](../../../../tools/skill-capture/capture.py) for evidence-only observations
 and [evaluation](../../../../tools/skill-eval/evaluate.py) for paired helper checks.
-`make skill-eval-image` prepares the immutable runtime; `make eval` measures the
-installed and absent skill against committed baselines with no network access.
-The offline CI job runs standard-library tests in `tools/skill-capture/tests/`,
-`tools/skill-eval/tests/`, `tools/skill-loop/tests/`, and `tools/skill-memory/tests/`.
+`make skill-eval-image` prepares the immutable runtime; `make eval` mirrors the
+offline CI job: it runs the standard-library tests in `tools/skill-capture/tests/`,
+`tools/skill-eval/tests/`, `tools/skill-loop/tests/`, and `tools/skill-memory/tests/`,
+the skill-memory `check`, and then measures the installed and absent skill
+against committed baselines with no network access.
 Use the [bounded loop](../../../../tools/skill-loop/README.md) only for skills with
 evaluation data, and [task-start retrieval](../../../../tools/skill-memory/README.md)
 for budgeted, provenance-linked skill context and reviewed promotion.

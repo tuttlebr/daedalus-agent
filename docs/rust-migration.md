@@ -74,6 +74,11 @@ write starts, collection ownership remains held until that write finishes.
 exact upstream calls and unchanged in-progress receipt/replay protection;
 `ingestion_check.py` verifies completion of an already-started write after
 cancellation. Both checks retain the original Python write assertions.
+The collection's metadata receipt row is written once per upload: a document
+runner attempt retried after the receipt was inserted skips the `meta`
+existence, creation, schema and insert calls instead of adding a second row.
+The frozen fixtures record one SDK attempt; the runner test replays a retry
+without that block.
 
 Multi-document ingestion fixtures capture consecutive uploads with collection,
 index, row, and SDK cache state retained between documents. Native uploads add

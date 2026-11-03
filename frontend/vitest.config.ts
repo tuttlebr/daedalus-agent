@@ -55,27 +55,29 @@ export default defineConfig({
         'node_modules/**',
       ],
       thresholds: {
-        // Measured repository-wide regression gates. The explicit server and
-        // state entries above keep newly hardened trust boundaries visible in
-        // the report instead of allowing uninstrumented code to look green.
-        lines: 36,
-        functions: 28,
-        branches: 28,
-        statements: 34,
+        // Measured repository-wide regression gates, kept within a few points
+        // of the measured unit-run values so losing a meaningful share of the
+        // suite fails the gate. The explicit server and state entries above
+        // keep newly hardened trust boundaries visible in the report instead
+        // of allowing uninstrumented code to look green.
+        lines: 68,
+        functions: 64,
+        branches: 58,
+        statements: 66,
         // Critical runtime areas use measured floors in addition to the
         // repository-wide gate, so broad aggregate coverage can't mask a
         // regression in authentication, rate limiting, or state lifecycles.
         'ws-server.ts': {
-          lines: 43,
-          functions: 34,
-          branches: 43,
-          statements: 43,
+          lines: 60,
+          functions: 45,
+          branches: 58,
+          statements: 60,
         },
         'server/autonomy/store.ts': {
-          lines: 73,
-          functions: 62,
-          branches: 58,
-          statements: 69,
+          lines: 92,
+          functions: 92,
+          branches: 82,
+          statements: 88,
         },
         'server/rateLimit.ts': {
           lines: 100,

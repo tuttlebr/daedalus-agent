@@ -22,9 +22,6 @@ interface TimerOptions {
 export interface ManagedTimer {
   id: string;
   stop: () => void;
-  pause: () => void;
-  resume: () => void;
-  isRunning: () => boolean;
 }
 
 // Track all managed timers for global visibility handling
@@ -193,25 +190,5 @@ export function createVisibilityAwareInterval(
       }
       managedTimers.delete(id);
     },
-    pause: () => {
-      if (timerState.intervalId) {
-        clearInterval(timerState.intervalId);
-        timerState.intervalId = null;
-        timerState.isPaused = true;
-      }
-    },
-    resume: () => {
-      if (timerState.isPaused && !timerState.intervalId) {
-        timerState.intervalId = setInterval(() => {
-          try {
-            callback();
-          } catch (e) {
-            console.error('Timer callback error:', e);
-          }
-        }, effectiveInterval);
-        timerState.isPaused = false;
-      }
-    },
-    isRunning: () => timerState.intervalId !== null && !timerState.isPaused,
   };
 }

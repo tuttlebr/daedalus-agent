@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use base64::Engine as _;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -78,6 +78,7 @@ pub struct Pipeline {
     engine: Engine,
     collection: String,
     body: bytes::Bytes,
+    receipt_written: Arc<AtomicBool>,
 }
 impl document_process::Engine for Engine {
     type Pipeline = Pipeline;
@@ -133,6 +134,7 @@ impl document_process::Engine for Engine {
             engine,
             collection: input.collection_name,
             body,
+            receipt_written: input.receipt_written,
         })
     }
 }
@@ -149,6 +151,7 @@ pub struct Extraction {
     engine: Engine,
     collection: String,
     ingested: nv_ingest::Ingestion,
+    receipt_written: Arc<AtomicBool>,
 }
 impl document_process::Pipeline for Pipeline {
     type Extraction = Extraction;
@@ -157,6 +160,7 @@ impl document_process::Pipeline for Pipeline {
             ingested: self.engine.client.ingest_submission(self.body).await,
             engine: self.engine,
             collection: self.collection,
+            receipt_written: self.receipt_written,
         })
     }
 }
@@ -188,6 +192,7 @@ impl document_process::Extraction for Extraction {
                         "nvidia/llama-nemotron-embed-1b-v2",
                     ),
                     surrogates: &ingested.extraction.surrogates,
+                    receipt_written: Some(&self.receipt_written),
                 },
                 &mut ingested.extraction.results,
             )
@@ -271,6 +276,7 @@ mod tests {
         Build {
             append_to_collection: false,
             bytes: bytes::Bytes::from_static(b"Synthetic"),
+            receipt_written: Default::default(),
             filename: "fixture.txt".into(),
             collection_name: "private_collection".into(),
             chunk_size: json!(1024),
@@ -306,6 +312,7 @@ mod tests {
         config: Config,
         case: Value,
         attempts: Arc<Mutex<usize>>,
+        receipt_written: Arc<AtomicBool>,
     }
     impl document_process::Services for Runner {
         type Engine = Self;
@@ -341,15 +348,32 @@ mod tests {
     impl document_process::Extraction for Runner {
         async fn write(self, _progress: Stages) -> Result<Ingested> {
             *self.attempts.lock().unwrap() += 1;
-            let mut io = Script(
-                self.case["calls"]
-                    .as_array()
-                    .unwrap()
+            // The frozen script records one SDK attempt. A retry after the
+            // metadata receipt was written skips that receipt, so the
+            // contiguous `meta` block (existence check, creation, schema and
+            // insert) is absent from the replay.
+            let mut calls: Vec<Value> = self.case["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|c| c["method"] != "Connect")
+                .cloned()
+                .collect();
+            if self
+                .receipt_written
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                let meta: Vec<usize> = calls
                     .iter()
-                    .filter(|c| c["method"] != "Connect")
-                    .cloned()
-                    .collect(),
-            );
+                    .enumerate()
+                    .filter(|(_, c)| c["body"]["collection_name"] == "meta")
+                    .map(|(index, _)| index)
+                    .collect();
+                if let (Some(first), Some(last)) = (meta.first(), meta.last()) {
+                    calls.drain(*first..=*last);
+                }
+            }
+            let mut io = Script(calls.into_iter().collect());
             milvus_index::dimension_probe(&mut io, "private_collection", 2, "vector").await?;
             let mut results = self.case["records"].clone();
             milvus_index::upload(
@@ -361,6 +385,7 @@ mod tests {
                     timestamp: "2026-10-13 12:00:00",
                     model: "nvidia/llama-nemotron-embed-1b-v2",
                     surrogates: &Default::default(),
+                    receipt_written: Some(&self.receipt_written),
                 },
                 &mut results,
             )
@@ -404,6 +429,7 @@ mod tests {
                 },
                 case: case.clone(),
                 attempts: Arc::new(Mutex::new(0)),
+                receipt_written: Default::default(),
             };
             let outcome = document_process::run(
                 &runner,

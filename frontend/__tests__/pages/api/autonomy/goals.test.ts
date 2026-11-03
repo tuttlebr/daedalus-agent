@@ -85,6 +85,20 @@ describe('autonomy goals API handler', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
+  it('answers 404 for an unknown goal id without committing a write', async () => {
+    const keep = goal('goal_keep', 'Keep watching releases');
+    vi.mocked(listGoals).mockResolvedValue([keep]);
+    const { req, res } = createMockReqRes('DELETE', { id: 'goal_missing' });
+
+    await handler(req, res);
+
+    // The updater returns null for an unknown id, so mutateGoals writes and
+    // broadcasts nothing, matching PATCH.
+    expect(vi.mocked(mutateGoals).mock.calls[0][1]([keep])).toBeNull();
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Goal not found' });
+  });
+
   it('accepts delete ids from the request body', async () => {
     const keep = goal('goal_keep', 'Keep watching releases');
     const remove = goal('goal_remove', 'Remove me');

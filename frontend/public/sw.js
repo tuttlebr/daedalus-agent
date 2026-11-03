@@ -485,6 +485,23 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// Precache entries of earlier builds share CACHE_NAME (its version tracks
+// branding, not the build), are never served once their chunk URLs leave the
+// manifest, and sit outside the runtime cache's LRU and expiry. Drop them so
+// the bucket does not grow with every deployment.
+async function pruneStalePrecacheEntries() {
+  // Without the manifest the current build's chunks are unknown; pruning
+  // then would remove entries this install just added.
+  if (!(await loadBuildPrecache()).length) return;
+  const cache = await caches.open(CACHE_NAME);
+  const requests = await cache.keys();
+  await Promise.all(
+    requests
+      .filter((request) => !isPrecachedUrl(request.url))
+      .map((request) => cache.delete(request)),
+  );
+}
+
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -496,6 +513,9 @@ self.addEventListener('activate', (event) => {
             .map((name) => caches.delete(name)),
         );
       }),
+      pruneStalePrecacheEntries().catch((error) =>
+        swLog.warn('Stale precache cleanup failed', error),
+      ),
       // Clean up expired items on activation
       caches.open(RUNTIME_CACHE).then((cache) => {
         return cacheManager.cleanupExpiredItems(cache);

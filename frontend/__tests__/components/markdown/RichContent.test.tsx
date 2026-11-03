@@ -90,7 +90,6 @@ describe('rich model content', () => {
   );
 
   it('only links search results to absolute http(s) URLs', () => {
-    const unsafe = UNSAFE_LINKS[0];
     act(() =>
       root.render(
         <>
@@ -146,6 +145,5 @@ describe('rich model content', () => {
     ).toEqual([]);
     expect(container.textContent).toContain('organic');
     expect(container.textContent).toContain('relative');
-    expect(unsafe).toMatch(/^javascript:/);
   });
 });

@@ -257,6 +257,10 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         let processing: Promise<unknown> | undefined;
         try {
           await seedJob(jobId);
+          const { acquireUserJobGuard } = await import(
+            '@/server/chat/userJobGuard'
+          );
+          await acquireUserJobGuard('oauth-cancel-user', jobId);
           await queue.enqueueStreamJob(
             jobId,
             { messagesForNat: [], verifiedUsername: 'oauth-cancel-user' },

@@ -142,11 +142,11 @@ def sync(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-milvus-namespace", default="milvus")
+    parser.add_argument("--source-milvus-namespace", default="daedalus")
     parser.add_argument("--source-milvus-secret", default="milvus-root-credentials")
     parser.add_argument("--source-milvus-password-key", default="password")
     parser.add_argument("--milvus-username", default="root")
-    parser.add_argument("--source-minio-namespace", default="milvus")
+    parser.add_argument("--source-minio-namespace", default="daedalus")
     parser.add_argument("--source-minio-secret", default="milvus-minio-credentials")
     parser.add_argument("--source-minio-access-key", default="accesskey")
     parser.add_argument("--source-minio-secret-key", default="secretkey")

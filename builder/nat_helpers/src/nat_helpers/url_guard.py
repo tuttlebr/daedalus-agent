@@ -70,9 +70,9 @@ def resolve_public_addresses(host: str) -> tuple[str, ...]:
         raise UnsafeURLError(f"Host '{host}' did not resolve to any address.")
     for ip in addresses:
         if not _ip_is_public(ip):
-            raise UnsafeURLError(
-                f"URL host '{host}' resolves to a non-public address ({ip})."
-            )
+            # The message reaches the model through tool output; name the
+            # host it asked for, never the internal address it resolved to.
+            raise UnsafeURLError(f"URL host '{host}' resolves to a non-public address.")
     return addresses
 
 

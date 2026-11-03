@@ -15,6 +15,7 @@ import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
+import type { AsyncJobStatus } from '@/server/chat/types';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncChat');
@@ -43,48 +44,6 @@ const GAP_REPAIR_RETRY_MS = 1_000;
 const MAX_HELD_TOKENS_PER_JOB = 1_000;
 const MISSING_JOB_MESSAGE =
   'The response status is no longer available. Reload the conversation to see any saved result.';
-
-interface DocumentIngestProgress {
-  completed: number;
-  total: number;
-  currentDoc?: string;
-  currentIndex?: number;
-  percent: number;
-  phase?: string;
-  message?: string;
-  chunks?: number;
-  pages?: number;
-  failures?: number;
-  attempt?: number;
-}
-
-interface OAuthRequest {
-  id: string;
-  authUrl: string;
-  oauthState?: string;
-  service?: string;
-}
-
-interface AsyncJobStatus {
-  jobId: string;
-  status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
-  partialResponse?: string;
-  fullResponse?: string;
-  intermediateSteps?: any[];
-  error?: string;
-  authUrl?: string;
-  oauthState?: string;
-  oauthRequests?: OAuthRequest[];
-  progress?: number;
-  ingestProgress?: DocumentIngestProgress;
-  createdAt: number;
-  updatedAt: number;
-  conversationId?: string;
-  finalizedAt?: number; // Timestamp when all backend operations are complete
-  generationDurationMs?: number;
-  turnId?: string;
-  assistantMessageId?: string;
-}
 
 interface ChatTokenEvent {
   conversationId: string;
@@ -1221,9 +1180,9 @@ export const useAsyncChat = (
                 { credentials: 'include' },
                 STATUS_FETCH_TIMEOUT_MS,
               );
-              const status = statusResponse.ok
-                ? await statusResponse.json()
-                : null;
+              let status: any = null;
+              if (statusResponse.ok) status = await statusResponse.json();
+              else await statusResponse.body?.cancel();
               if (!status || !['completed', 'error'].includes(status.status)) {
                 throw new Error(
                   'Cancellation was not confirmed. The response may still be running; please try again.',

@@ -52,7 +52,7 @@ describe('durable stream queue', () => {
       messagesForNat: [{ role: 'user', content: 'hello' }],
       verifiedUsername: 'testuser',
     };
-    mocks.redis.eval.mockResolvedValueOnce('1-0');
+    mocks.redis.eval.mockResolvedValueOnce(['queued', '1-0']);
 
     await expect(
       enqueueStreamJob(
@@ -69,11 +69,13 @@ describe('durable stream queue', () => {
     expect(mocks.redis.eval).toHaveBeenCalledOnce();
     expect(mocks.redis.eval).toHaveBeenCalledWith(
       expect.stringContaining('ENQUEUE_STREAM_JOB'),
-      4,
+      6,
       streamPayloadKey('job-1'),
       STREAM_QUEUE_KEY,
       'daedalus:async-job-abort:job-1',
       'daedalus:job-submission:chat:testuser:sub-1',
+      'daedalus:async-user-jobs:testuser',
+      'daedalus:async-conversation-job:testuser:conv-1',
       JSON.stringify(payload),
       3600,
       'job-1',
@@ -83,6 +85,46 @@ describe('durable stream queue', () => {
       'conv-1',
     );
     expect(mocks.redis.xadd).not.toHaveBeenCalled();
+  });
+
+  it.each(['slot_released', 'conversation_released'] as const)(
+    'queues nothing when the commit reports %s',
+    async (reason) => {
+      mocks.redis.eval.mockResolvedValueOnce([reason, '']);
+
+      await expect(
+        enqueueStreamJob(
+          'job-late',
+          { messagesForNat: [], verifiedUsername: 'testuser' },
+          { userId: 'testuser', conversationId: 'conv-late' },
+        ),
+      ).rejects.toMatchObject({
+        name: 'StreamEnqueueRejectedError',
+        reason,
+      });
+      expect(mocks.redis.xadd).not.toHaveBeenCalled();
+    },
+  );
+
+  it('declares no conversation guard key for a job without a conversation', async () => {
+    mocks.redis.eval.mockResolvedValueOnce(['queued', '2-0']);
+
+    await enqueueStreamJob(
+      'job-bare',
+      { messagesForNat: [], verifiedUsername: 'testuser' },
+      { userId: 'testuser' },
+    );
+
+    const args = mocks.redis.eval.mock.calls[0];
+    expect(args[1]).toBe(6);
+    expect(args.slice(2, 8)).toEqual([
+      streamPayloadKey('job-bare'),
+      STREAM_QUEUE_KEY,
+      'daedalus:async-job-abort:job-bare',
+      '',
+      'daedalus:async-user-jobs:testuser',
+      '',
+    ]);
   });
 
   it('creates the consumer group idempotently', async () => {

@@ -85,12 +85,16 @@ export default async function handler(
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'id is required' });
     }
-    await mutateGoals(userId, (goals) =>
-      goals.filter((goal) => goal.id !== id),
+    // An unknown id is a no-op: nothing is written and no change is broadcast.
+    const next = await mutateGoals(userId, (goals) =>
+      goals.some((goal) => goal.id === id)
+        ? goals.filter((goal) => goal.id !== id)
+        : null,
     );
+    if (!next) return res.status(404).json({ error: 'Goal not found' });
     return res.status(204).end();
   }
 
   res.setHeader('Allow', ['GET', 'POST', 'PATCH', 'DELETE']);
-  return res.status(405).end('Method Not Allowed');
+  return res.status(405).json({ error: 'Method not allowed' });
 }

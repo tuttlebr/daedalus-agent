@@ -1,5 +1,6 @@
 """Exercise optional gateway targets and differing Service/container ports."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -180,3 +181,57 @@ def test_explicit_backend_overrides_remain_single_port_by_default():
             assert [entry["value"] for entry in env if entry["name"] == name] == [
                 "8123"
             ]
+
+
+FRONTEND = ROOT / "frontend"
+
+
+def _frontend_budget_seconds(path: str, constant: str) -> int:
+    source = (FRONTEND / path).read_text(encoding="utf-8")
+    match = re.search(rf"{constant}\s*=\s*([0-9_]+)", source)
+    assert match, f"{constant} not found in {path}"
+    return int(match.group(1).replace("_", "")) // 1000
+
+
+def _nginx_conf():
+    rendered = render()
+    for item in rendered:
+        if item["kind"] != "ConfigMap":
+            continue
+        for value in (item.get("data") or {}).values():
+            if "location /api/ {" in value:
+                return value
+    raise AssertionError("nginx configuration not rendered")
+
+
+def _location_read_timeout(conf: str, location: str) -> int:
+    block = re.search(rf"location {re.escape(location)} \{{(.*?)\n    \}}", conf, re.S)
+    assert block, f"no nginx location block for {location}"
+    timeout = re.search(r"proxy_read_timeout (\d+)s;", block.group(1))
+    assert timeout, f"no proxy_read_timeout in {location}"
+    return int(timeout.group(1))
+
+
+@pytest.mark.parametrize(
+    "location,path,constant",
+    [
+        (
+            "^~ /api/mcp-approvals/",
+            "pages/api/mcp-approvals/[requestId].ts",
+            "EXECUTION_START_TIMEOUT_MS",
+        ),
+        (
+            "= /api/profile/import",
+            "pages/api/profile/import.ts",
+            "PROFILE_IMPORT_TIMEOUT_MS",
+        ),
+    ],
+)
+def test_long_frontend_route_budgets_fit_their_nginx_hop(location, path, constant):
+    # The generic /api/ hop is 120s. A route whose handler waits longer needs
+    # its own location, or nginx answers 504 while the handler still runs and
+    # later persists an outcome the browser never sees.
+    conf = _nginx_conf()
+    budget = _frontend_budget_seconds(path, constant)
+    assert budget > _location_read_timeout(conf, "/api/")
+    assert _location_read_timeout(conf, location) >= budget

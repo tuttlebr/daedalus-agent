@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -181,12 +182,16 @@ async def main():
         assert "not configured" in result["results"][0]["error"]
 asyncio.run(main())
 """
+    # The packages are installed in the runtime image; here they are importable
+    # only through the source directories conftest.py placed on sys.path.
+    source_dirs = [entry for entry in sys.path if entry.endswith("/src")]
     result = subprocess.run(
         [sys.executable, "-c", code],
         cwd=root,
         capture_output=True,
         text=True,
         timeout=30,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(source_dirs)},
     )
     assert result.returncode == 0, result.stderr
 

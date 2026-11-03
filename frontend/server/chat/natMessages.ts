@@ -8,9 +8,12 @@ import {
 
 import { isValidConversationId } from './conversationId';
 
+import { JOB_ID_PATTERN } from '@/server/session/redisShared';
 import { createHash } from 'node:crypto';
 
-const REQUEST_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+// The request scope is the job ID; the backend's run identity alphabet is the
+// same one every job-scoped route accepts.
+const REQUEST_SCOPE_PATTERN = JOB_ID_PATTERN;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,128}$/;
 
 // Normalize messages for the OpenAI-compatible /v1/chat/completions backend.

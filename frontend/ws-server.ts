@@ -918,11 +918,8 @@ export async function initializeAuthenticatedConnection(
 
   const handleMessage = async (raw: Buffer): Promise<void> => {
     try {
-      if (raw.length > MAX_WS_MESSAGE_BYTES) {
-        closeSocketSafely(ws, 1009, 'Message too large');
-        return;
-      }
-
+      // `maxPayload` on the server closes oversize frames with 1009 before
+      // any message event; no second size check is needed here.
       const msg = JSON.parse(raw.toString());
 
       switch (msg.type) {

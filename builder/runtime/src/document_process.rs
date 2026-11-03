@@ -12,7 +12,11 @@ use crate::{
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{future::Future, time::Duration};
+use std::{
+    future::Future,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 #[derive(Deserialize)]
 pub struct Request {
@@ -68,6 +72,9 @@ pub struct Build {
     pub append_to_collection: bool,
     /// Shared by every attempt: a retry must not copy the entire upload.
     pub bytes: bytes::Bytes,
+    /// Set once the collection's metadata receipt row has been written, so a
+    /// retried attempt does not insert a second receipt for the same upload.
+    pub receipt_written: Arc<AtomicBool>,
     pub filename: String,
     pub collection_name: String,
     pub chunk_size: Value,
@@ -381,6 +388,7 @@ pub async fn run<S: Services>(
     let input = Build {
         append_to_collection: request.append_to_collection,
         bytes: bytes.into(),
+        receipt_written: Arc::new(AtomicBool::new(false)),
         filename: filename.clone(),
         collection_name: collection.clone(),
         chunk_size: request

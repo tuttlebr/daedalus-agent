@@ -168,7 +168,7 @@ async function emulateQueueScripts(
     );
     const entry = await mocks.redisXadd(keys[1], '*', 'jobId', argv[2]);
     if (argv[3]) await mocks.publisher.publish(argv[3], argv[4]);
-    return entry;
+    return ['queued', entry];
   }
   if (script.includes('READ_JSON_FIELDS')) {
     const value = await (jsonGet as any)(keys[0]);
@@ -5018,6 +5018,35 @@ describe('chat/async submission recovery and validation', () => {
       [...store.keys()].filter((key) => key.startsWith('daedalus:async-job')),
     ).toEqual([]);
     expect(store.has(guardKey('conv-slow'))).toBe(false);
+  });
+
+  it('fails with 503 when the queue commit finds the slot already released', async () => {
+    // The next turn's stale-submission recovery released this slow
+    // submission's slot after its confirmation round trip; the commit itself
+    // must refuse to queue a job that no worker could ever run.
+    const store = wireGuardedStore();
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) =>
+      String(args[0]).includes('ENQUEUE_STREAM_JOB')
+        ? ['slot_released', '']
+        : evaluate(...args),
+    );
+
+    const res = await submit({
+      conversationId: 'conv-late',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'This response took too long to start. Please try again.',
+      reason: 'submission_expired',
+    });
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(
+      [...store.keys()].filter((key) => key.startsWith('daedalus:async-job')),
+    ).toEqual([]);
+    expect(store.has(guardKey('conv-late'))).toBe(false);
   });
 
   it('DELETE finishes a pending job that has no queue owner', async () => {

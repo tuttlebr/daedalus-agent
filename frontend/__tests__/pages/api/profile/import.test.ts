@@ -110,7 +110,7 @@ describe('profile import API handler', () => {
     expect(fetchWithTimeout).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith('Allow', ['POST']);
     expect(res.status).toHaveBeenCalledWith(405);
-    expect(res.end).toHaveBeenCalledWith('Method Not Allowed');
+    expect(res.json).toHaveBeenCalledWith({ error: 'Method not allowed' });
   });
 
   it('returns 502 when the backend import request fails', async () => {

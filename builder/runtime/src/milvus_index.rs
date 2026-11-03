@@ -4,7 +4,14 @@ use crate::{document_index, milvus_index_proto as pb, milvus_proto::Status, milv
 use anyhow::{Result, anyhow, bail};
 use prost::Message;
 use serde_json::{Value, json};
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 /// The retained consumer uses the ORM's default database for its schema/list
 /// reads, and its separately configured client database for writes. Keep this
@@ -548,6 +555,10 @@ pub struct Options<'a> {
     pub timestamp: &'a str,
     pub model: &'a str,
     pub surrogates: &'a crate::document_json::Surrogates,
+    /// Shared across the document runner's attempts: the metadata receipt is
+    /// one row per upload, so an attempt retried after writing it skips the
+    /// receipt instead of inserting a duplicate. `None` writes it every call.
+    pub receipt_written: Option<&'a AtomicBool>,
 }
 // Row conversion and protobuf packing are CPU-bound: roughly 0.3 s per thousand
 // 2048-dimension chunks in an optimized build. Run them on the blocking pool so
@@ -595,29 +606,37 @@ pub async fn upload(io: &mut impl Io, options: &Options<'_>, results: &mut Value
     )
     .await?;
     create(io, collection, options.dimension, false, options.recreate).await?;
-    if !exists(io, "meta").await? {
-        create(io, "meta", 2, true, false).await?;
+    let receipt_written = options
+        .receipt_written
+        .is_some_and(|flag| flag.load(Ordering::SeqCst));
+    if !receipt_written {
+        if !exists(io, "meta").await? {
+            create(io, "meta", 2, true, false).await?;
+        }
+        let schema = describe(io, "meta", Context::Client, false)
+            .await?
+            .schema
+            .unwrap_or_default();
+        let row = milvus_writer::metadata_record(
+            collection,
+            options.dimension,
+            options.timestamp,
+            options.model,
+        );
+        let mutation: pb::MutationResult = call(
+            io,
+            "Insert",
+            milvus_writer::insert("meta", &schema, &[row])?,
+            Context::Client,
+            Missing::None,
+        )
+        .await?;
+        io.record_mutation("meta", mutation.timestamp);
+        drop(mutation);
+        if let Some(flag) = options.receipt_written {
+            flag.store(true, Ordering::SeqCst);
+        }
     }
-    let schema = describe(io, "meta", Context::Client, false)
-        .await?
-        .schema
-        .unwrap_or_default();
-    let row = milvus_writer::metadata_record(
-        collection,
-        options.dimension,
-        options.timestamp,
-        options.model,
-    );
-    let mutation: pb::MutationResult = call(
-        io,
-        "Insert",
-        milvus_writer::insert("meta", &schema, &[row])?,
-        Context::Client,
-        Missing::None,
-    )
-    .await?;
-    io.record_mutation("meta", mutation.timestamp);
-    drop(mutation);
 
     let _: pb::GetVersionResponse = call(
         io,
@@ -781,6 +800,7 @@ mod tests {
                 timestamp: "2026-10-13 12:00:00",
                 model: "nvidia/llama-nemotron-embed-1b-v2",
                 surrogates: &Default::default(),
+                receipt_written: None,
             },
             &mut case["records"].clone(),
         )

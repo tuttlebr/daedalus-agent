@@ -41,7 +41,6 @@ class ToolConfig(BaseModel):
 
 class LLMFramework(StrEnum):
     LANGCHAIN = "LANGCHAIN"
-    OPENAI = "OPENAI"
 
 
 @dataclass

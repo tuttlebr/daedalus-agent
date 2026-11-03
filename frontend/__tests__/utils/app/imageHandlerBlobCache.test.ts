@@ -61,18 +61,51 @@ describe('imageHandler blob cache', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(2);
   });
 
-  it('releases a single cached reference on cleanup', async () => {
+  it('keeps a released image cached and reuses it on the next request', async () => {
+    mockImageFetch(128);
+    const { fetchImageAsBlob, revokeImageBlob } = await import(
+      '@/utils/app/imageHandler'
+    );
+
+    const ref = { imageId: 'single', sessionId: 'generated' };
+    const url = await fetchImageAsBlob(ref, true);
+    revokeImageBlob('single-thumb', url);
+    vi.advanceTimersByTime(100);
+
+    // The last consumer left; the blob stays within the cache budget so a
+    // remount does not refetch it.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(await fetchImageAsBlob(ref, true)).toBe(url);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokes released images once they go stale', async () => {
     mockImageFetch(128);
     const { fetchImageAsBlob, revokeImageBlob } = await import(
       '@/utils/app/imageHandler'
     );
 
     const url = await fetchImageAsBlob(
-      { imageId: 'single', sessionId: 'generated' },
+      { imageId: 'stale', sessionId: 'generated' },
       true,
     );
-    revokeImageBlob('single-thumb', url);
-    vi.advanceTimersByTime(100);
+    revokeImageBlob('stale-thumb', url);
+    // The sweep timer is registered after a dynamic import; run its callback
+    // directly once the desktop staleness window (five minutes) has passed.
+    await vi.advanceTimersByTimeAsync(0);
+    const { createVisibilityAwareInterval } = await import(
+      '@/utils/app/visibilityAwareTimer'
+    );
+    // Earlier tests' cache instances also registered sweeps; take this
+    // instance's (the latest one-minute interval).
+    const sweep = [...vi.mocked(createVisibilityAwareInterval).mock.calls]
+      .reverse()
+      .find(([, options]) => options.interval === 60000)![0];
+    vi.setSystemTime(Date.now() + 4 * 60 * 1000);
+    sweep();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.setSystemTime(Date.now() + 2 * 60 * 1000);
+    sweep();
 
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
   });
@@ -90,10 +123,13 @@ describe('imageHandler blob cache', () => {
     expect(first).toBe(second);
     expect(global.fetch).toHaveBeenCalledTimes(1);
     revokeImageBlob('shared-thumb', first);
-    vi.advanceTimersByTime(100);
-    expect(revokeObjectURL).not.toHaveBeenCalled();
     revokeImageBlob('shared-thumb', second);
     vi.advanceTimersByTime(100);
+    // Both consumers released it; the entry waits in the cache for reuse and
+    // is revoked only by eviction, staleness, memory pressure or clearAll.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    const { clearPrivateCaches } = await import('@/utils/app/pwa');
+    await clearPrivateCaches();
     expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(first);
   });
 
@@ -181,8 +217,11 @@ describe('imageHandler blob cache', () => {
     revokeImageBlob('reused', oldUrl);
     vi.advanceTimersByTime(100);
     expect(revokeObjectURL).not.toHaveBeenCalledWith(newUrl);
+    // The new consumer's release returns the entry to the cache; it is still
+    // served on the next request.
     revokeImageBlob('reused', newUrl);
     vi.advanceTimersByTime(100);
-    expect(revokeObjectURL).toHaveBeenCalledWith(newUrl);
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(newUrl);
+    expect(await fetchImageAsBlob(ref)).toBe(newUrl);
   });
 });

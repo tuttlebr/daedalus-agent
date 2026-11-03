@@ -344,6 +344,46 @@ server {
         proxy_max_temp_file_size 0;
     }
 
+    # Approval decisions and profile import wait on the backend longer than
+    # the generic /api/ hop allows: the approval route waits 135s for the
+    # backend's first outcome (which itself waits 130s) and profile import
+    # allows 150s for the staged replacement. A shorter hop would answer 504
+    # while the frontend handler kept running and later persisted the real
+    # outcome the browser never sees.
+    location ^~ /api/mcp-approvals/ {
+        limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
+        proxy_read_timeout 150s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+    }
+
+    location = /api/profile/import {
+        limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
+        proxy_read_timeout 180s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+    }
+
     # Other frontend API routes
     location /api/ {
         limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;

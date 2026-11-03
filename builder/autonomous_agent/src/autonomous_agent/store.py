@@ -610,6 +610,25 @@ class RedisStore:
         processing_key = key(user_id, "processing")
         queue_key = key(user_id, "queue")
         if not self.redis.llen(processing_key):
+            # A claim whose worker lost its lease between the processing push
+            # and the phase write can leave its phase behind after another
+            # worker drained processing. No claims remain, so no phase does.
+            self.redis.eval(
+                """
+                if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+                    return false
+                end
+                if redis.call("LLEN", KEYS[2]) == 0 then
+                    redis.call("DEL", KEYS[3])
+                end
+                return true
+                """,
+                3,
+                key(user_id, "lease"),
+                processing_key,
+                key(user_id, "processing_state"),
+                token,
+            )
             return 0
         # Requests the script below will queue again: every processing entry
         # whose recorded phase proves it never reached the backend.

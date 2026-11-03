@@ -1311,8 +1311,11 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "listWanInterfaces",
         },
     }
+    # The deployed configuration leaves every Kubernetes operation, including
+    # the read-only discovery set, under the runtime approval gate: its group
+    # carries no `tool_overrides`, as the group's own comments state.
     approval_required = {
-        "k8s_mcp_server": k8s_approval_required,
+        "k8s_mcp_server": allowlisted["k8s_mcp_server"],
         "calendar_mcp_server": {
             "update_event",
             "delete_event",

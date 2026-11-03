@@ -140,59 +140,12 @@ export function useKeyboardShortcuts({
  * Common keyboard shortcut patterns
  */
 export const commonShortcuts = {
-  /** Escape key (works in inputs) */
-  escape: (handler: () => void): KeyboardShortcut => ({
-    key: 'Escape',
-    handler: () => handler(),
-    description: 'Close or cancel',
-  }),
-
-  /** Ctrl/Cmd + Enter (submit) */
-  submit: (handler: () => void): KeyboardShortcut => ({
-    key: 'Enter',
-    modifiers: ['ctrl'],
-    handler: () => handler(),
-    description: 'Submit',
-  }),
-
-  /** Ctrl/Cmd + K (command palette / search) */
-  commandPalette: (handler: () => void): KeyboardShortcut => ({
-    key: 'k',
-    modifiers: ['ctrl'],
-    handler: () => handler(),
-    description: 'Open command palette',
-  }),
-
   /** Ctrl/Cmd + N (new item) */
   newItem: (handler: () => void): KeyboardShortcut => ({
     key: 'n',
     modifiers: ['ctrl'],
     handler: () => handler(),
     description: 'Create new item',
-  }),
-
-  /** Ctrl/Cmd + S (save) */
-  save: (handler: () => void): KeyboardShortcut => ({
-    key: 's',
-    modifiers: ['ctrl'],
-    handler: () => handler(),
-    description: 'Save',
-  }),
-
-  /** Arrow down */
-  arrowDown: (handler: () => void): KeyboardShortcut => ({
-    key: 'ArrowDown',
-    handler: () => handler(),
-    preventDefault: true,
-    description: 'Move down',
-  }),
-
-  /** Arrow up */
-  arrowUp: (handler: () => void): KeyboardShortcut => ({
-    key: 'ArrowUp',
-    handler: () => handler(),
-    preventDefault: true,
-    description: 'Move up',
   }),
 
   /** Ctrl/Cmd + B (toggle sidebar) */

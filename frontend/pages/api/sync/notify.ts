@@ -3,6 +3,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from '@/utils/auth/session';
 import { publishConversationUpdate } from '@/utils/sync/publish';
 
+import { isValidConversationId } from '@/server/chat/conversationId';
+
 // The notification names a conversation; receivers fetch its record. Tabs
 // loaded before that change also send the conversation itself, which is
 // ignored; accept the same body size as the conversation save route.
@@ -57,7 +59,10 @@ export default async function handler(
   if (type !== 'conversation_updated') {
     return res.status(400).json({ error: `Unknown event type: ${type}` });
   }
-  if (!boundedString(conversationId)) {
+  if (
+    typeof conversationId !== 'string' ||
+    !isValidConversationId(conversationId)
+  ) {
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
   if (revision !== undefined && !boundedString(revision)) {

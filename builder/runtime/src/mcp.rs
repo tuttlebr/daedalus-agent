@@ -571,11 +571,19 @@ impl Mcp {
                 .await
         };
         if let Gate::Denied(reason, terminal) = gate {
+            // Only a pending approval ends the run at that boundary. A
+            // refused call (read-only conflict, background run, spent or
+            // mismatched credential) is an ordinary tool error and must not
+            // read as "waiting for approval" in logs or telemetry.
             return Ok(ToolOutcome {
                 content: reason,
                 is_error: true,
                 terminal,
-                terminal_reason: "mcp_approval_required".into(),
+                terminal_reason: if terminal {
+                    "mcp_approval_required".into()
+                } else {
+                    String::new()
+                },
                 ..Default::default()
             });
         }

@@ -23,10 +23,6 @@ _PUBLIC_HTTP_PATHS = frozenset(
     {
         "/health",
         "/health/ready",
-        "/docs",
-        "/docs/oauth2-redirect",
-        "/redoc",
-        "/openapi.json",
         "/auth/redirect",
     }
 )

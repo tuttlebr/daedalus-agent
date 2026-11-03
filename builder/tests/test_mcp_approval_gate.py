@@ -13,6 +13,43 @@ CONFIG_PATH = Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
 mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
+class _Annotations:
+    """Stand-in for an MCP Tool.annotations pydantic model."""
+
+    def __init__(self, **hints):
+        for k, v in hints.items():
+            setattr(self, k, v)
+
+
+@pytest.fixture(autouse=True)
+def _restore_deployed_policy():
+    # Several tests load fixture policies into the process-global registries.
+    # Restore the deployed policy after each test so one failure cannot
+    # cascade into unrelated tests.
+    yield
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+@pytest.mark.parametrize(
+    "tool_name,payload,annotations,expected",
+    [
+        ("get_inventory", {}, None, False),
+        ("delete_inventory", {}, None, True),
+        ("inventory", {"operation": "Create item"}, None, True),
+        ("shuffle_records", {}, _Annotations(destructiveHint=True), True),
+        ("delete_record", {}, _Annotations(readOnlyHint=True), True),
+        ("get_record", {}, _Annotations(readOnlyHint=True), False),
+    ],
+)
+def test_local_mutation_heuristic(tool_name, payload, annotations, expected):
+    # The gate consults this heuristic only for tools registered read_only, so
+    # the verb/token denylist and destructiveHint handling are checked here
+    # directly; a remote readOnlyHint never overrides a local mutating verb.
+    assert (
+        mcp_patches._is_mutating_mcp_call(tool_name, payload, annotations) is expected
+    )
+
+
 class _FakeRedis:
     def __init__(self):
         self.store = {}
@@ -254,7 +291,6 @@ def test_calendar_creation_skips_approval_storage(monkeypatch, server_name, tool
         server_name=server_name,
     ) == (True, "auto-approved")
     assert not mcp_patches._has_local_read_only_evidence(server_name, tool_name)
-    assert "calendar_mcp_server" in mcp_patches._PER_USER_MCP_OAUTH_SERVERS
 
 
 @pytest.mark.parametrize(
@@ -389,8 +425,6 @@ def test_exact_local_read_only_tools_are_not_over_gated(
 @pytest.mark.parametrize(
     "server_name,tool_name,payload",
     [
-        ("k8s_mcp_server", "getClusterSummary", {}),
-        ("k8s_mcp_server", "listContexts", {}),
         ("unifi_mcp_server", "listSites", {}),
         ("unifi_mcp_server", "getInfo", {}),
     ],
@@ -405,6 +439,17 @@ def test_allowlisted_infrastructure_reads_do_not_need_token(
     assert reason == "read-only"
 
 
+@pytest.mark.parametrize("tool_name", ["getClusterSummary", "listContexts"])
+def test_kubernetes_reads_follow_the_configured_approval_gate(tool_name):
+    # The deployed configuration registers no read-only overrides for the
+    # Kubernetes group, so discovery alone never lets a read bypass approval.
+    ok, reason = mcp_patches._validate_mcp_approval(
+        tool_name, {}, server_name="k8s_mcp_server"
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
 @pytest.mark.parametrize("server_name", ["k8s_mcp_server", "unifi_mcp_server"])
 def test_infrastructure_mutations_require_exact_approval(server_name):
     ok, reason = mcp_patches._validate_mcp_approval(
@@ -415,14 +460,6 @@ def test_infrastructure_mutations_require_exact_approval(server_name):
     )
     assert ok is False
     assert "execution credential" in reason
-
-
-class _Annotations:
-    """Stand-in for an MCP Tool.annotations pydantic model."""
-
-    def __init__(self, **hints):
-        for k, v in hints.items():
-            setattr(self, k, v)
 
 
 def test_destructive_hint_gates_tool_with_no_listed_verb():
@@ -456,10 +493,10 @@ def test_read_only_conflict_never_creates_an_unexecutable_approval(monkeypatch, 
 
     monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", unexpected_approval)
     ok, reason = mcp_patches._validate_mcp_approval(
-        "getClusterSummary",
+        "getInfo",
         {},
         annotations=_Annotations(readOnlyHint=False, destructiveHint=True),
-        server_name="k8s_mcp_server",
+        server_name="unifi_mcp_server",
         approval_token=token,
     )
     assert not ok
@@ -762,16 +799,6 @@ def test_reconfiguration_replaces_endpoint_identity_bindings(tmp_path):
     assert endpoint not in mcp_patches._mcp_server_group_names
 
 
-def test_per_user_oauth_registry_is_derived_from_config():
-    assert mcp_patches._PER_USER_MCP_OAUTH_SERVERS == frozenset(
-        {
-            "gmail_mcp_server",
-            "calendar_mcp_server",
-            "docs_mcp_server",
-        }
-    )
-
-
 def test_approval_policy_follows_base_inheritance(tmp_path):
     """An overlay with only `base:` must load the canonical policy, not an
     empty one — otherwise every MCP tool silently becomes approval-gated."""
@@ -781,18 +808,14 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
     canonical_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
-        dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
         dict(mcp_patches._MCP_GROUP_APPROVAL_POLICIES),
-        mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
     assert canonical_state[0], "canonical policy is empty"
 
     mcp_patches.configure_mcp_approval_policy(overlay_path)
     overlay_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
-        dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
         dict(mcp_patches._MCP_GROUP_APPROVAL_POLICIES),
-        mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
 
     assert overlay_state == canonical_state

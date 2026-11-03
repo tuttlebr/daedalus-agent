@@ -36,6 +36,14 @@ export const ChatTitle = memo(
         !!s.selectedConversationId &&
         s.streamingConversationIds.has(s.selectedConversationId),
     );
+    // A run started from another session: the server-reported state is the
+    // only evidence this tab has until the finalized conversation arrives.
+    const isStreamingElsewhere = useConversationStore(
+      (s) =>
+        !!s.selectedConversationId &&
+        !s.streamingConversationIds.has(s.selectedConversationId) &&
+        s.remoteStreamingConversationIds.has(s.selectedConversationId),
+    );
 
     return (
       <div className={classNames('flex min-w-0 items-center gap-3', className)}>
@@ -48,10 +56,17 @@ export const ChatTitle = memo(
         <Heading className="truncate text-sm font-medium text-dark-text-primary">
           {title || 'New Chat'}
         </Heading>
-        {isStreaming && (
-          <span className="flex flex-shrink-0 items-center gap-1.5 text-xs text-nvidia-green">
+        {(isStreaming || isStreamingElsewhere) && (
+          <span
+            className="flex flex-shrink-0 items-center gap-1.5 text-xs text-nvidia-green"
+            title={
+              isStreamingElsewhere
+                ? 'A response is streaming in another session'
+                : undefined
+            }
+          >
             <span className="h-1.5 w-1.5 rounded-full bg-nvidia-green animate-heartbeat-breathe" />
-            Streaming
+            {isStreamingElsewhere ? 'Streaming elsewhere' : 'Streaming'}
           </span>
         )}
       </div>

@@ -40,6 +40,12 @@ export interface ConversationState {
   conversations: Conversation[];
   selectedConversationId: string | null;
   streamingConversationIds: Set<string>;
+  /**
+   * Conversations the server reports as streaming for this user, from any
+   * session. Includes this tab's own runs; the local set above is the only
+   * authority over local messages and Stop.
+   */
+  remoteStreamingConversationIds: Set<string>;
 }
 
 export interface ConversationActions {
@@ -76,6 +82,12 @@ export interface ConversationActions {
 
   // Streaming
   setStreaming: (conversationId: string, isStreaming: boolean) => void;
+  /** Replace the server-reported set (on connect) or update one entry. */
+  setRemoteStreaming: (conversationIds: Iterable<string>) => void;
+  setRemoteStreamingState: (
+    conversationId: string,
+    isStreaming: boolean,
+  ) => void;
 }
 
 export type ConversationStore = ConversationState & ConversationActions;
@@ -88,6 +100,7 @@ const initialState: ConversationState = {
   conversations: [],
   selectedConversationId: null,
   streamingConversationIds: new Set(),
+  remoteStreamingConversationIds: new Set(),
 };
 
 // ============================================================================
@@ -301,6 +314,22 @@ export const useConversationStore = create<ConversationStore>()(
             state.streamingConversationIds.add(conversationId);
           } else {
             state.streamingConversationIds.delete(conversationId);
+          }
+        });
+      },
+
+      setRemoteStreaming: (conversationIds) => {
+        set((state) => {
+          state.remoteStreamingConversationIds = new Set(conversationIds);
+        });
+      },
+
+      setRemoteStreamingState: (conversationId, isStreaming) => {
+        set((state) => {
+          if (isStreaming) {
+            state.remoteStreamingConversationIds.add(conversationId);
+          } else {
+            state.remoteStreamingConversationIds.delete(conversationId);
           }
         });
       },

@@ -736,6 +736,30 @@ describe('WebSocketManager', () => {
       expect(onToken).not.toHaveBeenCalled();
     });
 
+    it('keeps reconnecting on critical battery, at the slowest pace', async () => {
+      Object.defineProperty(navigator, 'getBattery', {
+        configurable: true,
+        value: vi.fn(async () => ({ level: 0.05, charging: false })),
+      });
+      try {
+        const mgr = new WebSocketManager('/ws');
+        mgr.connect();
+        wsInstances[0].simulateOpen();
+        wsInstances[0].simulateClose(1006, 'abnormal');
+
+        // The critical-battery delay is 120 s with ±20% jitter (96–144 s):
+        // nothing before 96 s, and a retry by 144 s. The socket is retried,
+        // not abandoned until the next focus or online event.
+        await vi.advanceTimersByTimeAsync(95_000);
+        expect(wsInstances).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(50_000);
+        expect(wsInstances).toHaveLength(2);
+        mgr.disconnect();
+      } finally {
+        delete (navigator as any).getBattery;
+      }
+    });
+
     it('cancels reconnect while battery lookup is pending', async () => {
       let resolveBattery!: (battery: any) => void;
       Object.defineProperty(navigator, 'getBattery', {

@@ -8,25 +8,16 @@ _BYTES_PER_ESTIMATED_TOKEN = 3
 _START_ROLES = {"human", "system", "user"}
 
 
-def _message_payload(message: object) -> object:
-    if isinstance(message, dict):
-        return message
-    model_dump = getattr(message, "model_dump", None)
-    if callable(model_dump):
-        return model_dump()
-    return {
-        "role": getattr(message, "type", "unknown"),
-        "content": getattr(message, "content", str(message)),
-    }
-
-
 def _estimate_history_tokens(messages: list[object]) -> int:
-    """Conservatively estimate tokens from serialized UTF-8 message bytes."""
+    """Conservatively estimate tokens from serialized UTF-8 message bytes.
+
+    Callers pass validated message dicts; the serialization is their JSON.
+    """
 
     total = 0
     for message in messages:
         serialized = json.dumps(
-            _message_payload(message),
+            message,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,

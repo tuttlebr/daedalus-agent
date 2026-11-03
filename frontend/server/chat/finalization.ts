@@ -25,10 +25,7 @@ import {
   type JobFinalizationJournal,
   type NewJobFinalizationJournal,
 } from './jobState';
-import {
-  buildMemoryRetentionSubmission,
-  enqueueMemoryRetention,
-} from './memoryRetention';
+import { buildMemoryRetentionSubmission } from './memoryRetention';
 import {
   attachSandboxArtifacts,
   sandboxArtifactsFromSteps,
@@ -303,13 +300,8 @@ function planCompletion(
     events = buildFinalizationEvents(current, conversation);
   }
   if (current.memoryRetentionAttemptedAt === undefined) {
-    // Journals from earlier versions may already hold an accepted receipt;
-    // the caller enqueued its polling before this write.
     const submission =
-      !current.memoryRetention &&
-      !suppressed &&
-      current.outcome === 'completed' &&
-      current.conversation
+      !suppressed && current.outcome === 'completed' && current.conversation
         ? buildMemoryRetentionSubmission({
             jobId: current.jobId,
             userId: current.userId,
@@ -371,19 +363,6 @@ async function completeLockedFinalization(
       conversation = null;
     }
     if (!conversation) suppressed = true;
-  }
-
-  if (!initial.memoryRetentionAttemptedAt && initial.memoryRetention) {
-    try {
-      await enqueueMemoryRetention({
-        jobId,
-        userId: initial.userId,
-        operationId: initial.memoryRetention.operationId,
-        acceptedAt: initial.memoryRetention.acceptedAt,
-      });
-    } catch (error) {
-      logger.warn(`Job ${jobId}: Automatic memory retention failed`, error);
-    }
   }
 
   // One write records every remaining phase, releases the guards, publishes

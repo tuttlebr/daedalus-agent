@@ -14,6 +14,8 @@ import { Logger } from '@/utils/logger';
 
 import { Conversation } from '@/types/chat';
 
+import { useConversationStore } from '@/state/conversationStore';
+
 const logger = new Logger('useWebSocket');
 let activeConnectionUsers = 0;
 
@@ -109,13 +111,18 @@ export const useWebSocket = (
         logger.info('WebSocket connected', { userId: data?.userId });
         setIsConnected(true);
 
-        // Initialize streaming states from server
+        // Initialize streaming states from server. The store copy drives the
+        // cross-device indicator; this hook's copy drives the hidden-tab
+        // keep-alive decision.
         if (data?.streamingStates) {
           const states: Record<string, boolean> = {};
           Object.keys(data.streamingStates).forEach((convId) => {
             states[convId] = true;
           });
           setStreamingStates(states);
+          useConversationStore
+            .getState()
+            .setRemoteStreaming(Object.keys(data.streamingStates));
         }
 
         callbacksRef.current.onConnected?.(data?.streamingStates || {});
@@ -165,6 +172,9 @@ export const useWebSocket = (
           ...prev,
           [data.conversationId]: true,
         }));
+        useConversationStore
+          .getState()
+          .setRemoteStreamingState(data.conversationId, true);
       }),
     );
 
@@ -179,6 +189,9 @@ export const useWebSocket = (
           delete next[data.conversationId];
           return next;
         });
+        useConversationStore
+          .getState()
+          .setRemoteStreamingState(data.conversationId, false);
       }),
     );
 

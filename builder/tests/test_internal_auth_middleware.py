@@ -131,13 +131,24 @@ def test_health_route_remains_public(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "path", ["/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"]
+)
+def test_schema_and_docs_paths_are_not_public(monkeypatch, path):
+    # The public Rust proxy forwards these paths without re-applying the gate,
+    # so the service neither serves nor exempts them.
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "trusted-secret")
+    monkeypatch.delenv("ALLOW_INSECURE_INTERNAL", raising=False)
+
+    denied_calls, denied_messages = _run_request(path, [])
+
+    assert denied_calls == []
+    assert denied_messages[0]["status"] == 401
+
+
+@pytest.mark.parametrize(
     "path",
     [
         "/health/ready",
-        "/docs",
-        "/docs/oauth2-redirect",
-        "/redoc",
-        "/openapi.json",
         "/auth/redirect",
     ],
 )

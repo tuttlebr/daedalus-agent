@@ -7,7 +7,8 @@
  * - Streaming state changes
  *
  * Battery-aware: disconnects when backgrounded (unless streaming),
- * extends reconnect delay on low battery.
+ * extends reconnect delay on low battery and stretches it further on
+ * critical battery; it never stops retrying on its own.
  */
 import { Logger } from '@/utils/logger';
 
@@ -99,6 +100,7 @@ const PONG_TIMEOUT = 60_000; // Reconnect if no pong in 60s
 const BASE_RECONNECT_DELAY = 1_000; // 1s initial
 const MAX_RECONNECT_DELAY = 30_000; // 30s cap
 const LOW_BATTERY_RECONNECT_DELAY = 60_000; // 60s when battery < 20%
+const CRITICAL_BATTERY_RECONNECT_DELAY = 120_000; // 120s when battery < 10%
 const JITTER_FACTOR = 0.2; // 20% jitter on reconnect delay
 const DEFAULT_WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '/ws';
 
@@ -436,13 +438,14 @@ export class WebSocketManager {
         const level = battery.level * 100;
 
         if (level < 10 && !battery.charging) {
-          // Critical battery: don't auto-reconnect
-          logger.warn('Battery critical (<10%) - stopping auto-reconnect');
+          // Critical battery: keep retrying, at the slowest pace. Stopping
+          // would leave a focused tab disconnected until the next focus or
+          // online event, while tracked jobs fall back to HTTP polling that
+          // costs more than one idle socket.
+          logger.warn('Battery critical (<10%) - slowing auto-reconnect');
           this.emit('battery_critical', { level });
-          return;
-        }
-
-        if (level < 20 && !battery.charging) {
+          delay = Math.max(delay, CRITICAL_BATTERY_RECONNECT_DELAY);
+        } else if (level < 20 && !battery.charging) {
           delay = Math.max(delay, LOW_BATTERY_RECONNECT_DELAY);
         }
       }

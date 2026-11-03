@@ -32,6 +32,7 @@ import {
   ConversationWriteError,
 } from '@/server/session/conversationStore';
 import { jsonGet, jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
+import { JOB_ID_PATTERN } from '@/server/session/redisShared';
 import { createHash } from 'node:crypto';
 
 const APPROVAL_STATUS_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -145,7 +146,7 @@ async function loadOwnedJob(
   jobId: unknown,
   userId: string,
 ): Promise<AsyncJobRequest | null> {
-  if (typeof jobId !== 'string' || !jobId) return null;
+  if (typeof jobId !== 'string' || !JOB_ID_PATTERN.test(jobId)) return null;
   const job = (await jsonGet(
     sessionKey(['async-job-request', jobId]),
   )) as AsyncJobRequest | null;
@@ -478,7 +479,7 @@ export default async function handler(
       return await handleGet(res, requestId, session.username);
     }
     res.setHeader('Allow', ['GET', 'POST']);
-    return res.status(405).end('Method Not Allowed');
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('MCP approval execution failed', error);
     return res.status(502).json({

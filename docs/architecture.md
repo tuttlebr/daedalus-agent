@@ -250,6 +250,12 @@ follow-ups; a run without a conversation gets its own identity. Switchyard judge
 new user turns for the automatic profile and reuses that tier during tool
 continuations. Explicit profiles bypass the judge. Gateway state is in memory;
 missing state after restart defaults to the capable tier in our patched build.
+Because a judged turn can move the run to a provider that rejects the current
+provider's retained reasoning state, the runtime never opens a user turn for
+its own recovery guidance after tool results: argument corrections, disabled
+tool notices, interrupted-stream and decode-retry instructions, evidence
+checks and briefing synthesis prompts ride inside the last tool result. Only
+steering, which is a real user direction, is added as a user message.
 
 See [runtime logs](operations.md#runtime-logs) to correlate model attempts,
 tool calls, and terminal events with a frontend job.

@@ -1302,7 +1302,24 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 peers.calls.clear()
                 invalid_clock = chat("CLOCK_EXTRA", "clock-extra-run")
                 assert "The real datetime tool completed" in invalid_clock
-                assert "invalid_tool_batch" in json.dumps(peers.requests[-1])
+                correction = peers.requests[-1]
+                assert "invalid_tool_batch" in json.dumps(correction)
+                # Correction guidance rides inside the rejected call's result:
+                # the gateway sees a tool continuation, never a new user turn
+                # it would classify again and possibly route elsewhere.
+                assert "Invalid calls did not run" in json.dumps(
+                    [
+                        item
+                        for item in correction["input"]
+                        if item.get("type") == "function_call_output"
+                    ]
+                )
+                user_turns = [
+                    item for item in correction["input"] if item.get("role") == "user"
+                ]
+                assert len(user_turns) == 1, user_turns
+                assert "Invalid calls did not run" not in json.dumps(user_turns)
+                assert correction["input"][-1]["type"] == "function_call_output"
                 invalid_clock = chat("CLOCK_NULL", "clock-null-run")
                 assert "Function Start:" not in invalid_clock
                 for scenario in ("CONTRACT_REPAIR", "CONTRACT_UNKNOWN"):

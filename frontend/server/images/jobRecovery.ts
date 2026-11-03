@@ -147,20 +147,36 @@ export function watchImageJobCancellation(
   };
 }
 
+/**
+ * Renew the job's lease while its provider request runs. Only proof that
+ * ownership ended stops the request: a renewal that returns null (another
+ * owner, a terminal status or an expired lease), or a lease validity window
+ * that elapsed without a successful renewal. A renewal that merely failed to
+ * reach Redis is retried on the next beat, as the stream worker does: no one
+ * else can take the lease before its TTL ends.
+ */
 export function heartbeatImageJob(
   jobId: string,
   onLost: (error: Error) => void,
 ): () => void {
   let stopped = false;
   let pending = false;
+  let leaseValidUntil = Date.now() + IMAGE_JOB_LEASE_MS;
   const timer = setInterval(async () => {
     if (stopped || pending) return;
     pending = true;
+    const requestedAt = Date.now();
     try {
-      if (!(await updateOwnedImageJob(jobId, {})))
-        throw new Error('Image execution lease was lost');
+      if (!(await updateOwnedImageJob(jobId, {}))) {
+        if (!stopped) onLost(new Error('Image execution lease was lost'));
+        return;
+      }
+      leaseValidUntil = Math.max(
+        leaseValidUntil,
+        requestedAt + IMAGE_JOB_LEASE_MS,
+      );
     } catch (error) {
-      if (!stopped)
+      if (!stopped && Date.now() >= leaseValidUntil)
         onLost(
           error instanceof Error
             ? error

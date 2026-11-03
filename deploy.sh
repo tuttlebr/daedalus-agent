@@ -826,6 +826,12 @@ for env_name, secret_name, secret_key in sorted(refs):
     if [[ "$DOCUMENT_OBJECT_SECRET_PREPARED" == true && "$secret_name" == "$RELEASE-document-objects" ]]; then
       continue
     fi
+    # A preview renders and inspects manifests only; it never reads cluster
+    # Secrets.
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "[dry-run] verify Secret '$secret_name' provides '$secret_key' for $env_name"
+      continue
+    fi
     if ! secret_json="$(kubectl -n "$NAMESPACE" get secret "$secret_name" -o json 2>/dev/null)" || \
       ! python3 -c '
 import json

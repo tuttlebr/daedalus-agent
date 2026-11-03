@@ -1,5 +1,8 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
-import { CONVERSATION_JOB_GUARD_TTL_SECONDS } from './conversationJobGuard';
+import {
+  CONVERSATION_JOB_GUARD_TTL_SECONDS,
+  conversationJobGuardKey,
+} from './conversationJobGuard';
 import { abortKey, finalizationJournalKey } from './jobState';
 import { streamResponseKey, streamStepsKey } from './streamState';
 import type {
@@ -7,7 +10,7 @@ import type {
   AsyncJobStatus,
   StreamQueuePayload,
 } from './types';
-import { USER_JOB_GUARD_TTL_SECONDS } from './userJobGuard';
+import { USER_JOB_GUARD_TTL_SECONDS, userJobGuardKey } from './userJobGuard';
 
 import {
   STREAMING_STATE_TTL_SECONDS,
@@ -114,14 +117,30 @@ end
 
 // The payload and its queue entry commit together, so neither exists without
 // the other: the entry is added first (a failure there writes nothing) and
-// the writes after it cannot fail. A Stop recorded against the browser's
-// submission ID before this point becomes the job's stop signal in the same
-// commit. The cross-session streaming notice is published only once queued.
+// the writes after it cannot fail. The same commit verifies that the
+// submission still holds its chat slot and, when it names a conversation,
+// that the conversation guard still belongs to this job: stale-submission
+// recovery by the next turn can release both between the slot confirmation
+// round trip and this one, and a job queued without them would never run. A
+// Stop recorded against the browser's submission ID before this point becomes
+// the job's stop signal in the same commit. The cross-session streaming
+// notice is published only once queued.
 const ENQUEUE_STREAM_JOB = redisScript(`
 -- ENQUEUE_STREAM_JOB
 ${READ_JSON_RECORD_LUA}
+if not redis.call('ZSCORE', KEYS[5], ARGV[3]) then
+  return {'slot_released', ''}
+end
+if KEYS[6] ~= '' then
+  local guard_raw = redis.call('GET', KEYS[6])
+  if not guard_raw then return {'conversation_released', ''} end
+  local guard_ok, guard = pcall(cjson.decode, guard_raw)
+  if not guard_ok or type(guard) ~= 'table' or guard['jobId'] ~= ARGV[3] then
+    return {'conversation_released', ''}
+  end
+end
 local cancelled = false
-if #KEYS >= 4 then
+if KEYS[4] ~= '' then
   local raw = read_json(KEYS[4])
   if raw then
     local ok, submission = pcall(cjson.decode, raw)
@@ -134,8 +153,20 @@ local entry = redis.call('XADD', KEYS[2], '*', 'jobId', ARGV[3],
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 if cancelled then redis.call('SET', KEYS[3], 'true', 'EX', ARGV[2]) end
 if ARGV[4] ~= '' then redis.call('PUBLISH', ARGV[4], ARGV[5]) end
-return entry
+return {'queued', entry}
 `);
+
+/**
+ * The queue commit found the submission no longer admitted: its chat slot or
+ * its conversation guard was released (by expiry or by the next turn's
+ * stale-submission recovery) after admission. Nothing was queued.
+ */
+export class StreamEnqueueRejectedError extends Error {
+  constructor(readonly reason: 'slot_released' | 'conversation_released') {
+    super(`Stream job not queued: ${reason}`);
+    this.name = 'StreamEnqueueRejectedError';
+  }
+}
 
 export interface StreamEnqueueOptions {
   /** The browser submission whose recorded Stop must also stop this job. */
@@ -146,7 +177,9 @@ export interface StreamEnqueueOptions {
 
 /**
  * Queue a job whose request and status are already written. The queue payload
- * is stored as a plain JSON string; workers read it type-agnostically.
+ * is stored as a plain JSON string; workers read it type-agnostically. Throws
+ * `StreamEnqueueRejectedError` without queueing when the owner's chat slot or
+ * conversation guard no longer names this job.
  */
 export async function enqueueStreamJob(
   jobId: string,
@@ -154,9 +187,17 @@ export async function enqueueStreamJob(
   owner: StreamJobOwner,
   options: StreamEnqueueOptions = {},
 ): Promise<string> {
-  const keys = [streamPayloadKey(jobId), STREAM_QUEUE_KEY, abortKey(jobId)];
-  if (options.submissionKey) keys.push(options.submissionKey);
-  const entryId = await evalScript(
+  const keys = [
+    streamPayloadKey(jobId),
+    STREAM_QUEUE_KEY,
+    abortKey(jobId),
+    options.submissionKey ?? '',
+    userJobGuardKey(owner.userId),
+    owner.conversationId
+      ? conversationJobGuardKey(owner.userId, owner.conversationId)
+      : '',
+  ];
+  const result = await evalScript(
     getRedis(),
     ENQUEUE_STREAM_JOB,
     keys.length,
@@ -169,8 +210,16 @@ export async function enqueueStreamJob(
     owner.userId,
     owner.conversationId ?? '',
   );
-  if (!entryId) throw new Error('Redis did not return a stream entry ID');
-  return String(entryId);
+  const [outcome, entryId] = Array.isArray(result)
+    ? result.map(String)
+    : ['', ''];
+  if (outcome === 'slot_released' || outcome === 'conversation_released') {
+    throw new StreamEnqueueRejectedError(outcome);
+  }
+  if (outcome !== 'queued' || !entryId) {
+    throw new Error('Redis did not return a stream entry ID');
+  }
+  return entryId;
 }
 
 export interface StreamJobPresence {

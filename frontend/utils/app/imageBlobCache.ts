@@ -230,45 +230,17 @@ class ImageBlobCache {
       return;
     }
 
+    // Releasing the last reference returns the entry to the cache budget
+    // instead of revoking it: a remount or another consumer reuses the blob
+    // without refetching. Unreferenced entries leave through LRU eviction
+    // when the budget is exceeded, the staleness sweep, memory pressure or
+    // clearAll(), each of which revokes the URL.
     const refCount = this.referenceCount.get(imageId) || 0;
-    if (refCount > 1) {
-      this.referenceCount.set(imageId, refCount - 1);
-      logger.debug('Decremented ref count for image', {
-        imageId,
-        newCount: refCount - 1,
-      });
-      return;
-    }
-    if (refCount === 1) {
-      this.referenceCount.set(imageId, 0);
-    }
-
-    setTimeout(() => {
-      const currentRefCount = this.referenceCount.get(imageId) || 0;
-      if (currentRefCount > 0) {
-        logger.debug(
-          'Image acquired new reference during delay, skipping revocation',
-          { imageId },
-        );
-        return;
-      }
-
-      const entry = this.cache.get(imageId);
-      if (entry) {
-        try {
-          URL.revokeObjectURL(entry.url);
-          this.totalSize -= entry.size;
-          this.cache.delete(imageId);
-          this.referenceCount.delete(imageId);
-          logger.debug('Revoked blob URL for image', { imageId });
-        } catch (e) {
-          logger.error('Error revoking blob URL for image', {
-            imageId,
-            error: e,
-          });
-        }
-      }
-    }, 100);
+    const nextCount = Math.max(0, refCount - 1);
+    this.referenceCount.set(imageId, nextCount);
+    const entry = this.cache.get(imageId);
+    if (entry) entry.lastAccessed = Date.now();
+    logger.debug('Released image reference', { imageId, refCount: nextCount });
   }
 
   private isCachedUrl(url: string): boolean {

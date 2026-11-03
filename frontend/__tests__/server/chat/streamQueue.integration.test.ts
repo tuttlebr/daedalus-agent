@@ -29,9 +29,12 @@ function chartStreamWorkerAclRules(): string[] {
   return [user[1], user[2], commands[1]].flatMap((rules) => rules.split(' '));
 }
 
+const GUARDED_USERS = ['testuser', 'duplicate-user', 'u'];
+
 describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
   let client: any;
   let queue: typeof import('@/server/chat/streamQueue');
+  let guards: typeof import('@/server/chat/userJobGuard');
   let jobId: string;
 
   beforeAll(async () => {
@@ -47,13 +50,18 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     vi.resetModules();
 
     queue = await import('@/server/chat/streamQueue');
+    guards = await import('@/server/chat/userJobGuard');
     const redis = await import('@/server/session/redis');
     client = redis.getRedis();
     if (client.status === 'wait') await client.connect();
+    // Queueing requires a held chat slot. These fixtures never finalize their
+    // jobs, so release the five-slot sets a previous run left behind.
+    await client.del(...GUARDED_USERS.map(guards.userJobGuardKey));
   });
 
   afterAll(async () => {
     if (client) {
+      await client.del(...GUARDED_USERS.map(guards.userJobGuardKey));
       await client
         .del(
           queue.STREAM_QUEUE_KEY,
@@ -70,8 +78,62 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     delete process.env.STREAM_WORKER_GROUP;
   });
 
+  it('refuses to queue a submission whose slot or conversation guard is gone', async () => {
+    const { acquireConversationJobGuard, conversationJobGuardKey } =
+      await import('@/server/chat/conversationJobGuard');
+    const user = `late-${jobId}`;
+    const late = `${jobId}-late`;
+    const conversation = `${jobId}-conv`;
+    const payload = { messagesForNat: [], verifiedUsername: user };
+    const queueLength = async () => client.xlen(queue.STREAM_QUEUE_KEY);
+    await queue.ensureStreamConsumerGroup(client);
+    const before = await queueLength();
+    let entry: string | undefined;
+    try {
+      // The slot was never held (or expired/was released by stale-submission
+      // recovery) after the confirmation round trip.
+      await expect(
+        queue.enqueueStreamJob(late, payload, { userId: user }),
+      ).rejects.toMatchObject({ reason: 'slot_released' });
+      expect(await client.exists(queue.streamPayloadKey(late))).toBe(0);
+      expect(await queueLength()).toBe(before);
+
+      // The slot is held, but the conversation was taken over by a later job.
+      await guards.acquireUserJobGuard(user, late, client);
+      await acquireConversationJobGuard(user, conversation, `${late}-next`);
+      await expect(
+        queue.enqueueStreamJob(late, payload, {
+          userId: user,
+          conversationId: conversation,
+        }),
+      ).rejects.toMatchObject({ reason: 'conversation_released' });
+      expect(await client.exists(queue.streamPayloadKey(late))).toBe(0);
+      expect(await queueLength()).toBe(before);
+
+      // Both admitted: the commit queues exactly one entry.
+      await client.del(conversationJobGuardKey(user, conversation));
+      await acquireConversationJobGuard(user, conversation, late);
+      entry = await queue.enqueueStreamJob(late, payload, {
+        userId: user,
+        conversationId: conversation,
+      });
+      expect(entry).toMatch(/^\d+-\d+$/);
+      expect(await client.exists(queue.streamPayloadKey(late))).toBe(1);
+      expect(await queueLength()).toBe(before + 1);
+    } finally {
+      // Leave the shared private queue as this test found it.
+      if (entry) await client.xdel(queue.STREAM_QUEUE_KEY, entry);
+      await client.del(
+        queue.streamPayloadKey(late),
+        guards.userJobGuardKey(user),
+        conversationJobGuardKey(user, conversation),
+      );
+    }
+  });
+
   it('reclaims an unacknowledged entry after the owning lease expires', async () => {
     await queue.ensureStreamConsumerGroup(client);
+    await guards.acquireUserJobGuard('testuser', jobId, client);
     await queue.enqueueStreamJob(
       jobId,
       {
@@ -156,6 +218,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
           { jobId: selectedJob, userId: 'testuser', additionalProps },
           60,
         );
+        await guards.acquireUserJobGuard('testuser', selectedJob, client);
         await queue.enqueueStreamJob(
           selectedJob,
           {
@@ -227,6 +290,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         messagesForNat: [],
         verifiedUsername: 'duplicate-user',
       };
+      await guards.acquireUserJobGuard('duplicate-user', duplicateJob, client);
       entries.push(
         await queue.enqueueStreamJob(duplicateJob, payload, {
           userId: 'duplicate-user',
@@ -817,6 +881,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         'EX',
         60,
       );
+      await guards.acquireUserJobGuard('u', enqueueJob, client);
       entries.push(
         await queue.enqueueStreamJob(
           enqueueJob,

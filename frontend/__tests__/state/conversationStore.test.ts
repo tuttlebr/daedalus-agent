@@ -7,7 +7,30 @@ describe('conversationStore history reconciliation', () => {
       conversations: [],
       selectedConversationId: null,
       streamingConversationIds: new Set(),
+      remoteStreamingConversationIds: new Set(),
     });
+  });
+
+  it('tracks server-reported streaming separately from local streaming', () => {
+    const store = useConversationStore.getState();
+    store.setRemoteStreaming(['a', 'b']);
+    expect([
+      ...useConversationStore.getState().remoteStreamingConversationIds,
+    ]).toEqual(['a', 'b']);
+    store.setRemoteStreamingState('a', false);
+    store.setRemoteStreamingState('c', true);
+    expect([
+      ...useConversationStore.getState().remoteStreamingConversationIds,
+    ]).toEqual(['b', 'c']);
+    // A connect-time snapshot replaces the set; local streaming is untouched.
+    store.setStreaming('local', true);
+    store.setRemoteStreaming([]);
+    expect(
+      useConversationStore.getState().remoteStreamingConversationIds.size,
+    ).toBe(0);
+    expect(
+      useConversationStore.getState().streamingConversationIds.has('local'),
+    ).toBe(true);
   });
 
   it('records a committed revision only on a copy derived from the replaced one', () => {

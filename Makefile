@@ -252,6 +252,11 @@ clean: ## remove generated test/scan artifacts
 skill-eval-image: ## prepare the offline skill evaluation runtime (network may be needed)
 	docker pull --platform linux/amd64 python:3.12-slim@sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2
 
-eval: ## compare skill-on/off behavior against committed measurements without network
+eval: ## skill tooling unit tests, memory check, and skill-on/off comparison without network  (CI job: skill-eval)
+	python3 -m unittest discover -s tools/skill-capture/tests
+	python3 -m unittest discover -s tools/skill-eval/tests
+	python3 -m unittest discover -s tools/skill-loop/tests
+	python3 -m unittest discover -s tools/skill-memory/tests
+	python3 tools/skill-memory/memory.py check
 	python3 tools/skill-eval/evaluate.py run --output .cache/skill-eval/report.json
 	python3 tools/skill-eval/gate.py

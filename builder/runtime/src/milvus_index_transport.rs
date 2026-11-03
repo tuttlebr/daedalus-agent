@@ -179,6 +179,7 @@ pub(super) mod tests {
                 timestamp: "2026-10-13 12:00:00",
                 model: "nvidia/llama-nemotron-embed-1b-v2",
                 surrogates: &Default::default(),
+                receipt_written: None,
             },
             &mut case["records"].clone(),
         )

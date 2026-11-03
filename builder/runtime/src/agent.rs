@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use futures::{StreamExt, stream::FuturesUnordered};
 use http::HeaderMap;
 use rig_core::completion::{CompletionRequest, FinishReason, ToolDefinition};
-use rig_core::message::Message;
+use rig_core::message::{Message, ToolResultContent, UserContent};
 use rig_core::providers::openai::{OpenAIConfig, Route};
 use rig_core::streaming::{Item, StreamEvent};
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,31 @@ impl Agent {
         Ok(())
     }
 
+    /// Attaches runtime guidance to the transcript without opening a new user
+    /// turn. Routing gateways judge a trailing user message as a fresh user
+    /// request and may move the conversation to another provider, which can
+    /// reject the current provider's retained reasoning state. Guidance that
+    /// follows tool results therefore rides inside the last tool result and
+    /// keeps the request a tool continuation. Only a transcript that ends
+    /// without a tool result (the first round, or resumed assistant text)
+    /// falls back to a user message, where a judged turn already exists or no
+    /// other carrier is available. Steering is a real user direction and
+    /// never uses this path.
+    fn attach_guidance(history: &mut Vec<Message>, guidance: &str) {
+        if let Some(Message::User { content }) = history.last_mut()
+            && let Some(UserContent::ToolResult(result)) = content.last_mut()
+        {
+            if let Some(ToolResultContent::Text(text)) = result.content.last_mut() {
+                text.text.push_str("\n\n");
+                text.text.push_str(guidance);
+            } else {
+                result.content.push(ToolResultContent::text(guidance));
+            }
+            return;
+        }
+        history.push(Message::user(guidance));
+    }
+
     pub async fn run(mut self, body: Value) -> Result<()> {
         let mut requirement = crate::tool_contracts::Requirement::parse(&body)?;
         let mut response_policy = crate::response_policy::ResponsePolicy::parse(&body)?;
@@ -291,6 +316,9 @@ impl Agent {
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
         let mut executor_states: HashMap<String, Value> = HashMap::new();
+        // The advertised catalogue changes only when the tool menu does; the
+        // log digest over its full serialisation is recomputed only then.
+        let mut catalog_digest: Option<(Vec<String>, String)> = None;
         let query = prepared
             .messages
             .iter()
@@ -397,19 +425,27 @@ impl Agent {
                 .additional_params(params);
             request.chat_history = history.clone();
             if resume_text {
-                request.chat_history.push(Message::user(
+                Self::attach_guidance(
+                    &mut request.chat_history,
                     "The previous model stream was interrupted. Continue from the assistant text already delivered without repeating it. Use the completed tool results in the conversation; do not repeat completed tool actions. Tool calls from the interrupted response were not executed.",
-                ));
+                );
             }
             if retrying_decode {
-                request.chat_history.push(Message::user(
+                Self::attach_guidance(
+                    &mut request.chat_history,
                     "The previous model response could not be decoded. None of its proposed tool calls ran. Reissue a complete response with valid tool arguments using the completed results already in the conversation; do not repeat completed tool actions.",
-                ));
+                );
             }
             if briefing_text_fallback {
-                request.chat_history.push(Message::user("The briefing renderer arguments remained invalid after the allowed correction. The rejected renderer calls did not run. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research."));
+                Self::attach_guidance(
+                    &mut request.chat_history,
+                    "The briefing renderer arguments remained invalid after the allowed correction. The rejected renderer calls did not run. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research.",
+                );
             } else if final_synthesis {
-                request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
+                Self::attach_guidance(
+                    &mut request.chat_history,
+                    "Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps.",
+                );
             }
             let model_call = self
                 .handle
@@ -433,9 +469,16 @@ impl Agent {
             } else {
                 None
             };
+            let tool_names: Vec<String> = tools.iter().map(|tool| tool.name.clone()).collect();
+            if catalog_digest
+                .as_ref()
+                .is_none_or(|(names, _)| *names != tool_names)
+            {
+                catalog_digest = Some((tool_names, crate::harness::digest(&json!(tools))));
+            }
             tracing::info!(
                 event = "model_call_started",
-                catalog_digest = crate::harness::digest(&json!(tools)),
+                catalog_digest = catalog_digest.as_ref().map(|(_, digest)| digest.as_str()),
                 final_only = response_policy.final_only(),
                 model_call,
                 iteration = iterations,
@@ -664,7 +707,10 @@ impl Agent {
             self.drain().await?;
             if calls.is_empty() && review_tool_omission && self.pending.is_empty() {
                 tracing::info!(event = "tool_omission_review");
-                history.push(Message::user("No tool has executed for this request. Your proposed answer was withheld for one evidence check. Re-read the user's request: if it asks you to invoke an available capability, call it and answer from the actual result. Do not invent or simulate evidence, even for a synthetic test. If the request merely discusses or quotes a tool, forbids tool use, or needs clarification, answer directly without invoking it. This check does not authorize extra actions."));
+                Self::attach_guidance(
+                    &mut history,
+                    "No tool has executed for this request. Your proposed answer was withheld for one evidence check. Re-read the user's request: if it asks you to invoke an available capability, call it and answer from the actual result. Do not invent or simulate evidence, even for a synthetic test. If the request merely discusses or quotes a tool, forbids tool use, or needs clarification, answer directly without invoking it. This check does not authorize extra actions.",
+                );
                 continue;
             }
             if calls.is_empty() && requirement.pending() {
@@ -676,7 +722,10 @@ impl Agent {
                 if missing_tool_recoveries >= 2 {
                     bail!("Required tool did not complete successfully");
                 }
-                history.push(Message::user("The required tool has not succeeded. Your proposed answer was withheld. Invoke the required tool and use its actual result. Do not invent evidence."));
+                Self::attach_guidance(
+                    &mut history,
+                    "The required tool has not succeeded. Your proposed answer was withheld. Invoke the required tool and use its actual result. Do not invent evidence.",
+                );
                 continue;
             }
             if let Some(message) = completed.message() {
@@ -712,8 +761,9 @@ impl Agent {
             let recovery_exhausted =
                 validation_recovery.exhausted(&counted_calls, &counted_problems);
             // Every tool result must directly answer the assistant's calls.
-            // Correction guidance follows the whole batch, never between results.
-            let mut batch_notice = None;
+            // Correction guidance travels inside each rejected call's result:
+            // the request stays a tool continuation for the current provider
+            // instead of presenting a new user turn to the routing gateway.
             if problems.iter().any(|problem| !problem.is_empty()) {
                 invalid_batches += 1;
                 let diagnostics: Vec<_> = calls.iter().zip(&problems)
@@ -736,6 +786,18 @@ impl Agent {
                     .zip(&problems)
                     .filter(|(_, problem)| !problem.is_empty())
                     .all(|(call, _)| call.function.name.as_str() == "briefing_renderer_tool");
+                let guidance = if recovery_exhausted {
+                    if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
+                        briefing_text_fallback = true;
+                        tracing::info!(
+                            event = "briefing_text_fallback",
+                            reason = "renderer_arguments"
+                        );
+                    }
+                    "Tools with repeated invalid arguments have been disabled for this run. Continue with successful results and other available tools. Report the affected gap without claiming those calls succeeded. Do not repeat disabled calls."
+                } else {
+                    "Invalid calls did not run; valid calls in the same batch will execute. Correct invalid arguments once using the advertised schemas and fresh call IDs. Resolve identifiers from earlier results, supplied context or available memory; do not guess missing values. Read results before dependent calls."
+                };
                 let mut valid = Vec::new();
                 for (call, problem) in calls.into_iter().zip(problems) {
                     if problem.is_empty() {
@@ -746,27 +808,11 @@ impl Agent {
                         call.id,
                         call.function.name,
                         json!({"status":"error", "executed":false, "error":"invalid_tool_batch",
-                            "detail":problem})
+                            "detail":problem, "guidance":guidance})
                         .to_string(),
                     ));
                 }
                 calls = valid;
-                if recovery_exhausted {
-                    if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
-                        briefing_text_fallback = true;
-                        tracing::info!(
-                            event = "briefing_text_fallback",
-                            reason = "renderer_arguments"
-                        );
-                    }
-                    batch_notice = Some(
-                        "Tools with repeated invalid arguments have been disabled for this run. Continue with successful results and other available tools. Report the affected gap without claiming those calls succeeded. Do not repeat disabled calls.",
-                    );
-                } else {
-                    batch_notice = Some(
-                        "Invalid calls did not run; valid calls in the same batch will execute. Correct invalid arguments once using the advertised schemas and fresh call IDs. Resolve identifiers from earlier results, supplied context or available memory; do not guess missing values. Read results before dependent calls.",
-                    );
-                }
             }
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
@@ -855,8 +901,8 @@ impl Agent {
                                 is_error = outcome.is_error,
                                 terminal = outcome.terminal,
                                 output_bytes = outcome.content.len(),
-                                approval_required =
-                                    outcome.terminal_reason == "mcp_approval_required"
+                                approval_required = outcome.terminal
+                                    && outcome.terminal_reason == "mcp_approval_required"
                             ),
                             Err(error) => {
                                 let details = crate::logging::failure(error);
@@ -1004,9 +1050,6 @@ impl Agent {
                 {
                     bail!("Repeated identical tool failure");
                 }
-            }
-            if let Some(notice) = batch_notice {
-                history.push(Message::user(notice));
             }
             if let Some((content, reason)) = terminal {
                 self.drain().await?;
@@ -1795,15 +1838,66 @@ mod tests {
         };
         assert!(output("call_invalid").contains("invalid_tool_batch"));
         assert!(!output("call_valid").contains("invalid_tool_batch"));
-        let notice = input
+        // Correction guidance rides inside the rejected call's own result.
+        assert!(output("call_invalid").contains("Invalid calls did not run"));
+        assert!(!output("call_valid").contains("Invalid calls did not run"));
+        assert_no_runtime_user_turn(input, "Invalid calls did not run");
+    }
+
+    /// A routing gateway judges a trailing user message as a new user turn
+    /// and may switch providers mid-run. Runtime guidance must therefore
+    /// never appear as a user message after the tool results it follows, and
+    /// every request after the first must end with a tool result.
+    fn assert_no_runtime_user_turn(input: &[Value], guidance: &str) {
+        let user_messages: Vec<_> = input
             .iter()
-            .position(|item| item.to_string().contains("Invalid calls did not run"))
-            .expect("correction notice");
-        // Chat Completions requires every tool result to answer the preceding
-        // assistant calls before any other message.
+            .filter(|item| item["role"] == "user" && item["type"] != "function_call_output")
+            .collect();
+        assert_eq!(
+            user_messages.len(),
+            1,
+            "runtime guidance opened a user turn: {user_messages:?}"
+        );
+        assert!(!user_messages[0].to_string().contains(guidance));
+        assert_eq!(
+            input.last().unwrap()["type"],
+            "function_call_output",
+            "request must stay a tool continuation: {input:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn exhausted_corrections_disable_the_tool_inside_its_result() {
+        let outcome = run(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "What time is it?",
+            vec![
+                completed(vec![call("first", "clock", r#"{"extra":1}"#)]),
+                completed(vec![call("second", "clock", r#"{"extra":2}"#)]),
+                completed(vec![text("Clock unavailable.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert!(outcome.stream.contains("Clock unavailable."));
+        assert_eq!(outcome.requests.len(), 3);
+        let input = outcome.requests[2]["input"].as_array().unwrap();
+        let second = input
+            .iter()
+            .find(|item| item["call_id"] == "second" && item["type"] == "function_call_output")
+            .expect("rejected second call result");
         assert!(
-            outputs.iter().all(|(index, _)| *index < notice),
-            "correction notice interleaved with tool results: {input:?}"
+            second
+                .to_string()
+                .contains("repeated invalid arguments have been disabled")
+        );
+        assert_no_runtime_user_turn(input, "repeated invalid arguments have been disabled");
+        assert!(
+            outcome.requests[2]["tools"]
+                .as_array()
+                .is_none_or(|tools| tools.is_empty()),
+            "a tool with exhausted corrections is withdrawn for the run"
         );
     }
 

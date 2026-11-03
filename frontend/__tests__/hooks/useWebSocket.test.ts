@@ -8,6 +8,7 @@ import {
   type UseWebSocketReturn,
 } from '@/hooks/useWebSocket';
 
+import { useConversationStore } from '@/state/conversationStore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -159,9 +160,16 @@ describe('useWebSocket behavior through the mounted hook', () => {
     expect(api.isConnected).toBe(true);
     expect(api.streamingStates).toEqual({ first: true });
     expect(onConnected).toHaveBeenCalledWith(streamingStates);
+    expect([
+      ...useConversationStore.getState().remoteStreamingConversationIds,
+    ]).toEqual(['first']);
     emit('streaming_started', { conversationId: 'second' });
     emit('streaming_ended', { conversationId: 'first' });
     expect(api.streamingStates).toEqual({ second: true });
+    // The store mirror drives the cross-device indicator for other tabs.
+    expect([
+      ...useConversationStore.getState().remoteStreamingConversationIds,
+    ]).toEqual(['second']);
     emit('disconnected');
     expect(api.isConnected).toBe(false);
     expect(onDisconnected).toHaveBeenCalledOnce();

@@ -65,7 +65,10 @@ ownership, URL, capability, and service checks still apply.
 The Rust loop compiles catalog validators once per run and validates every call
 in a completed model batch before scheduling calls. Invalid calls receive
 structured correction feedback and never execute; valid siblings execute under
-the usual authorization and approval gates. Each invalid tool gets one correction;
+the usual authorization and approval gates. The correction guidance travels
+inside each rejected call's tool result, so the next request remains a tool
+continuation for the current provider rather than a new user turn that a
+routing gateway would classify again. Each invalid tool gets one correction;
 a second invalid proposal disables that tool for the remainder of the run while
 other tools and synthesis continue. A successful correction restores its allowance
 before disabling, but a disabled tool stays disabled until the next run.

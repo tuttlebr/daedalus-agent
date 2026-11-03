@@ -320,7 +320,14 @@ export async function startBackgroundDocumentIngest(
     );
     await finalizeSuccess(jobId, jobRequest, output);
   } catch (error: any) {
-    if (control.signal?.aborted) throw error;
+    if (control.signal?.aborted) {
+      // Surface the worker's own cancellation error, as the chat stream path
+      // does, so a Stop is saved as a cancellation whatever error the body
+      // reader rejected with.
+      throw control.signal.reason instanceof Error
+        ? control.signal.reason
+        : error;
+    }
     logger.error(`Job ${jobId}: Direct document ingest failed`, error);
     await finalizeError(
       jobId,

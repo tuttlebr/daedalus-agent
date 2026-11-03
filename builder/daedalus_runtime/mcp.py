@@ -313,11 +313,14 @@ class MCPManager:
             if not allowed:
                 from nat_helpers.approval_context import is_trusted_approval_marker
 
+                # Only a pending approval ends the run at that boundary; a
+                # refused call is an ordinary tool error (same as Rust).
+                terminal = is_trusted_approval_marker(reason)
                 return {
                     "content": reason,
                     "is_error": True,
-                    "terminal": is_trusted_approval_marker(reason),
-                    "terminal_reason": "mcp_approval_required",
+                    "terminal": terminal,
+                    "terminal_reason": "mcp_approval_required" if terminal else "",
                 }
             session = await connection.session()
             try:

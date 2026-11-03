@@ -46,9 +46,9 @@ by its baseline, and the baseline must read candidate-written objects after
 rollback. Run the browser storage workflows against the candidate as well.
 Keep scan and compatibility results with release evidence outside this guide.
 
-`.gitleaksignore` records one exact historical fingerprint for the public SHA-256
-of the frozen `oauth.py` source. The source hash was verified against the baseline;
-it is not a credential. Other secret findings continue to fail the gate.
+`.gitleaksignore` records only exact fingerprints of reviewed non-credential
+matches, each annotated with its provenance. Other secret findings continue to
+fail the gate.
 
 Brandon Tuttle owns these temporary builds. They add local build/cache cost and
 duplicate binary layers; they add no Kubernetes workload. Reconsider each at

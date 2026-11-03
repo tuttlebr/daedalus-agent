@@ -45,10 +45,6 @@ export interface JobFinalizationJournal {
   conversation?: JobFinalizationConversation;
   conversationAppliedAt?: number;
   conversationSuppressedAt?: number;
-  memoryRetention?: {
-    operationId: string;
-    acceptedAt: number;
-  };
   memoryRetentionAttemptedAt?: number;
   streamingStateClearedAt?: number;
   eventsPublishedAt?: number;

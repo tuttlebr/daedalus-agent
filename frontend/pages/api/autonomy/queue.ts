@@ -35,5 +35,5 @@ export default async function handler(
   }
 
   res.setHeader('Allow', ['GET', 'DELETE']);
-  return res.status(405).end('Method Not Allowed');
+  return res.status(405).json({ error: 'Method not allowed' });
 }
