@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -81,6 +82,17 @@ test.beforeAll(() => {
     }),
   );
   render('long', long);
+  const unavailable = structuredClone(sparse);
+  unavailable.day_ahead.weather = {
+    status: 'unavailable',
+    title: 'Saline Weather',
+    rows: [],
+    note: 'Weather source unavailable.',
+  };
+  unavailable.coverage.find(
+    (item: { desk_key: string }) => item.desk_key === 'weather',
+  ).status = 'unavailable';
+  render('unavailable', unavailable);
 });
 
 test.afterAll(() => rmSync(qaDir, { recursive: true, force: true }));
@@ -120,11 +132,10 @@ for (const width of [1440, 1024, 768]) {
       };
     });
     expect(geometry.overflow).toBeLessThanOrEqual(1);
-    expect(geometry.ratio).toBeGreaterThan(1.8);
-    expect(geometry.ratio).toBeLessThan(2.2);
+    expect(geometry.ratio).toBeCloseTo(1, 2);
     expect(geometry.nextStoryGap).toBeLessThanOrEqual(24);
     expect(Math.abs(geometry.railTop)).toBeLessThanOrEqual(1);
-    expect(geometry.paper).toBe('rgb(255, 255, 255)');
+    expect(geometry.paper).toBe('rgb(22, 29, 39)');
     expect(failures).toEqual([]);
     await page.screenshot({
       path: testInfo.outputPath(`newspaper-${width}.png`),
@@ -164,7 +175,7 @@ for (const width of [390, 320]) {
   });
 }
 
-for (const name of ['sparse', 'long']) {
+for (const name of ['sparse', 'long', 'unavailable']) {
   test(`${name} edition handles unequal content, long text and tables`, async ({
     page,
   }) => {
@@ -192,6 +203,10 @@ for (const name of ['sparse', 'long']) {
         ).toBeVisible();
       if (name === 'sparse')
         await expect(page.locator('#operations-continuation')).toHaveCount(0);
+      if (name === 'unavailable') {
+        await expect(page.locator('#weather')).toContainText('Unavailable');
+        await expect(page.locator('[data-weather-day]')).toHaveCount(0);
+      }
       expect(failures).toEqual([]);
     }
   });
@@ -207,17 +222,73 @@ test('print edition uses breakable articles and repeatable table headers', async
     article: getComputedStyle(document.querySelector('.department-story')!)
       .breakInside,
     header: getComputedStyle(document.querySelector('thead')!).display,
+    paper: getComputedStyle(document.body).backgroundColor,
+    forecast: getComputedStyle(document.querySelector('.forecast-day')!)
+      .backgroundColor,
+    muted: getComputedStyle(document.querySelector('.weather-note')!).color,
   }));
   expect(print).toEqual({
     layout: 'block',
     article: 'auto',
     header: 'table-header-group',
+    paper: 'rgb(255, 255, 255)',
+    forecast: 'rgb(255, 255, 255)',
+    muted: 'rgb(68, 68, 68)',
   });
   await page.pdf({
     path: testInfo.outputPath('newspaper-print.pdf'),
     format: 'Letter',
     printBackground: true,
   });
+});
+
+test('weather is prominent, symmetrical and accessible with either system theme', async ({
+  page,
+}) => {
+  await openEdition(page);
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [1440, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const weather = await page.evaluate(() => {
+        const tiles = Array.from(
+          document.querySelectorAll('[data-weather-day]'),
+        );
+        const boxes = tiles.map((tile) => tile.getBoundingClientRect());
+        return {
+          firstSection: document.querySelector('[data-day-ahead] > section')!
+            .id,
+          widths: boxes.map((box) => box.width),
+          heights: boxes.map((box) => box.height),
+          rows: boxes.map((box) => box.top),
+          columns: boxes.map((box) => box.left),
+          paper: getComputedStyle(document.body).backgroundColor,
+          text: getComputedStyle(document.body).color,
+          clipped: Array.from(document.querySelectorAll('#weather *')).some(
+            (node) =>
+              node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1,
+          ),
+        };
+      });
+      expect(weather.firstSection).toBe('weather');
+      expect(weather.widths).toHaveLength(4);
+      expect(
+        Math.max(...weather.widths) - Math.min(...weather.widths),
+      ).toBeLessThanOrEqual(1);
+      expect(weather.heights[0]).toBeCloseTo(weather.heights[1], 1);
+      expect(weather.rows[0]).toBe(weather.rows[1]);
+      expect(weather.rows[2]).toBe(weather.rows[3]);
+      expect(weather.columns[0]).toBe(weather.columns[2]);
+      expect(weather.columns[1]).toBe(weather.columns[3]);
+      expect(weather.paper).toBe('rgb(22, 29, 39)');
+      expect(weather.text).toBe('rgb(245, 247, 248)');
+      expect(weather.clipped).toBe(false);
+    }
+  }
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(accessibility.violations).toEqual([]);
 });
 
 test('embedded source raster decodes without any external request', async ({

@@ -6,19 +6,22 @@ owns markup and CSS; the editor owns selection, evidence and hierarchy.
 ## Identity and composition
 
 Preserve **The Daily Daedalus** and **One reader. One editor. No filler.**
-Use the supplied newspaper reference as a visual direction: white paper,
-near-black serif headlines, compact sans-serif utility text, fine gray rules,
-a centered masthead, a double-rule department rail and varied story sizes.
-Do not copy the Times nameplate, logo or prose. No dashboard cards, shadows,
-gradients or decorative status panels.
+Keep the newspaper identity with serif headlines, compact sans-serif utility
+text, fine rules, a centered masthead and a double-rule department rail. Default
+to the application's Alaska palette: navy `#161D27` paper, snow `#F5F7F8` text,
+glacier `#9DB5B5` secondary text, steel `#4C6D8B` rules, slate `#253D56` weather
+cells and apricot `#F5A35F` accents. The standalone template embeds these colors
+from `frontend/styles/appearance.css`; it does not inherit the host or system
+theme. Printing uses white paper and dark ink. Do not copy the Times nameplate,
+logo or prose. Keep square editorial cells and omit shadows and gradients.
 
 The canonical `daybook-v4.html` asset retains its runtime filename and version
 markers for compatibility. Its current composition is:
 
 1. Dated utility strap, masthead, standing line and links to populated desks.
-2. A desktop 2.1/1 grid with independently flowing columns. The main column
+2. A desktop grid with two equal, independently flowing columns. The main column
    contains the selected news lead followed immediately by ranked departments.
-   The narrower rail opens with Health when covered, then weather, mail,
+   The equally wide personal rail opens with weather, then Health when covered, mail,
    calendar and their continuation, followed by Opinion and selective lifestyle desks as
    designated by policy placement. Its stories stack in a single column. One column's length never postpones the other's next story.
 3. Optional operational exceptions after the newspaper grid.
@@ -32,8 +35,8 @@ is clipped or line-clamped. Printing uses normal document flow, repeated table
 headers and breakable long articles so a long desk does not create blank pages.
 
 Everything needed to render is in one HTML document: embedded CSS, local
-Georgia/Times serif and Arial/Helvetica utility stacks, embedded article-photo
-bytes, and no scripts, remote fonts or external assets. Source hyperlinks
+Georgia/Times serif and Arial/Helvetica utility stacks, local weather symbols,
+embedded article-photo bytes, and no scripts, remote fonts or external assets. Source hyperlinks
 remain ordinary HTTPS citations. Typography and semantic tables must look
 complete when there are no photographs. Never add imagery merely to fill space.
 
@@ -56,11 +59,18 @@ for an actual operational condition. Continue an important mechanism or detailed
 comparison in the same desk below the lead; do not cut it just to hit a reading
 time. Do not duplicate the lead story in full.
 
-The personal rail opens with four agenda items and two mail actions; the
+The personal agenda opens with four agenda items and two mail actions; the
 renderer preserves the remainder and three-day look-ahead below them in that
-rail. Covered weather includes today plus three complete days. Departments
-with a single story use the main column's full width. With three or more, the
-first is a feature and the remaining stories form compact pairs. Quiet desks
+rail. Covered weather includes today plus three complete days in a two-by-two
+grid, with today's cell accented, large explicitly labeled highs and lows,
+conditions, wind and precipitation. The renderer selects fixed decorative
+symbols from the supplied condition text; unknown conditions get a neutral
+symbol, and unavailable weather never receives an invented forecast. Conditions
+remain visible text and all source values and units are preserved. No weather
+image generation or external icon requests are allowed.
+
+Department stories form equal pairs; a final unpaired story spans the column.
+Below 1100px, stories stack within each column for readability. Quiet desks
 are omitted. Lower-priority items can be briefs or absent, never filler panels.
 
 ## Reporting density and voice

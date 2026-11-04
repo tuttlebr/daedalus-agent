@@ -612,14 +612,19 @@ def validate_daybook(
     for label, token in css_requirements.items():
         if token not in compact_css:
             errors.append(f"CSS is missing {label}")
+    css_rules = re.findall(r"([^{}]+)\{([^{}]+)\}", compact_css)
+    front_page_css = " ".join(
+        declarations
+        for selector, declarations in css_rules
+        if selector.strip() == ".front-page"
+    )
     if not re.search(
-        r"grid-template-columns\s*:\s*minmax\(0\s*,\s*2\.1fr\)\s+minmax\(0\s*,\s*1fr\)",
-        compact_css,
+        r"grid-template-columns\s*:\s*repeat\(2\s*,\s*minmax\(0\s*,\s*1fr\)\)",
+        front_page_css,
     ):
-        errors.append("CSS must use the canonical 2.1/1 front-page split")
+        errors.append("CSS must use the canonical equal-column front-page grid")
     if re.search(r"@import\b|url\s*\(", compact_css):
         errors.append("CSS must be embedded and must not fetch assets")
-    css_rules = re.findall(r"([^{}]+)\{([^{}]+)\}", compact_css)
     masthead_css = " ".join(
         declarations
         for selector, declarations in css_rules

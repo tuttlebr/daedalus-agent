@@ -420,7 +420,54 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
     )
 
 
-def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
+def _weather_icon(conditions: str) -> str:
+    """Select a bundled text symbol; the forecast text remains authoritative."""
+    patterns = (
+        (r"thunder|\bt-?storms?\b", "storm", "ϟ"),
+        (r"snow|flurr|sleet|freezing|\bice\b|wintry|hail", "snow", "❄︎"),
+        (r"rain|shower|drizzle", "rain", "☂︎"),
+        (r"fog|mist|haze|hazy|smoke", "fog", "≡"),
+        (r"wind|breez|gust", "wind", "≋"),
+        (r"partly|mostly sunny|mostly clear", "partly-cloudy", "⛅︎"),
+        (r"cloud|overcast", "cloudy", "☁︎"),
+        (r"\bsunny\b|\bsun\b|\bclear\b|\bfair\b", "sunny", "☀︎"),
+    )
+    kind, symbol = next(
+        (
+            (kind, symbol)
+            for pattern, kind, symbol in patterns
+            if re.search(pattern, conditions, re.IGNORECASE)
+        ),
+        ("unknown", "◇"),
+    )
+    return (
+        f'<span class="weather-icon" data-weather-icon="{kind}" '
+        f'aria-hidden="true">{symbol}</span>'
+    )
+
+
+def _render_forecast_day(row: dict[str, str], index: int) -> str:
+    day = escape(row["day"])
+    label = f"Today <span>{day}</span>" if index == 0 else day
+    today_class = " forecast-today" if index == 0 else ""
+    temperatures = "".join(
+        f"<div><dt>{label}</dt><dd>{escape(row[key]) or '—'}</dd></div>"
+        for key, label in (("high", "High"), ("low", "Low"))
+    )
+    details = "".join(
+        f"<div><dt>{label}</dt><dd>{escape(row[key]) or '—'}</dd></div>"
+        for key, label in (("wind", "Wind"), ("precip", "Precip"))
+    )
+    return (
+        f'<li class="forecast-day{today_class}" data-weather-day>'
+        f'<h3 class="forecast-label">{label}</h3>{_weather_icon(row["conditions"])}'
+        f'<dl class="forecast-temperatures">{temperatures}</dl>'
+        f'<p class="forecast-conditions">{escape(row["conditions"]) or "Conditions unavailable"}</p>'
+        f'<dl class="forecast-details">{details}</dl></li>'
+    )
+
+
+def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str, str]:
     day_ahead = _object(value, "edition.day_ahead")
     _keys(day_ahead, {"weather", "email_calendar"}, "edition.day_ahead")
     weather = _object(day_ahead.get("weather"), "edition.day_ahead.weather")
@@ -447,26 +494,34 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
         rows = _array(
             weather.get("rows"), "edition.day_ahead.weather.rows", minimum=4, maximum=4
         )
-        rendered_rows: list[list[str]] = []
+        rendered_days: list[str] = []
         expected = {"day", "conditions", "high", "low", "wind", "precip"}
         for index, raw in enumerate(rows):
             row = _object(raw, f"edition.day_ahead.weather.rows[{index}]")
             _keys(row, expected, f"edition.day_ahead.weather.rows[{index}]")
-            rendered_rows.append(
-                [
-                    _text(
-                        row.get(key),
-                        f"edition.day_ahead.weather.rows[{index}].{key}",
-                        allow_empty=True,
-                    )
-                    for key in ("day", "conditions", "high", "low", "wind", "precip")
-                ]
+            rendered_days.append(
+                _render_forecast_day(
+                    {
+                        key: _text(
+                            row.get(key),
+                            f"edition.day_ahead.weather.rows[{index}].{key}",
+                            allow_empty=True,
+                        )
+                        for key in (
+                            "day",
+                            "conditions",
+                            "high",
+                            "low",
+                            "wind",
+                            "precip",
+                        )
+                    },
+                    index,
+                )
             )
-        weather_body = _table(
-            ["Day", "Conditions", "High", "Low", "Wind", "Precip"],
-            rendered_rows,
-            "edition.day_ahead.weather",
-            maximum_rows=4,
+        weather_body = (
+            '<ul class="forecast-grid" aria-label="Four-day forecast" role="list">'
+            f'{"".join(rendered_days)}</ul>'
         )
     else:
         if weather.get("source") is not None:
@@ -479,7 +534,9 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
         weather_body = '<p class="status status-unavailable">Unavailable</p>'
     weather_html = (
         f'<section class="day-ahead-section" id="weather" data-coverage-status="{weather_status}"{weather_attrs}>'
-        f"<h2>{weather_heading}</h2>{weather_body}<p>{escape(weather_note)}</p></section>"
+        '<p class="kicker">The day ahead</p>'
+        f"<h2>{weather_heading}</h2>{weather_body}"
+        f'<p class="weather-note">{escape(weather_note)}</p></section>'
     )
 
     personal = _object(
@@ -613,7 +670,7 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
             '<h2 id="day-ahead-continuation-heading">The Day Ahead</h2>'
             f'<div class="day-ahead-continuation-grid">{"".join(overflow)}</div></section>'
         )
-    return weather_html + personal_html, continuation
+    return weather_html, personal_html, continuation
 
 
 def _render_operations(value: Any, registry: SourceRegistry) -> str:
@@ -815,12 +872,17 @@ def render_daybook(
     if policy["lead_desk"] != "editorial-choice" and lead_key != policy["lead_desk"]:
         raise RenderError("edition.lead.desk_key must match the fixed policy lead")
     lead_html = _render_lead(edition.get("lead"), lead_key, registry)
-    day_ahead_html, day_ahead_continuation = _render_day_ahead(
+    weather_html, day_ahead_html, day_ahead_continuation = _render_day_ahead(
         edition.get("day_ahead"), registry
     )
     operations_html = _render_operations(edition.get("operations_details"), registry)
     department_ids = DepartmentIds(
-        template, lead_html, day_ahead_html, day_ahead_continuation, operations_html
+        template,
+        lead_html,
+        weather_html,
+        day_ahead_html,
+        day_ahead_continuation,
+        operations_html,
     )
     rail_keys = {item["key"] for item in policy["desks"] if item["placement"] == "rail"}
     departments = edition.get("departments", [])
@@ -903,6 +965,7 @@ def render_daybook(
         "@@EDITION_STRAP@@": strap,
         "@@DEPARTMENT_RAIL@@": department_rail,
         "@@LEAD_STORY@@": lead_html,
+        "@@WEATHER@@": weather_html,
         "@@DAY_AHEAD@@": day_ahead_html,
         "@@DAY_AHEAD_CONTINUATION@@": day_ahead_continuation,
         "@@OPERATIONS_CONTINUATION@@": operations_html,

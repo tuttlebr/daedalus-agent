@@ -25,9 +25,12 @@ accounted for. Current memory may refine those desks or add a timely personal
 interest.
 
 The deterministic renderer produces a New York Times-inspired newspaper page:
-Local serif typography, a centered text masthead, a white page,
-thin rules, ranked story hierarchy, optional embedded source photography, and responsive
-editorial grids. Preserve The Daily Daedalus identity. Do not copy The New York
+local serif typography, a centered text masthead, the application's Alaska palette
+with a dark navy default, thin rules, ranked story hierarchy, optional embedded
+source photography, and responsive equal-column editorial grids. Weather opens
+the personal rail with a four-day forecast grid and bundled condition symbols;
+never generate weather images or fetch icon assets. Print uses white paper.
+Preserve The Daily Daedalus identity. Do not copy The New York
 Times nameplate, logo, prose, or article composition.
 
 Truth outranks visual fullness. Report only current conditions and verified

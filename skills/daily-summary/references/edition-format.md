@@ -117,7 +117,11 @@ Verdict tones are `stable`, `watch`, and `urgent`.
 
 `day_ahead.weather` has `status`, `title`, `rows`, `note`, and an optional
 `source` (required when covered). Covered weather contains exactly four rows—today plus three days—with
-`day`, `conditions`, `high`, `low`, `wind`, and `precip` fields.
+`day`, `conditions`, `high`, `low`, `wind`, and `precip` fields. The renderer
+preserves those strings in a two-by-two forecast grid, labels the first day
+Today, and selects bundled decorative weather symbols from `conditions`.
+Keep supplied units and precision; highs are forecast highs, not current
+temperatures. No icon URLs, image generation, or additional fields are needed.
 
 `day_ahead.email_calendar` has `status`, `agenda`, `actions`, `lookahead`, and
 a `source` required when covered (optional when unavailable). Agenda items contain `time`, `event`, and `location`;
@@ -141,9 +145,9 @@ Continue ordinary news in the matching department, not here.
 
 Each supporting department contains `desk_key`, `title`, and one or more
 `stories`. A story has `headline`, optional `dek`, `source`, and `blocks`. The
-renderer makes the first of three or more main-column stories the feature and
-lays later stories out as compact pairs. Policy-designated rail desks stack
-stories in a single column; Health opens that rail.
+renderer lays main-column stories out as equal pairs with a final unpaired
+story spanning the column. Policy-designated rail desks stack stories in a
+single column; Health follows the weather panel near the top of that rail.
 
 Supported block shapes:
 

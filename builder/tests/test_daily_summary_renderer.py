@@ -1,11 +1,11 @@
 """Tests for the deterministic Daily Daedalus v4 renderer."""
 
 import copy
-import hashlib
 import importlib.util
 import json
 import runpy
 import sys
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -145,7 +145,7 @@ def test_department_anchor_fallback_avoids_other_department_slugs(tmp_path):
 
 
 @pytest.mark.parametrize("variant", ["dense", "ordinary", "weather_unavailable"])
-def test_previously_valid_html_bytes_remain_identical(variant):
+def test_redesigned_editions_preserve_reporting_and_validation(tmp_path, variant):
     edition = _edition()
     if variant == "ordinary":
         edition["operations_details"] = []
@@ -163,15 +163,72 @@ def test_previously_valid_html_bytes_remain_identical(variant):
         next(item for item in edition["coverage"] if item["desk_key"] == "weather")[
             "status"
         ] = "unavailable"
-    prior = {
-        "dense": "01479186b357043cbe30b8b6d594558ecf0d2058d40d81a251bbda7c81545094",
-        "ordinary": "46ed7b8956176e70ac9fee4ea6f8224c7363d75065c7220206c8f5f03fb7bb42",
-        "weather_unavailable": "10632aa1b84100ccb09f7c8c293bf89d1bb607e06963e1f3829b296fd7a5a61d",
-    }
+    document, manifest, _ = _render(edition)
+
+    result = _validate(tmp_path, document, manifest)
+    assert result["passed"], result["errors"]
+    for paragraph in edition["lead"]["paragraphs"]:
+        assert escape(paragraph) in document
+    for department in edition["departments"]:
+        for story in department["stories"]:
+            assert escape(story["headline"]) in document
+    if variant == "weather_unavailable":
+        assert "data-weather-day" not in document
+        assert "data-weather-icon=" not in document
+    else:
+        assert document.count("data-weather-day") == 4
+        for row in edition["day_ahead"]["weather"]["rows"]:
+            for value in row.values():
+                assert escape(value) in document
+
+
+@pytest.mark.parametrize(
+    ("conditions", "icon"),
+    [
+        ("Sunny", "sunny"),
+        ("Clear", "sunny"),
+        ("Mostly sunny", "partly-cloudy"),
+        ("Partly cloudy", "partly-cloudy"),
+        ("Overcast", "cloudy"),
+        ("Showers late", "rain"),
+        ("Partly sunny with thunderstorms", "storm"),
+        ("Rain and snow", "snow"),
+        ("Freezing drizzle", "snow"),
+        ("Patchy fog", "fog"),
+        ("Windy", "wind"),
+        ("Outlook pending", "unknown"),
+        ("", "unknown"),
+    ],
+)
+def test_weather_symbols_are_decorative_and_follow_forecast_text(conditions, icon):
+    edition = _edition()
+    edition["day_ahead"]["weather"]["rows"][0]["conditions"] = conditions
 
     document, _, _ = _render(edition)
 
-    assert hashlib.sha256(document.encode()).hexdigest() == prior[variant]
+    assert f'data-weather-icon="{icon}" aria-hidden="true"' in document
+    assert (
+        f'class="forecast-conditions">{conditions or "Conditions unavailable"}</p>'
+        in document
+    )
+    assert 'aria-label="Four-day forecast" role="list"' in document
+    assert "<dt>High</dt><dd>81°F</dd>" in document
+    assert "<dt>Low</dt><dd>63°F</dd>" in document
+
+
+def test_weather_grid_escapes_values_and_preserves_missing_measurements():
+    edition = _edition()
+    row = edition["day_ahead"]["weather"]["rows"][0]
+    row.update(
+        {"conditions": '<img src=x onerror="alert(1)">', "high": "", "wind": "N & E"}
+    )
+
+    document, _, _ = _render(edition)
+
+    assert "<img src=x" not in document
+    assert escape(row["conditions"]) in document
+    assert "<dt>Wind</dt><dd>N &amp; E</dd>" in document
+    assert "<dt>High</dt><dd>—</dd>" in document
 
 
 def test_absent_optional_sections_do_not_reserve_department_ids():

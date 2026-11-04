@@ -376,15 +376,15 @@ def test_validator_accepts_news_edition_without_operations(tmp_path):
 def test_validator_requires_canonical_front_page_ratio(tmp_path):
     html, _ = _render()
     html = html.replace(
-        "grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr)",
-        "grid-template-columns: 25% 45% 30%",
+        ".front-page {\n        display: grid;\n        grid-template-columns: repeat(2, minmax(0, 1fr))",
+        ".front-page {\n        display: grid;\n        grid-template-columns: 25% 45% 30%",
     )
 
     result, report = _run_validator(tmp_path, html)
 
     assert result.returncode == 1
     assert any(
-        "canonical 2.1/1 front-page split" in error for error in report["errors"]
+        "canonical equal-column front-page grid" in error for error in report["errors"]
     )
 
 
