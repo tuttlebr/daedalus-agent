@@ -1175,10 +1175,9 @@ def test_interactive_oauth_is_wired_through_tool_service():
 
 
 def test_mcp_approval_policy_follows_explicit_include_lists():
-    # New infrastructure operations are exposed, but lack the exact local
-    # read-only evidence of the original eight tools. Their default policy
-    # must continue to require approval, including read-like tool names.
-    k8s_approval_required = {
+    # Kubernetes is operator-authorized within this fixed discovery allowlist.
+    # Other integrations retain their own read-only/exact-approval contracts.
+    k8s_operations = {
         "describeResource",
         "getNodeMetrics",
         "getPodMetrics",
@@ -1287,7 +1286,7 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         },
         "docs_mcp_server": {"read_doc", "update_doc"},
         "k8s_mcp_server": {
-            *k8s_approval_required,
+            *k8s_operations,
             "getAPIResources",
             "listResources",
             "getResource",
@@ -1311,11 +1310,7 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "listWanInterfaces",
         },
     }
-    # The deployed configuration leaves every Kubernetes operation, including
-    # the read-only discovery set, under the runtime approval gate: its group
-    # carries no `tool_overrides`, as the group's own comments state.
     approval_required = {
-        "k8s_mcp_server": allowlisted["k8s_mcp_server"],
         "calendar_mcp_server": {
             "update_event",
             "delete_event",
@@ -1323,7 +1318,10 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         },
         "docs_mcp_server": {"update_doc"},
     }
-    auto_approved = {"calendar_mcp_server": {"create_event"}}
+    auto_approved = {
+        "calendar_mcp_server": {"create_event"},
+        "k8s_mcp_server": allowlisted["k8s_mcp_server"],
+    }
     for path in DEPLOYED_CONFIGS:
         groups = _config(path)["function_groups"]
         for group_name, expected_tools in allowlisted.items():

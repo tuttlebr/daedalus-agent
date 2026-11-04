@@ -333,6 +333,22 @@ gate refuses an operation that would need approval instead of recording an
 approval nobody can answer; the worker records the refusal as a blocked run.
 Uncertain remote mutations are never automatically retried.
 
+The shipped Kubernetes MCP group uses `approval_policy: auto_approve` for its
+explicit `include` list, including writes, pod commands and Helm operations.
+Those calls stay in the normal model/tool loop: the agent receives each result,
+can inspect and remediate further, verifies the outcome and returns an answer.
+It does not enter the standalone exact-call approval flow described below.
+This is deployment authorization, not a conversation-scoped approval grant;
+it also applies to background runs. Task instructions restrict diagnostics to
+reads and repairs to their requested scope. Server authentication, RBAC,
+schema validation, exposure filters and execution limits remain enforced.
+Unlisted tools and other integrations retain their configured approval policy.
+Operators can restore exact approvals for the entire group or individual tools
+with `approval_policy: approval_required` on the group or a `tool_overrides`
+entry. Such overrides use the standalone flow and end the current agent run.
+The Kubernetes skill requires explicit approval before compatibility-breaking
+network changes and verification from actual client paths.
+
 Approving an MCP request executes its exact stored call. Successful execution
 returns the tool output through owner-authenticated status endpoints, and the
 frontend replaces the approval prompt with that result in the saved conversation.

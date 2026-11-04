@@ -439,19 +439,28 @@ def test_allowlisted_infrastructure_reads_do_not_need_token(
     assert reason == "read-only"
 
 
-@pytest.mark.parametrize("tool_name", ["getClusterSummary", "listContexts"])
-def test_kubernetes_reads_follow_the_configured_approval_gate(tool_name):
-    # The deployed configuration registers no read-only overrides for the
-    # Kubernetes group, so discovery alone never lets a read bypass approval.
-    ok, reason = mcp_patches._validate_mcp_approval(
-        tool_name, {}, server_name="k8s_mcp_server"
-    )
-    assert ok is False
-    assert "execution credential" in reason
+@pytest.mark.parametrize(
+    "tool_name",
+    yaml.safe_load(CONFIG_PATH.read_text())["function_groups"]["k8s_mcp_server"][
+        "include"
+    ],
+)
+def test_kubernetes_allowlist_stays_in_the_agent_loop(tool_name, monkeypatch):
+    def unexpected_approval(*args, **kwargs):
+        pytest.fail("Preauthorized Kubernetes calls must not create approval cards")
+
+    monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", unexpected_approval)
+    for qualified_name in (tool_name, f"k8s_mcp_server.{tool_name}"):
+        assert mcp_patches._validate_mcp_approval(
+            qualified_name,
+            {},
+            annotations=_Annotations(destructiveHint=True),
+            server_name="k8s_mcp_server",
+        ) == (True, "auto-approved")
 
 
 @pytest.mark.parametrize("server_name", ["k8s_mcp_server", "unifi_mcp_server"])
-def test_infrastructure_mutations_require_exact_approval(server_name):
+def test_unlisted_infrastructure_mutations_require_exact_approval(server_name):
     ok, reason = mcp_patches._validate_mcp_approval(
         "delete_resource",
         {"name": "stale-resource"},
@@ -672,16 +681,25 @@ def test_operator_approval_does_not_extend_to_other_tools_or_servers(
     assert not ok
 
 
-def test_operator_approval_can_be_revoked_by_inherited_configuration(tmp_path):
+@pytest.mark.parametrize(
+    "server_name,revoked_tool,other_tool",
+    [
+        ("hue_mcp_server", "set_light_state", "recall_scene"),
+        ("k8s_mcp_server", "runKubectlCommand", "getClusterSummary"),
+    ],
+)
+def test_operator_approval_can_be_revoked_by_inherited_configuration(
+    tmp_path, server_name, revoked_tool, other_tool
+):
     overlay = tmp_path / "revoked.yaml"
     overlay.write_text(
         yaml.safe_dump(
             {
                 "base": str(CONFIG_PATH),
                 "function_groups": {
-                    "hue_mcp_server": {
+                    server_name: {
                         "tool_overrides": {
-                            "set_light_state": {"approval_policy": "approval_required"},
+                            revoked_tool: {"approval_policy": "approval_required"},
                         }
                     }
                 },
@@ -691,10 +709,10 @@ def test_operator_approval_can_be_revoked_by_inherited_configuration(tmp_path):
     try:
         mcp_patches.configure_mcp_approval_policy(overlay)
         assert not mcp_patches._validate_mcp_approval(
-            "set_light_state", {}, server_name="hue_mcp_server"
+            revoked_tool, {}, server_name=server_name
         )[0]
         assert mcp_patches._validate_mcp_approval(
-            "recall_scene", {}, server_name="hue_mcp_server"
+            other_tool, {}, server_name=server_name
         ) == (True, "auto-approved")
     finally:
         mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)

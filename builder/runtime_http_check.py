@@ -26,6 +26,18 @@ from pathlib import Path
 import httpx
 import yaml
 
+KUBERNETES_SEQUENCES = {
+    "K8S_REPAIR": [
+        "connect",
+        "getClusterSummary",
+        "getEvents",
+        "rolloutRestart",
+        "getRolloutStatus",
+    ],
+    "K8S_STATUS": ["connect", "getClusterSummary", "getEvents"],
+    "K8S_BLOCKED": ["connect", "getClusterSummary", "getEvents"],
+}
+
 
 class Peers:
     def __init__(self):
@@ -107,7 +119,7 @@ class Peers:
                     peers.image_waiting.set()
                     self.wait_for_disconnect(peers.image_disconnected)
                     return
-                if self.path == "/mcp":
+                if self.path in ("/mcp", "/kubernetes-mcp"):
                     method = body["method"]
                     if "id" not in body:
                         self.reply({}, 202)
@@ -144,6 +156,29 @@ class Peers:
                                 )
                             ]
                         }
+                        if self.path == "/kubernetes-mcp":
+                            result = {
+                                "tools": [
+                                    {
+                                        "name": name,
+                                        "description": name,
+                                        "annotations": {
+                                            "readOnlyHint": name != "rolloutRestart",
+                                            "destructiveHint": name == "rolloutRestart",
+                                        },
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "namespace": {"type": "string"},
+                                                "name": {"type": "string"},
+                                                "private": {"type": "string"},
+                                            },
+                                            "additionalProperties": False,
+                                        },
+                                    }
+                                    for name in KUBERNETES_SEQUENCES["K8S_REPAIR"][1:]
+                                ]
+                            }
                     elif method == "tools/call":
                         name = body["params"]["name"]
                         peers.calls.append(name)
@@ -157,6 +192,24 @@ class Peers:
                             "content": [{"type": "text", "text": "RETAINED_EVIDENCE"}],
                             "isError": False,
                         }
+                        if self.path == "/kubernetes-mcp":
+                            blocked = (
+                                body["params"].get("arguments", {}).get("private")
+                                == "K8S_FORBIDDEN"
+                            )
+                            result = {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": json.dumps(
+                                            {"error": "RBAC forbids events"}
+                                            if blocked
+                                            else {"operation": name, "verified": True}
+                                        ),
+                                    }
+                                ],
+                                "isError": blocked,
+                            }
                         if (
                             body["params"].get("arguments", {}).get("private")
                             == "LARGE_TOOL"
@@ -236,6 +289,7 @@ class Peers:
                     (
                         name
                         for name in (
+                            *KUBERNETES_SEQUENCES,
                             "CONTRACT_REPAIR",
                             "CONTRACT_MULTI_REPAIR",
                             "CONTRACT_LATER_REPAIR",
@@ -392,6 +446,10 @@ class Peers:
                 elif (
                     not has_result
                     or (
+                        scenario in KUBERNETES_SEQUENCES
+                        and result_count < len(KUBERNETES_SEQUENCES[scenario])
+                    )
+                    or (
                         scenario in ("CONTRACT_MULTI_REPAIR", "CONTRACT_LATER_REPAIR")
                         and result_count < 4
                     )
@@ -417,7 +475,12 @@ class Peers:
                     )
                 ):
                     names = (
-                        ["llm_sandbox_tool"]
+                        [
+                            "k8s_mcp_server__"
+                            + KUBERNETES_SEQUENCES[scenario][result_count]
+                        ]
+                        if scenario in KUBERNETES_SEQUENCES
+                        else ["llm_sandbox_tool"]
                         if scenario.startswith("SANDBOX_")
                         else ["agent_skills_tool"]
                         if scenario == "SKILL_LOAD"
@@ -574,6 +637,21 @@ class Peers:
                             if name.endswith("slow_read")
                             else "{}"
                         )
+                        if name.startswith("k8s_mcp_server__") and not name.endswith(
+                            "__connect"
+                        ):
+                            arguments = json.dumps(
+                                {
+                                    "namespace": "fixture",
+                                    "name": "api",
+                                    **(
+                                        {"private": "K8S_FORBIDDEN"}
+                                        if scenario == "K8S_BLOCKED"
+                                        and name.endswith("__getEvents")
+                                        else {}
+                                    ),
+                                }
+                            )
                         if name == "current_datetime_tool" and (
                             scenario == "CONTRACT_BAD_BATCH_ALWAYS"
                             or (scenario == "CONTRACT_REPAIR" and not has_result)
@@ -653,6 +731,20 @@ class Peers:
                         )
                         else ("The real datetime tool completed")
                     )
+                    if scenario in KUBERNETES_SEQUENCES:
+                        # The model must receive every completed result in order,
+                        # including the final verification or explicit blocker.
+                        assert result_count == len(KUBERNETES_SEQUENCES[scenario])
+                        for operation in KUBERNETES_SEQUENCES[scenario][1:]:
+                            assert operation in serialized
+                        if scenario == "K8S_BLOCKED":
+                            assert "RBAC forbids events" in serialized
+                            text = "Unable to finish: cluster RBAC denies event access. No changes made."
+                        elif scenario == "K8S_STATUS":
+                            text = "Cluster inspected; api needs attention. No changes requested or made."
+                        else:
+                            assert "verified" in serialized
+                            text = "Restarted api in fixture and verified its rollout is healthy."
                     if scenario == "DOCUMENT_SEARCH":
                         result = next(
                             item["output"]
@@ -1041,6 +1133,22 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
         },
     }
     config["workflow"]["tools"].append("fixture_deferred")
+    # Exercise the shipped Kubernetes exposure/approval policy in both runtime
+    # preparation paths. Only transport/auth are replaced by a local fixture;
+    # no real cluster, credential or model service is contacted.
+    shipped = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1] / "backend/tool-calling-config.yaml"
+        ).read_text()
+    )
+    config["function_groups"]["k8s_mcp_server"] = {
+        **shipped["function_groups"]["k8s_mcp_server"],
+        "server": {
+            "transport": "streamable-http",
+            "url": f"http://127.0.0.1:{model_port}/kubernetes-mcp",
+        },
+    }
+    config["workflow"]["tools"].append("k8s_mcp_server")
     container = None
     redis_container = None
     process = None
@@ -1482,6 +1590,23 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "The real datetime tool completed" in conflict
                 assert "mcp_approval_required" not in conflict
                 assert "conflicting_read" not in peers.calls
+                for scenario, expected in (
+                    ("K8S_REPAIR", "Restarted api in fixture and verified"),
+                    ("K8S_STATUS", "No changes requested or made"),
+                    ("K8S_BLOCKED", "cluster RBAC denies event access"),
+                ):
+                    peers.calls.clear()
+                    before = len(peers.requests)
+                    answer = chat(scenario, scenario.lower())
+                    assert expected in answer, answer
+                    assert '"finish_reason":"stop"' in answer, answer
+                    assert "mcp_approval_required" not in answer
+                    assert "daedalus-mcp-approval:" not in answer
+                    assert "Approved operation completed:" not in answer
+                    assert peers.calls == KUBERNETES_SEQUENCES[scenario][1:]
+                    requests = peers.requests[before:]
+                    assert len(requests) == len(KUBERNETES_SEQUENCES[scenario]) + 1
+                    assert len({request["user"] for request in requests}) == 1
                 peers.calls.clear()
                 before = len(peers.requests)
                 fallback = chat(
@@ -1918,7 +2043,18 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         executed = client.post(url, headers=approved_headers, json=body)
                         assert executed.status_code == 200, executed.text
                         assert executed.json()["status"] == "completed"
-                        assert "RETAINED_EVIDENCE" not in executed.text
+                        # Exact approvals intentionally return output to their
+                        # authenticated owner for delivery to the conversation.
+                        # Isolation is checked against another actor below.
+                        approved_result = executed.json()["result"]
+                        assert "RETAINED_EVIDENCE" in approved_result["content"]
+                        assert approved_result["serverName"] == body["server_name"]
+                        assert approved_result["toolName"] == body["tool_name"]
+                        assert (
+                            approved_result["argumentsSha256"]
+                            == body["arguments_sha256"]
+                        )
+                        assert credential not in executed.text
                         assert peers.calls.count("write_item") == 1
                         assert (
                             client.post(
@@ -1927,13 +2063,17 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             == 409
                         )
                         execution_id = executed.json()["executionId"]
-                        assert (
-                            client.get(
-                                base + "/executions/" + execution_id,
-                                headers={**headers, "x-user-id": "bob"},
-                            ).status_code
-                            == 404
+                        owned_status = client.get(
+                            base + "/executions/" + execution_id, headers=headers
                         )
+                        assert owned_status.json()["result"] == approved_result
+                        other_status = client.get(
+                            base + "/executions/" + execution_id,
+                            headers={**headers, "x-user-id": "bob"},
+                        )
+                        assert other_status.status_code == 404
+                        assert "RETAINED_EVIDENCE" not in other_status.text
+                        assert peers.calls.count("write_item") == 1
                 if redis_image:
                     result = chat("LARGE_TOOL", "large-tool-run")
                     assert "The real datetime tool completed" in result
@@ -2153,6 +2293,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 print(
                     "HTTP contract passed: streaming, native tools, bounded provider retry, incomplete rejection, user isolation, idempotent steering during model/MCP calls, retained results, skipped queued calls, and cancellation."
                     " Batch validation, call IDs, required-tool enforcement, structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
+                    " Kubernetes multi-call repair, verification, status-only and RBAC-blocked runs passed with the shipped approval policy."
                     + (
                         " Exact approvals and non-replay passed against real Redis."
                         if redis_image

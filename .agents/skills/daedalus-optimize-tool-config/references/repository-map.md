@@ -37,6 +37,16 @@ when aligning a tool; `builder/tests/test_tool_skill_alignment.py` checks severa
 cross-surface contracts. A source-planning result does not prove its tools are
 reachable, and a read-only label does not override the execution gate.
 
+The shipped Kubernetes group preauthorizes its explicit allowlist with
+`approval_policy: auto_approve`, including mutation/command tools. Results stay
+in the agent loop; exact-call approval would terminate that run. Task scope and
+compatibility guidance live in the workflow instructions and
+`skills/kubernetes-specialist/SKILL.md`; server authentication/RBAC still apply.
+Do not restore per-call gating as a wording cleanup. The deployed-policy cases
+in `builder/tests/test_mcp_approval_gate.py` and the Kubernetes sequences in
+`builder/runtime_http_check.py` cover this contract; the latter exercises both
+preparation paths against local model/MCP peers with the shipped group policy.
+
 For recovery and evaluation identity, read `docs/research-workflows.md` and
 `docs/tool-correctness.md`. `builder/runtime/src/harness.rs` fingerprints selected
 configuration/catalog inputs. Inspect what a digest includes before using it as

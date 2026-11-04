@@ -16,8 +16,9 @@ rollback implementation), and the actual leaf-tool schemas.
   decisions in the owning skill; references must agree with its boundaries.
 - Use the exposed application allowlist, not the remote server's full catalog.
   GitHub, Gmail and UniFi are read-only in this configuration. Kubernetes
-  operations depend on the configured allowlist and server catalog/role;
-  execution remains subject to the runtime gate. Hue, Calendar and Docs writes
+  operations in the configured allowlist are preauthorized for agent execution
+  within the user's task; server catalog/RBAC and operator overrides still apply.
+  Hue, Calendar and Docs writes
   retain their own runtime gates. A skill cannot widen that surface or change
   per-user OAuth scopes.
 - Reuse relevant `automatic_hindsight` context before explicit recall. Memory

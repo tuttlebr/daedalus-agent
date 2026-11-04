@@ -18,9 +18,16 @@ the requested surface.
 
 Use registered `k8s_mcp_server` schemas for live reads and supported actions.
 Availability depends on the configured allowlist and server catalog/role;
-the runtime gate governs execution. When an authorized write capability is
+the deployed allowlist is preauthorized, so results return to the agent for
+continued work without a per-call approval card. Operator policy overrides and
+server authentication/RBAC still apply. When an authorized write capability is
 unavailable, prepare an exact source patch and validation commands.
 A tool name or Kubernetes verb does not itself grant permission.
+Keep actions within the user's task: status and diagnostic requests authorize
+reads, while repair requests authorize the changes needed for that repair.
+Reuse results and continue through inspection, remediation and verification
+until the goal is achieved or a concrete blocker prevents progress. Report the
+outcome, evidence and remaining issues in ordinary language, not raw MCP JSON.
 Use an operator CLI only when the environment actually supplies it; the
 isolated sandbox does not inherit kubeconfig or host/cluster access.
 
@@ -62,6 +69,15 @@ workloads. Do not delete network policies, bypass PDBs, dump Secrets, or recycle
 all pods as diagnosis. Adapt probes, resource requests, permissions, and
 security contexts to the workload: a model worker, migration Job, and web
 server need different startup and health contracts.
+
+Before changing exposure, source allowlists, authentication or ports, inventory
+working LAN endpoints and their consumers. Preserve ingress routes and service
+connections, back up configuration and retain a quick rollback. Broad repair
+authorization does not authorize breaking client access: explain the concrete
+impact and obtain explicit approval for an incompatible change. Verify an
+ordinary non-node LAN client and application/API functionality, not only cluster
+node connectivity; disclose when that verification is unavailable. Update the
+durable configuration alongside live fixes.
 
 Match node architecture, GPU SKU/count, image support, taints/tolerations,
 storage locality, and controller-owned replicas before scheduling changes.
