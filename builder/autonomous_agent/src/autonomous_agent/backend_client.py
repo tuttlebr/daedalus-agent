@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from .prompt import output_schema
+
 _AUTH_URL_RE = re.compile(r"https?://[^\s<>\")]+")
 MAX_RESPONSE_CHARS = 4 * 1024 * 1024
 DEFAULT_TIMEZONE = "America/New_York"
@@ -227,6 +229,8 @@ class BackendClient:
             "messages": messages,
             "stream": True,
             "stream_options": {"include_usage": True},
+            "response_mode": "final_only",
+            "autonomy_output_schema": output_schema(),
         }
         parts: list[str] = []
         response_chars = 0

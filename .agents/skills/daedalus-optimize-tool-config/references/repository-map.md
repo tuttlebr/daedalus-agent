@@ -37,6 +37,16 @@ when aligning a tool; `builder/tests/test_tool_skill_alignment.py` checks severa
 cross-surface contracts. A source-planning result does not prove its tools are
 reachable, and a read-only label does not override the execution gate.
 
+Autonomous completion also has a runtime-owned tool: the worker sends the schema
+from `builder/autonomous_agent/src/autonomous_agent/prompt.py` as
+`autonomy_output_schema`. `builder/runtime/src/autonomy_output.rs` adds
+`submit_autonomous_result` only for that scoped request, and
+`builder/runtime/src/agent.rs` validates and serializes its terminal arguments.
+This tool is not a YAML function or an external action. Preserve the worker's
+completion instruction and strict publication validation; final formatting must
+not replay research. The autonomous cases in `builder/runtime_http_check.py`
+exercise this path against the built image for both preparation modes.
+
 The shipped Kubernetes group preauthorizes its explicit allowlist with
 `approval_policy: auto_approve`, including mutation/command tools. Results stay
 in the agent loop; exact-call approval would terminate that run. Task scope and

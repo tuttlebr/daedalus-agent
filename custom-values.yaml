@@ -23,8 +23,8 @@ images:
   # before Helm runs.
   backend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: backend-approval-b9394f6b
-    digest: 'sha256:b8820275b017d33bc468009e26a5c5e01cfcbd6b30444118882782b7e0504a15'
+    tag: backend-autonomy-contract-20261104
+    digest: 'sha256:021419f1eb29a28807bfb3955bcc266835945ebc0b1875bb877eda83c25c6778'
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus

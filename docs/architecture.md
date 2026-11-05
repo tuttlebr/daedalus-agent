@@ -78,6 +78,15 @@ expiring worker lease. Recovery requeues only requests marked as claimed but
 undispatched. Started requests and legacy claims without a known phase are
 removed from processing without another backend call; interrupted run records
 are marked aborted. This avoids replaying actions whose remote outcome is unknown.
+The worker sends its publication schema as `autonomy_output_schema` with the
+trusted autonomy scope. The runtime exposes `submit_autonomous_result` for that
+run, validates its arguments, and serializes them as the final JSON response.
+Completion must be submitted alone after research tools finish. If the model
+answers in prose or malformed JSON, the runtime withholds that text and allows
+only the completion tool next, preserving completed evidence without repeating
+research or actions. The worker validates the result again before publishing;
+invalid results fail without exposing raw model text. Interactive requests cannot
+enable this background completion contract.
 
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,

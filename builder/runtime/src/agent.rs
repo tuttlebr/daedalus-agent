@@ -230,6 +230,18 @@ impl Agent {
                 _ = self.events.sender.closed() => bail!("Client disconnected"),
             }
         };
+        let autonomy_output = crate::autonomy_output::definition(&body, self.handle.autonomy)?;
+        let autonomy_output = if let Some(tool) = autonomy_output {
+            prepared.tools.push(tool);
+            prepared.instructions.push_str("\n\n");
+            prepared
+                .instructions
+                .push_str(crate::autonomy_output::GUIDANCE);
+            response_policy = crate::response_policy::ResponsePolicy::FinalOnly;
+            true
+        } else {
+            false
+        };
         tracing::info!(
             event = "prepare_finished",
             harness_version = 1,
@@ -731,6 +743,14 @@ impl Agent {
             if let Some(message) = completed.message() {
                 history.push(message);
             }
+            if calls.is_empty() && autonomy_output && self.pending.is_empty() {
+                // Research has finished. Force only the serialization tool;
+                // completed actions cannot be replayed during this phase.
+                requirement =
+                    crate::tool_contracts::Requirement::Named(crate::autonomy_output::TOOL.into());
+                Self::attach_guidance(&mut history, crate::autonomy_output::GUIDANCE);
+                continue;
+            }
             if calls.is_empty() {
                 if !self.pending.is_empty() {
                     continue;
@@ -751,7 +771,16 @@ impl Agent {
                 bail!("Briefing text fallback proposed tools despite disabled tool access");
             }
             let batch_revision = self.revision;
-            let problems = catalog.check_batch(&calls, &tools)?;
+            let mut problems = catalog.check_batch(&calls, &tools)?;
+            if autonomy_output && calls.len() > 1 {
+                for (call, problem) in calls.iter().zip(&mut problems) {
+                    if call.function.name.as_str() == crate::autonomy_output::TOOL {
+                        *problem =
+                            "Submit the result alone after all other tool results are available."
+                                .into();
+                    }
+                }
+            }
             let (counted_calls, counted_problems): (Vec<_>, Vec<_>) = calls
                 .iter()
                 .zip(&problems)
@@ -877,7 +906,7 @@ impl Agent {
                     );
                     let events = self.events.clone();
                     let tool_preparation = preparation.clone();
-                    let context = json!({"version":1,"query":query,"available_tools":prepared.tools.iter().map(|t| &t.name).collect::<Vec<_>>(),"executor_state":executor_states.get(&group).cloned().unwrap_or_else(||json!({}))});
+                    let context = json!({"version":1,"query":query,"available_tools":prepared.tools.iter().map(|t| &t.name).collect::<Vec<_>>(),"executor_state":executor_states.get(&group).cloned().unwrap_or_else(||json!({})),"autonomy_output":autonomy_output});
                     active.push(async move {
                         let started = Instant::now();
                         tracing::info!(event = "tool_call_started", tool_call, tool = label(&name));
@@ -1052,6 +1081,16 @@ impl Agent {
                 }
             }
             if let Some((content, reason)) = terminal {
+                if autonomy_output
+                    && reason != "autonomy_output"
+                    && reason != "mcp_approval_required"
+                {
+                    requirement = crate::tool_contracts::Requirement::Named(
+                        crate::autonomy_output::TOOL.into(),
+                    );
+                    Self::attach_guidance(&mut history, crate::autonomy_output::GUIDANCE);
+                    continue;
+                }
                 self.drain().await?;
                 if !self.pending.is_empty() || !self.handle.finish_if_idle(&self.inbox).await {
                     // The user's direction wins over the approval boundary. The
@@ -1113,6 +1152,14 @@ impl Agent {
         context: Value,
     ) -> Result<ToolOutcome> {
         let (name, arguments) = invocation;
+        if name == crate::autonomy_output::TOOL && context["autonomy_output"] == true {
+            return Ok(ToolOutcome {
+                content: arguments.to_string(),
+                terminal: true,
+                terminal_reason: "autonomy_output".into(),
+                ..Default::default()
+            });
+        }
         if let Some(preparation) = &preparation
             && (preparation.document_tools.contains_key(name)
                 || preparation.domain_tools.contains_key(name)
@@ -1672,6 +1719,7 @@ mod tests {
             scripts,
             json!({ "max_retries": max_retries }),
             None,
+            json!({}),
         )
         .await
     }
@@ -1685,6 +1733,7 @@ mod tests {
         scripts: Vec<Option<Vec<Value>>>,
         model_settings: Value,
         steer: Option<(usize, &'static str)>,
+        request_fields: Value,
     ) -> Outcome {
         let model = Arc::new(Model::default());
         model.scripts.lock().unwrap().extend(scripts);
@@ -1732,7 +1781,7 @@ mod tests {
             telemetry: tokio::sync::Mutex::new(None),
             user: "synthetic-user".into(),
             conversation: "synthetic-conversation".into(),
-            autonomy: false,
+            autonomy: request_fields.get("autonomy_output_schema").is_some(),
             sender: commands,
             commands: tokio::sync::Mutex::new(HashMap::new()),
             finished: std::sync::atomic::AtomicBool::new(false),
@@ -1767,12 +1816,11 @@ mod tests {
             revision: 0,
             preparation: Some(preparation),
         };
-        let result = tokio::time::timeout(
-            Duration::from_secs(20),
-            agent.run(json!({"messages":[{"role":"user","content":query}],"stream":true})),
-        )
-        .await
-        .expect("agent run must finish within the test deadline");
+        let mut body = json!({"messages":[{"role":"user","content":query}],"stream":true});
+        crate::config::merge(&mut body, request_fields);
+        let result = tokio::time::timeout(Duration::from_secs(20), agent.run(body))
+            .await
+            .expect("agent run must finish within the test deadline");
         if let Some(mut steering) = steering {
             let result = tokio::time::timeout(Duration::from_secs(1), &mut steering).await;
             steering.abort();
@@ -1801,6 +1849,83 @@ mod tests {
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect()
+    }
+
+    #[tokio::test]
+    async fn autonomous_results_are_validated_and_serialized_without_replaying_research() {
+        let tool = crate::autonomy_output::TOOL;
+        let schema = json!({"type":"object","properties":{"summary":{"type":"string","maxLength":80}},
+            "required":["summary"],"additionalProperties":false});
+        let expected = json!({"summary":"Verified {braces} and \"quotes\"."});
+        // Direct completion, malformed final text, an invalid argument object,
+        // and a premature completion in the research batch all use the same
+        // validation path. None may execute the research tool a second time.
+        for variant in 0..4 {
+            let mut first = vec![call("read", "clock", "{}")];
+            if variant == 3 {
+                first.push(call("early", tool, &expected.to_string()));
+            }
+            let mut scripts = vec![completed(first)];
+            if variant == 1 {
+                scripts.push(completed(vec![text("{\n  \"summary\": \"duplicated{\n")]));
+            } else if variant == 2 {
+                scripts.push(completed(vec![call("invalid", tool, r#"{"summary":42}"#)]));
+            }
+            scripts.push(completed(vec![call("finish", tool, &expected.to_string())]));
+            let outcome = run_scripted(
+                clocks(),
+                json!({"tools":["clock"]}),
+                "Check the time and finish.",
+                scripts,
+                json!({}),
+                None,
+                json!({"autonomy_output_schema":schema}),
+            )
+            .await;
+            outcome.result.unwrap();
+            let visible: String = outcome
+                .stream
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .filter_map(|event| {
+                    event["choices"][0]["delta"]["content"]
+                        .as_str()
+                        .map(str::to_owned)
+                })
+                .collect();
+            assert_eq!(serde_json::from_str::<Value>(&visible).unwrap(), expected);
+            assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
+            if variant == 1 {
+                assert_eq!(tool_names(outcome.requests.last().unwrap()), vec![tool]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn autonomous_invalid_completion_cannot_publish_or_fall_back_to_text() {
+        let tool = crate::autonomy_output::TOOL;
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Check the time.",
+            vec![
+                completed(vec![call("read", "clock", "{}")]),
+                completed(vec![text("private unvalidated draft")]),
+                completed(vec![call("bad1", tool, r#"{"summary":42}"#)]),
+                completed(vec![call("bad2", tool, r#"{"summary":42}"#)]),
+            ],
+            json!({}),
+            None,
+            json!({"autonomy_output_schema":{
+                "type":"object","properties":{"summary":{"type":"string"}},
+                "required":["summary"],"additionalProperties":false}}),
+        )
+        .await;
+        assert!(outcome.result.is_err());
+        assert!(!outcome.stream.contains("private unvalidated draft"));
+        assert!(!outcome.stream.contains("\"finish_reason\":\"stop\""));
+        assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
     }
 
     #[tokio::test]
@@ -2050,6 +2175,7 @@ mod tests {
             vec![paced(&parts, 300, false)],
             json!({"request_timeout":1}),
             None,
+            json!({}),
         )
         .await;
         outcome.result.unwrap();
@@ -2076,6 +2202,7 @@ mod tests {
             ],
             json!({"request_timeout":1, "max_retries":2}),
             None,
+            json!({}),
         )
         .await;
         let elapsed = started.elapsed();
@@ -2107,6 +2234,7 @@ mod tests {
             vec![Some(interrupted), None, completed(vec![])],
             json!({"max_retries":1}),
             Some((2, "Use the other plan.")),
+            json!({}),
         )
         .await;
         assert_eq!(outcome.requests.len(), 3);

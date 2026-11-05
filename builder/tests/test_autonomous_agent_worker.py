@@ -12,6 +12,7 @@ from autonomous_agent.prompt import (
     build_messages,
     feed_items_from_output,
     load_workspace,
+    output_schema,
     parse_structured_output,
 )
 from autonomous_agent.worker import (
@@ -1144,6 +1145,8 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
         "messages": [{"role": "user", "content": "go"}],
         "stream": True,
         "stream_options": {"include_usage": True},
+        "response_mode": "final_only",
+        "autonomy_output_schema": output_schema(),
     }
     assert kwargs["headers"]["x-user-id"] == "test-user"
     assert kwargs["headers"]["x-daedalus-execution-scope"] == "autonomy"

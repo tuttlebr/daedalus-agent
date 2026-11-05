@@ -6,6 +6,7 @@ mod authorization;
 mod authorization_routes;
 #[cfg(test)]
 mod authorization_tests;
+mod autonomy_output;
 mod collection_api;
 mod collections;
 mod config;

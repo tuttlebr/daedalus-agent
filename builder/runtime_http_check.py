@@ -310,6 +310,7 @@ class Peers:
                             "POLICY_CONFLICT",
                             "RENDERER_FALLBACK",
                             "SKILL_ROUTE",
+                            "AUTONOMY_OUTPUT",
                             "DEFERRED_DISCOVERY",
                             "DEFERRED_REQUIRED",
                             "INCOMPLETE",
@@ -446,6 +447,12 @@ class Peers:
                 elif (
                     not has_result
                     or (
+                        scenario == "AUTONOMY_OUTPUT"
+                        and isinstance(body.get("tool_choice"), dict)
+                        and body.get("tool_choice", {}).get("name")
+                        == "submit_autonomous_result"
+                    )
+                    or (
                         scenario in KUBERNETES_SEQUENCES
                         and result_count < len(KUBERNETES_SEQUENCES[scenario])
                     )
@@ -557,6 +564,9 @@ class Peers:
                         and result_count >= 3
                     ):
                         names = ["briefing_renderer_tool"]
+                    if scenario == "AUTONOMY_OUTPUT" and has_result:
+                        names = ["submit_autonomous_result"]
+                        assert [tool["name"] for tool in body["tools"]] == names
                     for index, name in enumerate(names):
                         arguments = (
                             json.dumps(
@@ -675,6 +685,10 @@ class Peers:
                             arguments = json.dumps(
                                 {"edition": '{"private":"PRIVATE_INVALID_EDITION"}'}
                             )
+                        if name == "submit_autonomous_result":
+                            arguments = json.dumps(
+                                {"summary": "Validated autonomous result."}
+                            )
                         item = {
                             "type": "function_call",
                             "id": f"fc_{index}",
@@ -745,6 +759,8 @@ class Peers:
                         else:
                             assert "verified" in serialized
                             text = "Restarted api in fixture and verified its rollout is healthy."
+                    if scenario == "AUTONOMY_OUTPUT":
+                        text = '{\n  "summary": "duplicated{\n'
                     if scenario == "DOCUMENT_SEARCH":
                         result = next(
                             item["output"]
@@ -1334,6 +1350,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     conversation=None,
                     extra_headers=None,
                     tool_choice=None,
+                    autonomy_output_schema=None,
                 ):
                     response = client.post(
                         base + "/v1/chat/completions",
@@ -1348,6 +1365,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             "tool_choice": tool_choice,
                             "additional_props": props or {},
                             "messages": [{"role": "user", "content": scenario}],
+                            **(
+                                {"autonomy_output_schema": autonomy_output_schema}
+                                if autonomy_output_schema is not None
+                                else {}
+                            ),
                         },
                     )
                     assert response.status_code == 200, response.status_code
@@ -1585,6 +1607,38 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert [
                         request["model"] for request in peers.requests[before:]
                     ] == ["fixture/autonomy", "fixture/autonomy"]
+                output_schema = {
+                    "type": "object",
+                    "properties": {"summary": {"type": "string"}},
+                    "required": ["summary"],
+                    "additionalProperties": False,
+                }
+                before = len(peers.requests)
+                response = chat(
+                    "AUTONOMY_OUTPUT",
+                    "autonomy-output",
+                    extra_headers={"x-daedalus-execution-scope": "autonomy"},
+                    autonomy_output_schema=output_schema,
+                )
+                visible = "".join(
+                    choice.get("delta", {}).get("content", "")
+                    for line in response.splitlines()
+                    if line.startswith("data: ") and line != "data: [DONE]"
+                    for choice in json.loads(line[6:]).get("choices", [])
+                )
+                assert json.loads(visible) == {
+                    "summary": "Validated autonomous result."
+                }
+                assert len(peers.requests) - before == 3
+                assert response.count("Function Start: current_datetime_tool") == 1
+                before = len(peers.requests)
+                rejected = chat(
+                    "AUTONOMY_OUTPUT",
+                    "interactive-output-schema",
+                    autonomy_output_schema=output_schema,
+                )
+                assert '"finish_reason":"error"' in rejected
+                assert len(peers.requests) == before
                 conflict = chat("POLICY_CONFLICT", "policy-conflict-run")
                 assert "read-only policy conflicts" in conflict
                 assert "The real datetime tool completed" in conflict

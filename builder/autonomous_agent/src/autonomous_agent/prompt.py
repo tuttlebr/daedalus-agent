@@ -153,6 +153,11 @@ class _AutonomousOutput(_StrictOutputModel):
     self_reflection: Annotated[str, StringConstraints(max_length=2_000)] = ""
 
 
+def output_schema() -> dict[str, Any]:
+    """Use the publication validator's schema for the runtime completion tool."""
+    return _AutonomousOutput.model_json_schema()
+
+
 def _bounded_text(value: Any, max_chars: int) -> str:
     """Return a stable head/tail digest no longer than ``max_chars``."""
 
@@ -491,8 +496,9 @@ even if it differs from the preferred research lane. Never manufacture a card
 to fill a lane, describe your research process as a finding, or split one story
 into several cards. Feed bodies are plain text; do not rely on Markdown rendering.
 Do not produce raw HTML. Do not return analysis, reasoning, a research plan, or
-other prose outside the output contract. Return JSON only, matching this example's
-field types. Use lane known, adjacent, or scout; confidence high, medium, or low;
+other prose outside the output contract. Finish by calling submit_autonomous_result
+alone with this object as its arguments; do not emit JSON as assistant text.
+Match this example's field types. Use lane known, adjacent, or scout; confidence high, medium, or low;
 and a JSON boolean for is_update. Use true for is_update only for a material change
 to an existing thread. Omit optional fields instead of using null. Never add
 fields outside this contract:
