@@ -1403,7 +1403,15 @@ impl Agent {
         }
         let mut request = json!({"name":name,"arguments":arguments});
         if preparation.is_some() {
-            request["context"] = context.clone();
+            // Only the versioned Python CallContext crosses this boundary.
+            // Rust-only routing flags (such as autonomy_output) are rejected
+            // by the leaf service's strict request schema, even when false.
+            request["context"] = json!({
+                "version": context["version"],
+                "query": context["query"],
+                "available_tools": context["available_tools"],
+                "executor_state": context["executor_state"],
+            });
         }
         let user = crate::preparation::header(&headers, "x-user-id").to_string();
         // The tool service writes a heartbeat line every 15 s while a call
@@ -1535,6 +1543,19 @@ mod tests {
         Json(body): Json<Value>,
     ) -> axum::response::Response {
         model.tool_calls.lock().unwrap().push(body.clone());
+        if let Some(context) = body.get("context") {
+            let allowed = ["version", "query", "available_tools", "executor_state"];
+            if context.as_object().is_none_or(|fields| {
+                fields.len() != allowed.len()
+                    || fields.keys().any(|key| !allowed.contains(&key.as_str()))
+            }) {
+                return (
+                    http::StatusCode::UNPROCESSABLE_ENTITY,
+                    "Invalid call context",
+                )
+                    .into_response();
+            }
+        }
         let query = body["arguments"]["query"].as_str().unwrap_or("").to_owned();
         if query == "fail" {
             return (

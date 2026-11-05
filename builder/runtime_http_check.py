@@ -335,6 +335,7 @@ class Peers:
                             "APPROVAL",
                             "POLICY_CONFLICT",
                             "RENDERER_FALLBACK",
+                            "RENDERER_SUCCESS",
                             "SKILL_ROUTE",
                             "AUTONOMY_OUTPUT",
                             "DEFERRED_DISCOVERY",
@@ -567,6 +568,8 @@ class Peers:
                         if scenario == "APPROVAL"
                         else ["fixture_mcp__conflicting_read", "current_datetime_tool"]
                         if scenario == "POLICY_CONFLICT"
+                        else ["briefing_renderer_tool"]
+                        if scenario == "RENDERER_SUCCESS"
                         else ["briefing_renderer_tool", "fixture_mcp__next_read"]
                         if scenario == "RENDERER_FALLBACK" and has_result
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
@@ -710,6 +713,17 @@ class Peers:
                         ):
                             arguments = json.dumps(
                                 {"edition": '{"private":"PRIVATE_INVALID_EDITION"}'}
+                            )
+                        if scenario == "RENDERER_SUCCESS":
+                            arguments = json.dumps(
+                                {
+                                    "edition": json.loads(
+                                        (
+                                            Path(__file__).parent
+                                            / "tests/fixtures/daily_summary_dense_edition.json"
+                                        ).read_text()
+                                    )
+                                }
                             )
                         if name == "submit_autonomous_result":
                             arguments = json.dumps(
@@ -1693,6 +1707,16 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert len(requests) == len(KUBERNETES_SEQUENCES[scenario]) + 1
                     assert len({request["user"] for request in requests}) == 1
                 peers.calls.clear()
+                before = len(peers.requests)
+                rendered = chat(
+                    "Run my daily briefing. RENDERER_SUCCESS", "renderer-success"
+                )
+                assert '"finish_reason":"stop"' in rendered, rendered
+                assert (
+                    "```html" in rendered and "<!doctype html>" in rendered.lower()
+                ), rendered
+                assert "Function Complete: briefing_renderer_tool" in rendered, rendered
+                assert len(peers.requests) == before + 1
                 before = len(peers.requests)
                 fallback = chat(
                     "Run my daily briefing. RENDERER_FALLBACK", "renderer-fallback"
