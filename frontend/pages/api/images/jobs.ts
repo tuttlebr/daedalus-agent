@@ -547,7 +547,7 @@ function buildPayload(
     );
   }
 
-  const paramsValidation = validateImageParamsForSubmit(safeBody, model);
+  const paramsValidation = validateImageParamsForSubmit(safeBody, model, mode);
   if (!paramsValidation.valid) {
     throw new ImageBackendError(
       400,
@@ -556,6 +556,10 @@ function buildPayload(
   }
 
   const basePayload = removeImageParamKeys(safeBody);
+  // Transport settings belong to the server. GIFs return a finished animation.
+  delete basePayload.stream;
+  delete basePayload.partial_images;
+  delete basePayload.prompt_rewriter;
   delete (basePayload as Record<string, unknown>).mode;
   const params = cleanImageParamsForModel(safeBody, model, mode);
   const payload = {
@@ -566,7 +570,7 @@ function buildPayload(
     sessionId,
     user: userId,
   };
-  if ((payload.n ?? 1) === 1) {
+  if ((payload.n ?? 1) === 1 && payload.output_format !== 'gif') {
     Object.assign(payload, {
       stream: true,
       partial_images: STREAM_PARTIAL_IMAGES,

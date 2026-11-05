@@ -9,6 +9,7 @@ import {
   parseImageSize,
   validateImageSize,
   type ImageSize,
+  type ImageOutputFormat,
 } from '@/utils/app/imageModelCapabilities';
 
 import { Select, Textarea } from '@/components/primitives';
@@ -36,6 +37,9 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
   const preserveList = useImagePanelStore((s) => s.preserveList);
   const setPreserveList = useImagePanelStore((s) => s.setPreserveList);
   const mode = useImagePanelStore(selectMode);
+  const hasGifInput = useImagePanelStore((s) =>
+    s.inputImages.some((image) => image.mimeType === 'image/gif'),
+  );
   const preserveId = useId();
 
   const caps = getImageModelCapabilities(model);
@@ -62,25 +66,32 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
     () =>
       caps.outputFormats
         .filter(
-          (value) => params.background !== 'transparent' || value !== 'jpeg',
+          (value) =>
+            (mode === 'generate' || value !== 'gif') &&
+            (params.background !== 'transparent' ||
+              (value !== 'jpeg' && value !== 'gif')),
         )
         .map((value) => ({
           value,
-          label: value.toUpperCase(),
+          label: value === 'gif' ? 'Animated GIF' : value.toUpperCase(),
         })),
-    [caps.outputFormats, params.background],
+    [caps.outputFormats, params.background, mode],
   );
 
   const backgroundOptions = useMemo(
     () =>
-      caps.backgrounds.map((value) => ({
-        value: value === 'auto' ? '' : value,
-        label:
-          value === 'transparent'
-            ? 'Transparent (preview)'
-            : labelForValue(value),
-      })),
-    [caps.backgrounds],
+      caps.backgrounds
+        .filter(
+          (value) => params.output_format !== 'gif' || value !== 'transparent',
+        )
+        .map((value) => ({
+          value: value === 'auto' ? '' : value,
+          label:
+            value === 'transparent'
+              ? 'Transparent (preview)'
+              : labelForValue(value),
+        })),
+    [caps.backgrounds, params.output_format],
   );
 
   const moderationOptions = useMemo(
@@ -167,6 +178,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
           </p>
           <SizeControl
             value={params.size}
+            outputFormat={params.output_format}
             options={sizeOptions}
             customActive={Boolean(customSize)}
             onChange={(value) =>
@@ -198,6 +210,41 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
                 )
               }
             />
+          )}
+          {params.output_format === 'gif' && (
+            <>
+              <NumberInput
+                label="Frames"
+                value={params.frame_count ?? 9}
+                min={2}
+                max={64}
+                onChange={(value) =>
+                  setParam(
+                    'frame_count',
+                    value === '' ? undefined : Number(value),
+                  )
+                }
+              />
+              <NumberInput
+                label="Frame duration (ms)"
+                value={params.frame_duration_ms ?? 200}
+                min={20}
+                max={2000}
+                step={10}
+                onChange={(value) =>
+                  setParam(
+                    'frame_duration_ms',
+                    value === '' ? undefined : Number(value),
+                  )
+                }
+              />
+              <p className="col-span-full text-[0.75rem] leading-relaxed text-muted">
+                Describe the motion and loop in your prompt. GIFs appear when
+                complete. Timing rounds to 10 ms. Use Auto size or reduce the
+                size, frames, or outputs if the animation exceeds model limits.
+                Editing a GIF uses its first frame and produces a still image.
+              </p>
+            </>
           )}
           {mode === 'generate' && (
             <LabeledSelect
@@ -234,6 +281,11 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
 
         {mode === 'edit' && (
           <div className="border-t border-separator/70 pt-4">
+            {hasGifInput && (
+              <p className="mb-3 text-xs text-muted">
+                GIF edits use the first frame and produce a still image.
+              </p>
+            )}
             <label
               htmlFor={preserveId}
               className="mb-2 block text-xs font-medium text-muted"
@@ -257,11 +309,13 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
 
 function SizeControl({
   value,
+  outputFormat,
   options,
   customActive,
   onChange,
 }: {
   value?: ImageSize;
+  outputFormat?: ImageOutputFormat;
   options: Option<string>[];
   customActive: boolean;
   onChange: (value: string) => void;
@@ -298,7 +352,7 @@ function SizeControl({
 
   const applyCustom = () => {
     const next = `${width}x${height}`;
-    const result = validateImageSize(next);
+    const result = validateImageSize(next, undefined, outputFormat);
     if (!result.valid) {
       setError(result.reason ?? 'Invalid size');
       return;
@@ -446,12 +500,14 @@ function NumberInput({
   value,
   min,
   max,
+  step,
   onChange,
 }: {
   label: string;
   value: number | '';
   min: number;
   max: number;
+  step?: number;
   onChange: (value: string) => void;
 }) {
   const id = useId();
@@ -463,6 +519,7 @@ function NumberInput({
         type="number"
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={fieldClassName}

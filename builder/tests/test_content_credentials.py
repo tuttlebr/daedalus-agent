@@ -128,6 +128,39 @@ def test_tampered_pixels_invalidate_credentials(credentials):
     assert "assertion.dataHash.mismatch" in json.dumps(store)
 
 
+def test_gif_signing_preserves_every_frame_timing_and_loop(credentials):
+    stream = io.BytesIO()
+    Image.new("RGB", (32, 32), "red").save(
+        stream,
+        format="GIF",
+        save_all=True,
+        append_images=[
+            Image.new("RGB", (32, 32), "blue"),
+            Image.new("RGB", (32, 32), "green"),
+        ],
+        duration=[100, 200, 300],
+        loop=0,
+        disposal=2,
+    )
+    original = stream.getvalue()
+    signed = base64.b64decode(
+        sign_final_image(base64.b64encode(original).decode(), "image/gif")
+    )
+    store, state = read_manifest(signed, "image/gif")
+    assert state == "Valid"
+    assert_public_attribution(store)
+    with Image.open(io.BytesIO(original)) as before, Image.open(
+        io.BytesIO(signed)
+    ) as after:
+        assert before.n_frames == after.n_frames == 3
+        assert before.info["loop"] == after.info["loop"] == 0
+        for index in range(before.n_frames):
+            before.seek(index)
+            after.seek(index)
+            assert before.info["duration"] == after.info["duration"]
+            assert before.convert("RGBA").tobytes() == after.convert("RGBA").tobytes()
+
+
 @pytest.mark.parametrize("fmt", ["png", "jpeg", "webp"])
 def test_replaces_entire_provider_history(credentials, monkeypatch, fmt):
     from nat_helpers import content_credentials

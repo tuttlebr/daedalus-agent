@@ -229,6 +229,80 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
     assert "transparent-edit" in result
 
 
+def test_chat_generates_gif_and_reuses_its_first_frame_for_still_edits(monkeypatch):
+    import io
+
+    from PIL import Image
+
+    async def run():
+        import visual_media.visual_media_function as mod
+
+        gif = io.BytesIO()
+        Image.new("RGB", (32, 32), "red").save(
+            gif,
+            format="GIF",
+            save_all=True,
+            append_images=[Image.new("RGB", (32, 32), "blue")],
+            duration=100,
+            loop=0,
+        )
+        encoded = base64.b64encode(gif.getvalue()).decode()
+        generate = AsyncMock(
+            return_value=[SimpleNamespace(b64_json=encoded, mime_type="image/gif")]
+        )
+        edit = AsyncMock(
+            return_value=[SimpleNamespace(b64_json="aW1hZ2U=", mime_type="image/png")]
+        )
+        store = AsyncMock(return_value="gif-output")
+        monkeypatch.setattr(mod, "generate_images", generate)
+        monkeypatch.setattr(mod, "edit_images", edit)
+        monkeypatch.setattr(mod, "store_image_in_redis", store)
+        monkeypatch.setattr(
+            mod,
+            "fetch_image_from_redis",
+            AsyncMock(return_value=(encoded, "image/gif")),
+        )
+        monkeypatch.setattr(mod, "fetch_image_context", AsyncMock(return_value=None))
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(generation_api_key="test", edit_api_key="test"),
+            MagicMock(),
+        )
+        info = await generator.__anext__()
+        try:
+            result = await info.fn(
+                operation="generate",
+                prompt="Loop a waving bird",
+                guidance="exact",
+                options={
+                    "output_format": "gif",
+                    "frame_count": 3,
+                    "frame_duration_ms": 100,
+                },
+            )
+            assert "gif-output" in result
+            assert generate.call_args.kwargs["output_format"] == "gif"
+            assert generate.call_args.kwargs["frame_count"] == 3
+            assert generate.call_args.kwargs["quality"] == "auto"
+            assert store.call_args.args[2] == "image/gif"
+            result = await info.fn(
+                operation="edit",
+                prompt="Edit the first frame",
+                guidance="exact",
+                imageRef={"imageId": "gif-output", "sessionId": "generated"},
+            )
+            assert "gif-output" in result
+            file = edit.call_args.kwargs["image"]
+            assert file[2] == "image/jpeg"
+            with Image.open(io.BytesIO(file[1])) as decoded:
+                assert getattr(decoded, "n_frames", 1) == 1
+                assert decoded.getpixel((0, 0))[0] > 240
+        finally:
+            await generator.aclose()
+
+    asyncio.run(run())
+
+
 def test_visual_media_failure_does_not_expose_exception_detail(monkeypatch):
     async def _run():
         import visual_media.visual_media_function as mod

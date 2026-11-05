@@ -52,11 +52,13 @@ Important fields:
 | `comprehension_model` | VLM model used for `operation="analyze"`.                                                                                                          |
 | `quality`             | Create accepts `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, or `"auto"`; chat always sends `"auto"`.                                         |
 | `complexity`          | GPT Image 2.6 planning control: `"low"`, `"medium"`, or `"high"`; omitted by default (provider uses high). Separate from quality.                  |
+| `frame_count`         | GIF generation only: 2–64 frames; omitted uses 9.                                                                                                  |
+| `frame_duration_ms`   | GIF generation only: 20–2000 ms per frame, rounded to 10 ms; omitted uses 200.                                                                     |
 | `size`                | e.g. `"1024x1024"`, `"1536x1024"`, `"3840x2160"`, or `"auto"`. Any Sunburst-compliant resolution (edges multiple of 16, aspect ≤ 3:1) is accepted. |
 | `input_fidelity`      | Legacy compatibility field; omitted from GPT Image 2.6 Sunburst calls.                                                                             |
 | `n`                   | 1–8 variations per call.                                                                                                                           |
 | `moderation`          | `"auto"` (default) or `"low"`; generation only.                                                                                                    |
-| `output_format`       | `"png"` (default), `"jpeg"`, or `"webp"`.                                                                                                          |
+| `output_format`       | `"png"` (default), `"jpeg"`, `"webp"`, or generation-only `"gif"`.                                                                                 |
 | `output_compression`  | 0–100 for jpeg or webp outputs.                                                                                                                    |
 | `background`          | `"auto"`, `"transparent"`, or `"opaque"`. Transparent GPT Image 2.6 Sunburst output uses PNG (default) or WebP; JPEG is normalized to PNG.         |
 | `user`                | Optional end-user identifier forwarded for abuse monitoring.                                                                                       |
@@ -158,8 +160,17 @@ Set `IMAGE_GENERATION_MODEL` and `IMAGE_AUGMENTATION_MODEL` to
 `gpt-image-2.6-sunburst` in existing deployments; `.env.template` provides these
 defaults for new configurations. Existing endpoint and credential overrides are
 preserved. The integration supports PNG, JPEG, and WebP, including streaming and
-Create's PNG mask workflow. Provider SVG/GIF output and markup layers are not
-exposed by Daedalus. See the [OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+Create's PNG mask workflow, plus animated GIF generation. GIFs use `output_format=gif`
+with optional `frame_count` and `frame_duration_ms`, sent through SDK `extra_body`.
+GIF requests return finished animations without streaming, partial images, or
+custom compression. Frame dimensions may be `auto` or positive multiples of 16;
+small frames are supported. The provider enforces the aggregate pixel budget;
+reduce frame count, dimensions, or `n` if it rejects an oversized animation.
+Transparent backgrounds require PNG/WebP. GIFs retain their animation, timing,
+looping, and embedded Content Credentials in previews and downloads. Editing a
+GIF uses its first frame and produces a still image. Create and chat share this
+conversion in `nat_helpers.image_edit_source`. SVG output and markup layers are
+not exposed. See the [OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 Generated images store `imageContext` alongside their bytes: original and final
 prompts, the brief, effective parameters, ordered parent references, skill hash,

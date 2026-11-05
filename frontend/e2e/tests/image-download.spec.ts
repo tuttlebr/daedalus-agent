@@ -8,151 +8,188 @@ import { readFile } from 'node:fs/promises';
 
 test.use({ serviceWorkers: 'block' });
 
-test('Create saves original images while keeping its page and selection', async ({
-  page,
-  context,
-}) => {
-  // This test blocks service workers so page routes can observe the download
-  // boundary. Authenticate through the real HTTPS API and shared cookie jar;
-  // the dedicated layout test covers the interactive login transition.
-  const login = await context.request.post('/api/auth/login', {
-    data: { username: 'e2e-user', password: 'e2e-password' },
-  });
-  expect(login.status()).toBe(200);
-  await page.goto('/');
-  await assertAuthenticatedSession(page);
-  const imageId = randomUUID();
-  const filename = `daedalus-${imageId}.png`;
-  const original = await readFile('public/icons/icon-512x512.png');
-  const redis = new Redis(
-    process.env.E2E_REDIS_URL ||
-      'redis://default:e2e-redis-password@127.0.0.1:16379',
-  );
-  const key = `generated:image:${imageId}`;
-  try {
-    await redis.set(
-      key,
-      JSON.stringify({
-        data: original.toString('base64'),
-        mimeType: 'image/png',
-        userId: 'e2e-user',
-      }),
-      'EX',
-      120,
-    );
-    const isIOS = await page.evaluate(
-      () =>
-        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
-    );
-    if (isIOS) {
-      // Linux WebKit cannot present the native iOS sheet. Verify the real file
-      // and user activation at that boundary, including cancellation/retry.
-      await page.evaluate(() => {
-        const calls: unknown[] = [];
-        Object.assign(window, { imageSaveCalls: calls });
-        Object.defineProperty(navigator, 'canShare', {
-          configurable: true,
-          value: ({ files }: ShareData) => files?.[0] instanceof File,
-        });
-        Object.defineProperty(navigator, 'share', {
-          configurable: true,
-          value: async ({ files }: ShareData) => {
-            const file = files![0];
-            const active = navigator.userActivation.isActive;
-            const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-            calls.push({ name: file.name, type: file.type, active, bytes });
-            if (calls.length === 1)
-              throw new DOMException('Cancelled', 'AbortError');
-          },
-        });
-      });
-    }
-    await page.route('**/api/images/history*', (route) =>
-      route.fulfill({
-        json: {
-          history: [
-            {
-              id: 'download-fixture',
-              mode: 'generate',
-              prompt: 'Original image',
-              model: 'gpt-image-2.6-sunburst',
-              params: { output_format: 'png' },
-              inputImages: [],
-              maskImage: null,
-              outputImageIds: [imageId],
-              createdAt: 1,
-            },
-          ],
-        },
-      }),
-    );
-    let downloadNavigations = 0;
-    page.on('request', (request) => {
-      const url = new URL(request.url());
-      if (
-        url.pathname === `/api/generated-image/${imageId}` &&
-        url.searchParams.has('download') &&
-        request.isNavigationRequest()
-      ) {
-        downloadNavigations++;
-      }
+for (const format of ['png', 'gif'] as const) {
+  test(`Create saves original ${format} images while keeping its page and selection`, async ({
+    page,
+    context,
+  }) => {
+    // This test blocks service workers so page routes can observe the download
+    // boundary. Authenticate through the real HTTPS API and shared cookie jar;
+    // the dedicated layout test covers the interactive login transition.
+    const login = await context.request.post('/api/auth/login', {
+      data: { username: 'e2e-user', password: 'e2e-password' },
     });
-    await navigate(page, 'Create');
-    await page.getByRole('button', { name: 'History', exact: true }).click();
-    await page
-      .getByRole('button', { name: 'Restore saved generate creation' })
-      .click();
-    const tile = page.getByRole('button', {
-      name: 'Open generated image actions',
-    });
-    await tile.click();
-    const initialUrl = page.url();
-    const pageCount = context.pages().length;
-
-    if (isIOS) {
-      const save = page.getByRole('button', { name: 'Download', exact: true });
-      await expect(save).toBeEnabled();
-      await save.click();
-      await expect(save).toBeEnabled();
-      await expect(
-        page
-          .getByRole('dialog', { name: 'Selected image actions' })
-          .getByRole('alert'),
-      ).toHaveCount(0);
-      await save.click();
-      await expect(save).toBeEnabled();
-      const calls = await page.evaluate(
-        () =>
-          (window as unknown as { imageSaveCalls: unknown[] }).imageSaveCalls,
+    expect(login.status()).toBe(200);
+    await page.goto('/');
+    await assertAuthenticatedSession(page);
+    const imageId = randomUUID();
+    const filename = `daedalus-${imageId}.${format}`;
+    // Two 32px frames (red/blue), 500 ms each, looping forever; generated with Pillow.
+    const original =
+      format === 'gif'
+        ? Buffer.from([
+            71, 73, 70, 56, 57, 97, 32, 0, 32, 0, 129, 0, 0, 255, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 33, 255, 11, 78, 69, 84, 83, 67, 65, 80, 69, 50,
+            46, 48, 3, 1, 0, 0, 0, 33, 249, 4, 8, 50, 0, 0, 0, 44, 0, 0, 0, 0,
+            32, 0, 32, 0, 0, 8, 53, 0, 1, 8, 28, 72, 176, 160, 193, 131, 8, 19,
+            42, 92, 200, 176, 161, 195, 135, 16, 35, 74, 156, 72, 177, 162, 197,
+            139, 24, 51, 106, 220, 200, 177, 163, 199, 143, 32, 67, 138, 28, 73,
+            178, 164, 201, 147, 40, 83, 170, 92, 201, 82, 100, 64, 0, 33, 249,
+            4, 8, 50, 0, 0, 0, 44, 0, 0, 0, 0, 32, 0, 32, 0, 129, 0, 0, 255, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 8, 53, 0, 1, 8, 28, 72, 176, 160, 193, 131,
+            8, 19, 42, 92, 200, 176, 161, 195, 135, 16, 35, 74, 156, 72, 177,
+            162, 197, 139, 24, 51, 106, 220, 200, 177, 163, 199, 143, 32, 67,
+            138, 28, 73, 178, 164, 201, 147, 40, 83, 170, 92, 201, 82, 100, 64,
+            0, 59,
+          ])
+        : await readFile('public/icons/icon-512x512.png');
+    const redis = new Redis(
+      process.env.E2E_REDIS_URL ||
+        'redis://default:e2e-redis-password@127.0.0.1:16379',
+    );
+    const key = `generated:image:${imageId}`;
+    try {
+      await redis.set(
+        key,
+        JSON.stringify({
+          data: original.toString('base64'),
+          mimeType: `image/${format}`,
+          userId: 'e2e-user',
+        }),
+        'EX',
+        120,
       );
-      expect(calls).toEqual(
-        Array(2).fill({
-          name: filename,
-          type: 'image/png',
-          active: true,
-          bytes: Array.from(original),
+      const isIOS = await page.evaluate(
+        () =>
+          /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+      );
+      if (isIOS) {
+        // Linux WebKit cannot present the native iOS sheet. Verify the real file
+        // and user activation at that boundary, including cancellation/retry.
+        await page.evaluate(() => {
+          const calls: unknown[] = [];
+          Object.assign(window, { imageSaveCalls: calls });
+          Object.defineProperty(navigator, 'canShare', {
+            configurable: true,
+            value: ({ files }: ShareData) => files?.[0] instanceof File,
+          });
+          Object.defineProperty(navigator, 'share', {
+            configurable: true,
+            value: async ({ files }: ShareData) => {
+              const file = files![0];
+              const active = navigator.userActivation.isActive;
+              const bytes = Array.from(
+                new Uint8Array(await file.arrayBuffer()),
+              );
+              calls.push({ name: file.name, type: file.type, active, bytes });
+              if (calls.length === 1)
+                throw new DOMException('Cancelled', 'AbortError');
+            },
+          });
+        });
+      }
+      await page.route('**/api/images/history*', (route) =>
+        route.fulfill({
+          json: {
+            history: [
+              {
+                id: 'download-fixture',
+                mode: 'generate',
+                prompt: 'Original image',
+                model: 'gpt-image-2.6-sunburst',
+                params: { output_format: format },
+                inputImages: [],
+                maskImage: null,
+                outputImageIds: [imageId],
+                createdAt: 1,
+              },
+            ],
+          },
         }),
       );
-      expect(downloadNavigations).toBe(0);
-    } else {
-      const downloadEvent = page.waitForEvent('download');
-      await page.getByRole('link', { name: 'Download', exact: true }).click();
-      const download = await downloadEvent;
-      expect(download.suggestedFilename()).toBe(filename);
-      expect(await readFile((await download.path())!)).toEqual(original);
-    }
-    expect(page.url()).toBe(initialUrl);
-    expect(context.pages()).toHaveLength(pageCount);
-    if ((page.viewportSize()?.width || 0) < 1024) {
+      let downloadNavigations = 0;
+      page.on('request', (request) => {
+        const url = new URL(request.url());
+        if (
+          url.pathname === `/api/generated-image/${imageId}` &&
+          url.searchParams.has('download') &&
+          request.isNavigationRequest()
+        ) {
+          downloadNavigations++;
+        }
+      });
+      await navigate(page, 'Create');
+      await page.getByRole('button', { name: 'History', exact: true }).click();
       await page
-        .getByRole('button', { name: 'Close selected image actions' })
+        .getByRole('button', { name: 'Restore saved generate creation' })
         .click();
+      const tile = page.getByRole('button', {
+        name: 'Open generated image actions',
+      });
+      await tile.click();
+      if (format === 'gif') {
+        const preview = await context.request.get(
+          `/api/generated-image/${imageId}?thumbnail=true`,
+        );
+        expect(preview.headers()['content-type']).toContain('image/gif');
+        expect(await preview.body()).toEqual(original);
+        await expect(
+          page
+            .getByRole('button', { name: 'Edit first frame', exact: true })
+            .first(),
+        ).toBeVisible();
+      }
+      const initialUrl = page.url();
+      const pageCount = context.pages().length;
+
+      if (isIOS) {
+        const save = page.getByRole('button', {
+          name: 'Download',
+          exact: true,
+        });
+        await expect(save).toBeEnabled();
+        await save.click();
+        await expect(save).toBeEnabled();
+        await expect(
+          page
+            .getByRole('dialog', { name: 'Selected image actions' })
+            .getByRole('alert'),
+        ).toHaveCount(0);
+        await save.click();
+        await expect(save).toBeEnabled();
+        const calls = await page.evaluate(
+          () =>
+            (window as unknown as { imageSaveCalls: unknown[] }).imageSaveCalls,
+        );
+        expect(calls).toEqual(
+          Array(2).fill({
+            name: filename,
+            type: `image/${format}`,
+            active: true,
+            bytes: Array.from(original),
+          }),
+        );
+        expect(downloadNavigations).toBe(0);
+      } else {
+        const downloadEvent = page.waitForEvent('download');
+        await page.getByRole('link', { name: 'Download', exact: true }).click();
+        const download = await downloadEvent;
+        expect(download.suggestedFilename()).toBe(filename);
+        expect(await readFile((await download.path())!)).toEqual(original);
+      }
+      expect(page.url()).toBe(initialUrl);
+      expect(context.pages()).toHaveLength(pageCount);
+      if ((page.viewportSize()?.width || 0) < 1024) {
+        await page
+          .getByRole('button', { name: 'Close selected image actions' })
+          .click();
+      }
+      await expect(tile).toHaveAttribute('aria-pressed', 'true');
+      await expect(tile).toBeVisible();
+    } finally {
+      await redis.del(key);
+      await redis.quit();
     }
-    await expect(tile).toHaveAttribute('aria-pressed', 'true');
-    await expect(tile).toBeVisible();
-  } finally {
-    await redis.del(key);
-    await redis.quit();
-  }
-});
+  });
+}

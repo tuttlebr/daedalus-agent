@@ -1994,7 +1994,21 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     # Create travels through the Rust HTTP proxy to the real
                     # Python route and SDK. Cover silent streams and requests
                     # still waiting for headers (including batches).
-                    for stream, count in ((True, 1), (False, 2)):
+                    for stream, count, animation in (
+                        (True, 1, {}),
+                        (False, 2, {}),
+                        (
+                            True,
+                            1,
+                            {
+                                "output_format": "gif",
+                                "frame_count": 3,
+                                "frame_duration_ms": 125,
+                                "partial_images": 2,
+                                "output_compression": 60,
+                            },
+                        ),
+                    ):
                         peers.image_waiting.clear()
                         peers.image_disconnected.clear()
                         body = json.dumps(
@@ -2004,6 +2018,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                                 "stream": stream,
                                 "n": count,
                                 "complexity": "low",
+                                **animation,
                             }
                         ).encode()
                         with socket.create_connection(
@@ -2031,6 +2046,15 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             assert sent["model"] == "gpt-image-2.6-sunburst", sent
                             assert sent["complexity"] == "low", sent
                             assert "extra_body" not in sent, sent
+                            if animation:
+                                assert sent["output_format"] == "gif", sent
+                                assert sent["frame_count"] == 3, sent
+                                assert sent["frame_duration_ms"] == 130, sent
+                                assert not set(sent) & {
+                                    "stream",
+                                    "partial_images",
+                                    "output_compression",
+                                }, sent
                         assert peers.image_disconnected.wait(
                             5
                         ), f"Image request survived disconnect: stream={stream}"

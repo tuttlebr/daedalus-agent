@@ -117,7 +117,10 @@ export default async function handler(
       res.setHeader('X-Generated-Image-Legacy-Access', 'true');
     }
 
-    if (wantThumbnail && record.thumbnail) {
+    // JPEG thumbnails discard every animation frame after the first. Serve
+    // original GIF bytes for all previews, including legacy cached thumbnails.
+    const useThumbnail = wantThumbnail && record.mimeType !== 'image/gif';
+    if (useThumbnail && record.thumbnail) {
       return sendThumbnail(res, id, Buffer.from(record.thumbnail, 'base64'));
     }
 
@@ -127,7 +130,7 @@ export default async function handler(
     }
     const imageBuffer = Buffer.from(data, 'base64');
 
-    if (wantThumbnail) {
+    if (useThumbnail) {
       let thumbBuffer: Buffer | null = null;
       try {
         thumbBuffer = await sharp(imageBuffer)

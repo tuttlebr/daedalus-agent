@@ -120,7 +120,7 @@ def sign_final_image(b64_data: str, mime_type: str) -> str:
     try:
         import c2pa
 
-        if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
+        if mime_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
             raise ValueError("Unsupported final image format")
         source = base64.b64decode(b64_data, validate=True)
         settings = {

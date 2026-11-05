@@ -4,7 +4,7 @@ export type ImageModel = 'gpt-image-2.6-sunburst';
 export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ImageComplexity = 'low' | 'medium' | 'high';
 export type ImageSize = 'auto' | `${number}x${number}`;
-export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
+export type ImageOutputFormat = 'png' | 'jpeg' | 'webp' | 'gif';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
 export type ImageModeration = 'low' | 'auto';
 export type ImageInputFidelity = 'low' | 'high';
@@ -15,6 +15,8 @@ export interface ImageParams {
   complexity?: ImageComplexity;
   size?: ImageSize;
   output_format?: ImageOutputFormat;
+  frame_count?: number;
+  frame_duration_ms?: number;
   output_compression?: number;
   background?: ImageBackground;
   moderation?: ImageModeration;
@@ -34,6 +36,8 @@ export function getImageOutputMimeType(
       return 'image/jpeg';
     case 'webp':
       return 'image/webp';
+    case 'gif':
+      return 'image/gif';
     default:
       return 'image/png';
   }
@@ -90,7 +94,7 @@ const GPT_IMAGE_2_6_SUNBURST_CAPABILITIES: ImageModelCapabilities = {
   qualities: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
   complexities: ['low', 'medium', 'high'],
   sizes: ['auto', ...GPT_IMAGE_2_6_SUNBURST_POPULAR_SIZES],
-  outputFormats: ['png', 'jpeg', 'webp'],
+  outputFormats: ['png', 'jpeg', 'webp', 'gif'],
   backgrounds: ['auto', 'transparent', 'opaque'],
   moderation: ['auto', 'low'],
   outputCounts: [1, 2, 4, 8],
@@ -111,6 +115,8 @@ const PARAM_KEYS: (keyof ImageParams)[] = [
   'complexity',
   'size',
   'output_format',
+  'frame_count',
+  'frame_duration_ms',
   'output_compression',
   'background',
   'moderation',
@@ -143,6 +149,7 @@ export function parseImageSize(
 export function validateImageSize(
   size: unknown,
   model: unknown = DEFAULT_IMAGE_MODEL,
+  outputFormat?: ImageOutputFormat,
 ): ImageSizeValidationResult {
   if (size === undefined || size === null || size === '' || size === 'auto') {
     return { valid: true };
@@ -169,7 +176,7 @@ export function validateImageSize(
   }
 
   const ratio = Math.max(width, height) / Math.min(width, height);
-  if (ratio > caps.maxRatio) {
+  if (outputFormat !== 'gif' && ratio > caps.maxRatio) {
     return {
       valid: false,
       reason: `Aspect ratio must be ${caps.maxRatio}:1 or less.`,
@@ -177,7 +184,7 @@ export function validateImageSize(
   }
 
   const pixels = width * height;
-  if (pixels < caps.minPixels) {
+  if (outputFormat !== 'gif' && pixels < caps.minPixels) {
     return {
       valid: false,
       reason: `Image must be at least ${caps.minPixels.toLocaleString()} pixels.`,
@@ -196,16 +203,49 @@ export function validateImageSize(
 export function validateImageParamsForSubmit(
   params: Record<string, unknown> | ImageParams | undefined,
   model: unknown = DEFAULT_IMAGE_MODEL,
+  mode: ImageMode = 'generate',
 ): ImageSizeValidationResult {
   if (!params) return { valid: true };
   const source = params as ImageParams;
+  if (source.output_format === 'gif') {
+    if (mode === 'edit') {
+      return {
+        valid: false,
+        reason:
+          'Animated GIF output is available for generation only. Edits produce still images.',
+      };
+    }
+    if (source.background === 'transparent') {
+      return {
+        valid: false,
+        reason:
+          'Transparent output requires PNG or WebP. Use Auto or Opaque for GIF.',
+      };
+    }
+  }
+  for (const [key, min, max, label] of [
+    ['frame_count', 2, 64, 'Frame count'],
+    ['frame_duration_ms', 20, 2000, 'Frame duration (ms)'],
+  ] as const) {
+    const value = source[key];
+    if (value === undefined) continue;
+    if (source.output_format !== 'gif') {
+      return { valid: false, reason: 'Animation settings require GIF output.' };
+    }
+    if (!Number.isInteger(value) || value < min || value > max) {
+      return {
+        valid: false,
+        reason: `${label} must be an integer from ${min} to ${max}.`,
+      };
+    }
+  }
   if (
     source.complexity !== undefined &&
     !getImageModelCapabilities(model).complexities.includes(source.complexity)
   ) {
     return { valid: false, reason: 'Complexity must be low, medium, or high.' };
   }
-  return validateImageSize(source.size, model);
+  return validateImageSize(source.size, model, source.output_format);
 }
 
 export function isPopularImageSize(
@@ -246,16 +286,33 @@ export function cleanImageParamsForModel(
 
   if (source.size !== undefined) {
     const size = source.size;
-    if (size === 'auto' || validateImageSize(size, caps.model).valid) {
+    if (
+      size === 'auto' ||
+      validateImageSize(
+        size,
+        caps.model,
+        mode === 'generate' ? source.output_format : undefined,
+      ).valid
+    ) {
       cleaned.size = size;
     }
   }
 
   if (
     source.output_format !== undefined &&
-    caps.outputFormats.includes(source.output_format)
+    caps.outputFormats.includes(source.output_format) &&
+    (mode === 'generate' || source.output_format !== 'gif')
   ) {
     cleaned.output_format = source.output_format;
+  }
+
+  if (cleaned.output_format === 'gif') {
+    // Keep invalid drafts visible for submit validation instead of silently
+    // discarding a user's frame count or timing choice.
+    if (source.frame_count !== undefined)
+      cleaned.frame_count = source.frame_count;
+    if (source.frame_duration_ms !== undefined)
+      cleaned.frame_duration_ms = source.frame_duration_ms;
   }
 
   if (

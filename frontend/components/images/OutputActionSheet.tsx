@@ -125,7 +125,11 @@ export function OutputActionSheet({
           <div className="mt-4 grid grid-cols-2 gap-2">
             <SheetAction
               icon={<IconEdit size={18} />}
-              label="Continue editing"
+              label={
+                ref.mimeType === 'image/gif'
+                  ? 'Edit first frame'
+                  : 'Continue editing'
+              }
               onClick={reuse}
               emphasis
             />

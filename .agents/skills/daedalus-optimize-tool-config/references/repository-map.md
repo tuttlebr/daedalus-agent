@@ -44,8 +44,13 @@ Create uses `builder/image_api.py` and
 `frontend/utils/app/imageModelCapabilities.ts`. `.env.template` and standalone
 tool defaults select `gpt-image-2.6-sunburst`; explicit deployment overrides
 remain authoritative. Complexity is separate from quality and travels through
-the pinned SDK's `extra_body`. Keep the raster-only output contract, automatic
-chat quality, Create controls, and `skills/image-creation/SKILL.md` aligned.
+the pinned SDK's `extra_body`, as do GIF generation's `frame_count` and
+`frame_duration_ms`. GIF output is generation only and cannot stream; Create
+checks the prepared format before selecting transport. GIF previews/downloads
+serve the signed animation, bypassing JPEG thumbnails. First-frame GIF edits
+in Create and chat share `builder/nat_helpers/src/nat_helpers/image_edit_source.py`.
+Keep these contracts, automatic chat quality, Create controls, and
+`skills/image-creation/SKILL.md` aligned.
 
 Autonomous completion also has a runtime-owned tool: the worker sends the schema
 from `builder/autonomous_agent/src/autonomous_agent/prompt.py` as

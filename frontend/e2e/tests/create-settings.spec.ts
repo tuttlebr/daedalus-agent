@@ -25,6 +25,53 @@ async function openSettings(page: import('@playwright/test').Page) {
     : page.getByRole('dialog');
 }
 
+test('GIF controls persist frame settings and offer still output when switching to edit', async ({
+  page,
+}) => {
+  await openApp(page);
+  await navigate(page, 'Create');
+  const settings = await openSettings(page);
+  const format = settings.getByRole('combobox', {
+    name: 'Format',
+    exact: true,
+  });
+  await format.selectOption('gif');
+  const frames = settings.getByRole('spinbutton', {
+    name: 'Frames',
+    exact: true,
+  });
+  const duration = settings.getByRole('spinbutton', {
+    name: 'Frame duration (ms)',
+    exact: true,
+  });
+  await expect(frames).toHaveValue('9');
+  await expect(duration).toHaveValue('200');
+  await frames.fill('3');
+  await duration.fill('100');
+  await expect(
+    settings.getByRole('spinbutton', { name: 'Compression' }),
+  ).toHaveCount(0);
+  const disclosure = settings
+    .locator('summary')
+    .filter({ hasText: /^Settings$/ });
+  await disclosure.click();
+  await disclosure.click();
+  await expect(frames).toHaveValue('3');
+  await expect(duration).toHaveValue('100');
+  await assertFits(page);
+  if (page.viewportSize()!.width < 1024)
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('radio', { name: 'Edit', exact: true }).check();
+  const editSettings = await openSettings(page);
+  await expect(
+    editSettings.getByRole('combobox', { name: 'Format', exact: true }),
+  ).toHaveValue('png');
+  await expect(editSettings.locator('option[value="gif"]')).toHaveCount(0);
+  await expect(
+    editSettings.getByRole('spinbutton', { name: 'Frames', exact: true }),
+  ).toHaveCount(0);
+});
+
 test('image masks accept a single transparent pixel and reject opaque PNGs', async ({
   page,
 }) => {

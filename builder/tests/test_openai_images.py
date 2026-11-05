@@ -17,6 +17,54 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_gif_generation_uses_sdk_extension_fields_and_returns_gif_mime():
+    from unittest.mock import AsyncMock
+
+    client = SimpleNamespace(
+        images=SimpleNamespace(
+            generate=AsyncMock(
+                return_value=SimpleNamespace(
+                    data=[SimpleNamespace(b64_json="R0lGODlh")]
+                )
+            )
+        )
+    )
+    results = _run(
+        generate_images(
+            client,
+            model="gpt-image-2.6-sunburst",
+            prompt="A waving bird loop",
+            output_format="gif",
+            frame_count=3,
+            frame_duration_ms=125,
+            complexity="low",
+            partial_images=2,
+            stream=True,
+            output_compression=70,
+        )
+    )
+    assert client.images.generate.call_args.kwargs == {
+        "model": "gpt-image-2.6-sunburst",
+        "prompt": "A waving bird loop",
+        "output_format": "gif",
+        "extra_body": {"complexity": "low", "frame_count": 3, "frame_duration_ms": 130},
+    }
+    assert results[0].mime_type == "image/gif"
+
+
+def test_gif_streaming_is_rejected_before_provider_call():
+    async def collect():
+        return [
+            event
+            async for event in stream_generate_images(
+                None, model="gpt-image-2.6-sunburst", prompt="loop", output_format="gif"
+            )
+        ]
+
+    with pytest.raises(ValueError, match="streaming"):
+        _run(collect())
+
+
 @dataclass
 class _Event:
     type: str

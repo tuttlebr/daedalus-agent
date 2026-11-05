@@ -118,6 +118,34 @@ describe('/api/generated-image/[id]', () => {
     expect(res.send).toHaveBeenCalledWith(Buffer.from('full'));
   });
 
+  it.each([{ thumbnail: 'true' }, { download: '1', thumbnail: 'true' }])(
+    'serves original GIF bytes for animated previews and downloads: %j',
+    async (query) => {
+      const original = Buffer.from('GIF89a-animation-with-credentials');
+      store({
+        data: original.toString('base64'),
+        mimeType: 'image/gif',
+        userId: 'testuser',
+        thumbnail: Buffer.from('stale JPEG').toString('base64'),
+      });
+      const handler = await loadHandler('false');
+      const sharp = vi.mocked((await import('sharp')).default);
+      const { req, res } = createMockReqRes(
+        'abc-123',
+        query as Record<string, string>,
+      );
+      await handler(req, res);
+      expect(res.send).toHaveBeenCalledWith(original);
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/gif');
+      expect(sharp).not.toHaveBeenCalled();
+      if (query.download)
+        expect(res.setHeader).toHaveBeenCalledWith(
+          'Content-Disposition',
+          'attachment; filename="daedalus-abc-123.gif"',
+        );
+    },
+  );
+
   it('persists the first thumbnail so later views never read or resize the original', async () => {
     const handler = await loadHandler('false');
     const sharp = vi.mocked((await import('sharp')).default);

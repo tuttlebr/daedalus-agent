@@ -17,6 +17,7 @@ from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_brief import ImageBrief, ImageOptions, prepare_image_request
+from nat_helpers.image_edit_source import normalize_edit_source
 from nat_helpers.image_input_budget import (
     MAX_IMAGE_INPUTS,
     ImageInputBudget,
@@ -43,6 +44,7 @@ IMAGE_GUIDANCE_DESCRIPTION = (
     "skill_name='image-creation'), unless already loaded in this conversation. "
     "Keep prompt as the user's current request and supply a complete updated brief following the skill. "
     "Chat always uses automatic image quality. Use options for requested size, n, output_format, output_compression, and background. "
+    "Animated GIF generation uses output_format='gif', frame_count, and frame_duration_ms. GIF edits use the first frame and produce a still image. "
     "The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. "
     "Describe references in their input order. Never invent unseen image contents. "
     "Use guidance='exact' when the user asks to use their prompt verbatim. "
@@ -130,10 +132,12 @@ class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
         default=None,
         description="Optional content moderation strictness. 'auto' is standard; 'low' is less restrictive.",
     )
-    output_format: Literal["png", "jpeg", "webp"] | None = Field(
+    output_format: Literal["png", "jpeg", "webp", "gif"] | None = Field(
         default=None,
-        description="Optional output file format. 'jpeg' is faster than 'png'.",
+        description="Optional output file format. GIF is animated, generation only; JPEG is faster than PNG.",
     )
+    frame_count: int | None = Field(None, ge=2, le=64)
+    frame_duration_ms: int | None = Field(None, ge=20, le=2000)
     output_compression: int | None = Field(
         default=None,
         ge=0,
@@ -447,12 +451,18 @@ async def visual_media_function(
                 return f"Error fetching image {idx + 1}: {mime_type_or_error}"
             try:
                 image_bytes = budget.decode(image_base64)
+                mime_type = mime_type_or_error
+                extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
+                if mime_type == "image/gif" or image_bytes.startswith(
+                    (b"GIF87a", b"GIF89a")
+                ):
+                    image_bytes, mime_type, extension = await asyncio.to_thread(
+                        normalize_edit_source, image_bytes
+                    )
                 budget.add_part(image_bytes)
             except (ValueError, TypeError) as exc:
                 logger.warning("Failed to decode image %d: %s", idx + 1, exc)
                 return f"Error: image {idx + 1}: {exc}"
-            mime_type = mime_type_or_error
-            extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
             source_cache[cache_key] = (image_bytes, mime_type, extension)
             source_files.append((f"image_{idx}.{extension}", image_bytes, mime_type))
 

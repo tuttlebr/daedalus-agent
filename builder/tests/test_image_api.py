@@ -110,6 +110,54 @@ def _png_bytes(size, color):
 
 
 class TestRouteHandlers:
+    @pytest.mark.parametrize("assisted", [False, True])
+    def test_gif_request_returns_signed_storage_path_without_streaming(
+        self, routes, monkeypatch, assisted
+    ):
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from nat_helpers import image_brief
+        from nat_helpers.image_brief import ImageBrief, ImageOptions
+
+        monkeypatch.setenv("IMAGE_GENERATION_MODEL", "gpt-image-2.6-sunburst")
+        provider = AsyncMock(
+            return_value=[SimpleNamespace(b64_json="R0lGODlh", mime_type="image/gif")]
+        )
+        store = AsyncMock(return_value="stored-animation")
+        stream = AsyncMock(side_effect=AssertionError("GIF must not stream"))
+        monkeypatch.setattr(routes, "generate_images", provider)
+        monkeypatch.setattr(routes, "store_image_in_redis", store)
+        monkeypatch.setattr(routes, "stream_generate_images", stream)
+        options = {
+            "output_format": "gif",
+            "frame_count": 3,
+            "frame_duration_ms": 100,
+            "size": "256x256",
+        }
+        if assisted:
+            monkeypatch.setattr(
+                image_brief,
+                "_plan_brief",
+                AsyncMock(return_value=ImageBrief(options=ImageOptions(**options))),
+            )
+        request = routes.GenerateRequest(
+            prompt="Animate a waving bird",
+            stream=True,
+            partial_images=2,
+            guidance="auto" if assisted else "exact",
+            **({} if assisted else options),
+        )
+        response = asyncio.run(
+            routes.router.handlers["/generate"](request, "alice-header", None, "token")
+        )
+        assert response.imageIds == ["stored-animation"]
+        assert response.imageContext.params["output_format"] == "gif"
+        assert provider.call_args.kwargs["frame_count"] == 3
+        assert store.call_args.args[2] == "image/gif"
+        stream.assert_not_called()
+
     def test_edit_decodes_each_unique_reference_once_and_keeps_user_order(
         self, routes, monkeypatch
     ):

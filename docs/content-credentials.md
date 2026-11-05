@@ -12,6 +12,11 @@ name `Brandon Tuttle` and the application labels `Daedalus Agent` and
 input/upload details from the manifest. This signing is separate from container
 image signatures and provenance checks in the deployment path.
 
+Final PNG, JPEG, WebP, and animated GIF outputs carry embedded credentials.
+GIF signing preserves every frame, its timing, and looping. Animated previews
+and downloads serve the signed original; GIFs never use a flattened JPEG
+thumbnail. Signing or verification failures prevent publication.
+
 The Rust migration proxies the existing authenticated image API to its Python
 implementation, including signing and verification. A deployment dry run
 renders a placeholder signing Secret and does not create or read private keys.

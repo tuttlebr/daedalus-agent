@@ -41,6 +41,20 @@ function renderSheet(
 }
 
 describe('OutputActionSheet', () => {
+  it('labels GIF reuse as a first-frame edit', () => {
+    const { container, root, props } = renderSheet({
+      image: { ...image, params: { output_format: 'gif' } },
+    });
+    const reuse = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Edit first frame'),
+    );
+    expect(reuse).toBeDefined();
+    act(() => reuse?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(props.onReuseAsInput).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: 'image/gif' }),
+    );
+    act(() => root.unmount());
+  });
   beforeEach(() => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

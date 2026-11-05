@@ -12,6 +12,45 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('image model capabilities', () => {
+  it('supports GIF frames and small sizes, then clears animation settings for still edits', () => {
+    const params = {
+      output_format: 'gif' as const,
+      frame_count: 3,
+      frame_duration_ms: 125,
+      size: '256x256' as const,
+    };
+    expect(validateImageParamsForSubmit(params).valid).toBe(true);
+    expect(
+      cleanImageParamsForModel({ ...params, output_compression: 50 }),
+    ).toEqual(params);
+    expect(getImageOutputMimeType(params)).toBe('image/gif');
+    expect(
+      validateImageParamsForSubmit(params, DEFAULT_IMAGE_MODEL, 'edit').valid,
+    ).toBe(false);
+    expect(
+      cleanImageParamsForModel(params, DEFAULT_IMAGE_MODEL, 'edit'),
+    ).toEqual({});
+    expect(
+      cleanImageParamsForModel({ ...params, output_format: 'png' }),
+    ).toEqual({ output_format: 'png' });
+    expect(removeImageParamKeys({ ...params, prompt: 'loop' })).toEqual({
+      prompt: 'loop',
+    });
+  });
+
+  it.each([
+    { output_format: 'gif', frame_count: 1 },
+    { output_format: 'gif', frame_count: 65 },
+    { output_format: 'gif', frame_count: 3.5 },
+    { output_format: 'gif', frame_duration_ms: 19 },
+    { output_format: 'gif', frame_duration_ms: 2001 },
+    { output_format: 'gif', background: 'transparent' },
+    { output_format: 'gif', size: '257x256' },
+    { output_format: 'png', frame_count: 3 },
+  ])('rejects invalid GIF settings %j', (params) => {
+    expect(validateImageParamsForSubmit(params).valid).toBe(false);
+  });
+
   it('uses Sunburst and exposes every GPT Image 2.6 quality level', () => {
     expect(DEFAULT_IMAGE_MODEL).toBe('gpt-image-2.6-sunburst');
     expect(getImageModelCapabilities(DEFAULT_IMAGE_MODEL).qualities).toEqual([

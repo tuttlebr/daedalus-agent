@@ -81,6 +81,60 @@ def test_sunburst_accepts_extended_quality_levels():
     assert prepare(options={"quality": "max"}).params["quality"] == "max"
 
 
+def test_gif_options_keep_small_frames_and_normalize_timing_and_transport():
+    result = prepare(
+        guidance="exact",
+        options={
+            "output_format": "gif",
+            "frame_count": 3,
+            "frame_duration_ms": 125,
+            "size": "256x256",
+            "stream": True,
+            "partial_images": 2,
+            "output_compression": 70,
+            "prompt_rewriter": True,
+        },
+    )
+    assert result.params == {
+        "quality": "medium",
+        "output_format": "gif",
+        "frame_count": 3,
+        "frame_duration_ms": 130,
+        "size": "256x256",
+    }
+    edit = prepare(mode="edit", guidance="exact", parent=result)
+    assert edit.params == {"quality": "medium"}
+    still = prepare(guidance="exact", parent=result, options={"output_format": "png"})
+    assert still.params == {"quality": "medium", "output_format": "png"}
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"output_format": "gif", "frame_count": 1},
+        {"output_format": "gif", "frame_count": 65},
+        {"output_format": "gif", "frame_duration_ms": 19},
+        {"output_format": "gif", "frame_duration_ms": 2001},
+        {"output_format": "gif", "background": "transparent"},
+        {"output_format": "gif", "size": "257x256"},
+        {"output_format": "png", "frame_count": 3},
+        {"frame_duration_ms": 200},
+    ],
+)
+def test_invalid_animation_settings_are_rejected(options):
+    with pytest.raises(ValueError):
+        prepare(options=options)
+
+
+def test_gif_edits_and_legacy_model_gif_output_are_rejected():
+    with pytest.raises(ValueError, match="generation"):
+        prepare(mode="edit", options={"output_format": "gif"})
+    with pytest.raises(ValueError, match="generation"):
+        mod.normalize_image_options(
+            "gpt-image-2.5-sunburst", {"output_format": "gif"}, "generate"
+        )
+
+
 def test_preparation_failure_preserves_request_and_explicit_constraints(monkeypatch):
     monkeypatch.setattr(mod, "_plan_brief", AsyncMock(side_effect=TimeoutError))
     result = prepare(

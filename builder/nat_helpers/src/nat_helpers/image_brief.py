@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from nat_helpers.communication_style import PROSE_STYLE_GUIDANCE
 from openai import AsyncOpenAI
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger(__name__)
 SKILL_NAME = "image-creation"
@@ -34,15 +34,26 @@ class ImageOptions(BaseModel):
     )
     size: str | None = None
     n: int | None = Field(None, ge=1, le=8)
-    output_format: Literal["png", "jpeg", "webp"] | None = None
+    output_format: Literal["png", "jpeg", "webp", "gif"] | None = None
+    frame_count: int | None = Field(None, ge=2, le=64)
+    frame_duration_ms: int | None = Field(None, ge=20, le=2000)
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["auto", "transparent", "opaque"] | None = None
 
-    @field_validator("size")
-    @classmethod
-    def valid_size(cls, value: str | None) -> str | None:
+    @model_validator(mode="after")
+    def valid_options(self) -> "ImageOptions":
+        animated = self.output_format == "gif"
+        if not animated and (
+            self.frame_count is not None or self.frame_duration_ms is not None
+        ):
+            raise ValueError("Animation settings require GIF output")
+        if animated and self.background == "transparent":
+            raise ValueError(
+                "Transparent output requires PNG or WebP; use auto or opaque for GIF"
+            )
+        value = self.size
         if value in (None, "auto"):
-            return value
+            return self
         if not re.fullmatch(r"\d+x\d+", value):
             raise ValueError("Size must be WIDTHxHEIGHT or auto")
         width, height = map(int, value.split("x"))
@@ -51,11 +62,12 @@ class ImageOptions(BaseModel):
             or max(width, height) > 3840
             or width % 16
             or height % 16
-            or max(width, height) > 3 * min(width, height)
-            or not 655_360 <= width * height <= 8_294_400
+            or (not animated and max(width, height) > 3 * min(width, height))
+            or width * height > 8_294_400
+            or (not animated and width * height < 655_360)
         ):
             raise ValueError("Size does not meet GPT Image 2.6 Sunburst constraints")
-        return value
+        return self
 
 
 class ImageBrief(BaseModel):
@@ -107,6 +119,24 @@ def normalize_image_options(
     model: str, options: dict[str, Any], mode: str
 ) -> dict[str, Any]:
     result = {k: v for k, v in options.items() if v is not None}
+    if result.get("output_format") == "gif":
+        if model != "gpt-image-2.6-sunburst" or mode != "generate":
+            raise ValueError(
+                "Animated GIF output requires GPT Image 2.6 Sunburst generation; edits produce still images"
+            )
+        for key in (
+            "stream",
+            "partial_images",
+            "output_compression",
+            "prompt_rewriter",
+        ):
+            result.pop(key, None)
+        if "frame_duration_ms" in result:
+            # Validate before rounding, so out-of-range durations cannot slip in.
+            ImageOptions.model_validate(
+                {k: v for k, v in result.items() if k in ImageOptions.model_fields}
+            )
+            result["frame_duration_ms"] = ((result["frame_duration_ms"] + 5) // 10) * 10
     if model in {"gpt-image-2.5-sunburst", "gpt-image-2.6-sunburst"}:
         keys = ImageOptions.model_fields
         ImageOptions.model_validate({k: v for k, v in result.items() if k in keys})
@@ -122,7 +152,7 @@ def normalize_image_options(
         "output_format"
     ) not in {"png", "webp"}:
         result["output_format"] = "png"
-    if result.get("output_format", "png") == "png":
+    if result.get("output_format", "png") in {"png", "gif"}:
         result.pop("output_compression", None)
     return result
 
@@ -197,6 +227,8 @@ async def _plan_brief(
         "current request changes. Keep the input image order, one reference description per input. "
         "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.6-sunburst; "
         "complexity controls planning separately from quality: low, medium, or high (default); "
+        "for requested animation in generate mode use output_format gif, with optional frame_count (2-64, default 9) "
+        "and frame_duration_ms (20-2000, default 200). GIF cannot be an edit output. "
         "max edge is 3840 inclusive; transparent output needs PNG/WebP. Return JSON only.\n\n"
         "For your own descriptive brief fields, use the following writing style. "
         "It does not override the user's requested visual style, fictional content, "
@@ -255,6 +287,13 @@ async def prepare_image_request(
         if parent
         else {"quality": "medium"}
     )
+    if inherited.get("output_format") == "gif" and (
+        mode == "edit" or options.get("output_format", "gif") != "gif"
+    ):
+        # An edit of an animation uses its first frame. Do not inherit animation
+        # output settings or a small GIF frame size into a still-image request.
+        for key in ("output_format", "frame_count", "frame_duration_ms", "size"):
+            inherited.pop(key, None)
     # Reject explicit invalid settings before an optional model call.
     normalize_image_options(model, options, mode)
     if not prompt.strip():

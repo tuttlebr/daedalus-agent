@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import binascii
-import io
 import json
 import logging
 import os
@@ -31,6 +30,9 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.image_brief import ImageBrief, ImageContext, prepare_image_request
+from nat_helpers.image_edit_source import (
+    normalize_edit_source as _normalize_edit_source,
+)
 from nat_helpers.image_input_budget import (
     MAX_IMAGE_INPUTS,
     ImageInputBudget,
@@ -52,7 +54,6 @@ from nat_helpers.openai_images import (
 )
 from nat_helpers.redis_url import redis_url_from_env
 from openai import AsyncOpenAI, OpenAIError
-from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,6 @@ router = APIRouter(prefix="/v1/images", tags=["images"])
 # flattened JPEG, so Pillow/sharp-style reprocessing here would recreate the
 # very failure this validation is meant to prevent.
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-_JPEG_SIGNATURE = b"\xff\xd8\xff"
-_OPENAI_MAX_EDIT_IMAGE_BYTES = 50 * 1024 * 1024
 _OPENAI_MAX_MASK_BYTES = 50 * 1024 * 1024
 
 
@@ -160,64 +159,6 @@ def _mask_validation_error(source_bytes: bytes, mask_bytes: bytes) -> str | None
     return None
 
 
-def _has_transparency(image: Image.Image) -> bool:
-    return image.mode in {"RGBA", "LA"} or (
-        image.mode == "P" and "transparency" in image.info
-    )
-
-
-def _normalize_edit_source(
-    image_bytes: bytes,
-) -> tuple[bytes, str, str]:
-    """Return a decoded, single-frame Image API upload.
-
-    Stored uploads may be decoder-sensitive JPEG variants such as MPO, animated
-    containers, or legacy records whose MIME metadata does not match their
-    bytes. Decode the first image, apply EXIF orientation, strip container
-    metadata, and re-encode to one of the formats accepted by GPT Image edits.
-    PNG sources stay PNG so source/mask format matching remains possible;
-    transparency also selects PNG. Other sources become a baseline JPEG.
-    """
-    if not image_bytes:
-        raise ValueError("image file is empty")
-
-    try:
-        with Image.open(io.BytesIO(image_bytes)) as opened:
-            source_format = str(opened.format or "").upper()
-            opened.seek(0)
-            normalized = ImageOps.exif_transpose(opened)
-            use_png = source_format == "PNG" or _has_transparency(normalized)
-            output = io.BytesIO()
-
-            if use_png:
-                mode = "RGBA" if _has_transparency(normalized) else "RGB"
-                normalized.convert(mode).save(output, format="PNG", optimize=False)
-                mime_type = "image/png"
-                extension = "png"
-            else:
-                normalized.convert("RGB").save(
-                    output,
-                    format="JPEG",
-                    quality=95,
-                    subsampling=0,
-                    progressive=False,
-                    optimize=False,
-                )
-                mime_type = "image/jpeg"
-                extension = "jpg"
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
-        raise ValueError(f"image file could not be decoded: {exc}") from exc
-
-    normalized_bytes = output.getvalue()
-    if len(normalized_bytes) >= _OPENAI_MAX_EDIT_IMAGE_BYTES:
-        raise ValueError("normalized image must be less than 50MB")
-    if mime_type == "image/png" and not normalized_bytes.startswith(_PNG_SIGNATURE):
-        raise ValueError("normalization did not produce a valid PNG file")
-    if mime_type == "image/jpeg" and not normalized_bytes.startswith(_JPEG_SIGNATURE):
-        raise ValueError("normalization did not produce a valid JPEG file")
-    return normalized_bytes, mime_type, extension
-
-
 # ---------------------------------------------------------------------------
 # Request / response schemas
 # ---------------------------------------------------------------------------
@@ -239,7 +180,9 @@ class GenerateRequest(BaseModel):
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
     complexity: Literal["low", "medium", "high"] | None = None
     size: str | None = None
-    output_format: Literal["png", "jpeg", "webp"] | None = None
+    output_format: Literal["png", "jpeg", "webp", "gif"] | None = None
+    frame_count: int | None = Field(None, ge=2, le=64)
+    frame_duration_ms: int | None = Field(None, ge=20, le=2000)
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
     moderation: Literal["low", "auto"] | None = None
@@ -262,6 +205,10 @@ class EditRequest(BaseModel):
     size: str | None = None
     input_fidelity: Literal["low", "high"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
+    # Recognize these fields so an unsupported animation edit is rejected,
+    # rather than silently ignored by Pydantic's default extra-field handling.
+    frame_count: int | None = Field(None, ge=2, le=64)
+    frame_duration_ms: int | None = Field(None, ge=20, le=2000)
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
     stream: bool = False
@@ -514,7 +461,11 @@ async def generate(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     options = context.params
-    if req.stream and options.get("n", 1) == 1:
+    if (
+        req.stream
+        and options.get("n", 1) == 1
+        and options.get("output_format") != "gif"
+    ):
         return StreamingResponse(
             _stream_stored_images(
                 stream_generate_images(

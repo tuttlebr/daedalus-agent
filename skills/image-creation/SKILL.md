@@ -307,18 +307,26 @@ Use the current tool's `ImageOptions` contract:
   of `high`. This controls planning separately from rendering quality. Use
   lower complexity for focused edits and higher complexity for dense text or
   complex layouts; extra planning can increase latency and unwanted changes.
-- `output_format`: `png`, `jpeg`, or `webp`.
+- `output_format`: `png`, `jpeg`, `webp`, or `gif`. GIF is generation only.
+  For animation requests, choose `gif` and describe the subject, motion, and
+  desired loop. `frame_count` accepts 2–64 (default 9); `frame_duration_ms`
+  accepts 20–2000 milliseconds (default 200), rounded to 10 ms. Use these two
+  controls only with GIF. Each frame's size may be `auto` or positive multiples
+  of 16, including sizes below the still-image minimum. Prefer `auto`; reduce
+  frame count, dimensions, or output count if the provider's pixel budget is
+  exceeded. GIF has no streaming, partial images, or custom compression.
 - `background`: `auto`, `transparent`, or `opaque`. Transparency
   requires PNG/WebP. Preserve alpha through follow-up edits.
-- `output_compression`: 0–100 for JPEG/WebP; omit for PNG.
+- `output_compression`: 0–100 for JPEG/WebP; omit for PNG/GIF.
 
 Honor explicit output choices over recommendations. Do not pass `model` or
 `input_fidelity` as per-call options. The application fixes the provider model
 to GPT Image 2.6 Sunburst and omits the legacy fidelity field.
-Daedalus exposes raster generation and editing with the formats above. Do not
-request SVG/GIF output or a markup layer through this tool; those provider
-features are not part of its current contract. Use the supported source-image
-and mask workflow for regional edits in Create.
+Editing a GIF uses its first frame and produces a still PNG/JPEG/WebP image;
+explain this limitation when an animation is supplied for editing. Animated
+editing is not supported. Do not request SVG output or a markup layer through
+this tool; those provider features are not part of its current contract. Use
+the source-image and mask workflow for regional edits in Create.
 
 ## Verification and delivery
 

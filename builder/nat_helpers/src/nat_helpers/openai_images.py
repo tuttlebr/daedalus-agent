@@ -4,7 +4,7 @@ The unified visual_media agent tool and the dedicated user-facing panel's
 FastAPI routes both call these helpers so the SDK surface is consumed in
 exactly one place.
 
-Supports gpt-image-2.6-sunburst raster generation and editing. Supported
+Supports gpt-image-2.6-sunburst still-image generation/editing and GIF generation. Supported
 options are forwarded when set and dropped when None (so API defaults
 kick in). The helper is also
 parameter-compatible with earlier gpt-image-1.x models for the shared
@@ -48,6 +48,8 @@ class ImageStreamEvent:
 # moderation is generation-only and input_fidelity is edits-only. None values
 # are dropped centrally so the SDK defaults kick in.
 _GENERATE_KEYS = (
+    "frame_count",
+    "frame_duration_ms",
     "quality",
     "complexity",
     "size",
@@ -81,6 +83,8 @@ def _mime_for_output_format(output_format: str | None) -> str:
             return "image/jpeg"
         case "webp":
             return "image/webp"
+        case "gif":
+            return "image/gif"
         case _:
             return "image/png"
 
@@ -96,8 +100,13 @@ def _prune(mapping: dict[str, Any], allowed: tuple[str, ...]) -> dict[str, Any]:
             pruned.pop("output_compression", None)
     # The pinned OpenAI SDK predates GPT Image 2.6. extra_body is serialized
     # into both generation JSON and edit multipart forms by the real SDK.
-    if "complexity" in pruned:
-        pruned["extra_body"] = {"complexity": pruned.pop("complexity")}
+    extra = {
+        key: pruned.pop(key)
+        for key in ("complexity", "frame_count", "frame_duration_ms")
+        if key in pruned
+    }
+    if extra:
+        pruned["extra_body"] = extra
     return pruned
 
 
@@ -213,6 +222,8 @@ async def stream_generate_images(
     **options: Any,
 ) -> AsyncIterator[ImageStreamEvent]:
     """Stream client.images.generate and normalize partial/final images."""
+    if options.get("output_format") == "gif":
+        raise ValueError("GIF generation does not support streaming")
     kwargs = {
         "model": model,
         "prompt": prompt,

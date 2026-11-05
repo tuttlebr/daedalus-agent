@@ -538,7 +538,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setError('Add at least one input image or switch to Generate.');
       return;
     }
-    const paramsValidation = validateImageParamsForSubmit(params, model);
+    const paramsValidation = validateImageParamsForSubmit(params, model, mode);
     if (!paramsValidation.valid) {
       setError(paramsValidation.reason ?? 'Invalid image size');
       return;
@@ -852,7 +852,7 @@ function OutputDetailPanel({
           icon={<IconEdit size={14} />}
           onClick={() => onReuseAsInput(ref)}
         >
-          Reuse
+          {ref.mimeType === 'image/gif' ? 'Edit first frame' : 'Reuse'}
         </OutputAction>
         {onSendToChat && (
           <OutputAction
