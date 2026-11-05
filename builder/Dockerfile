@@ -21,7 +21,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Standalone Rust profile for configurations using only native tools.
 # The full backend below retains Python for the other supported tools and worker.
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS rust-minimal
-RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates tzdata && \
+# Patch APT from the pinned base before further installs (USN-8996-1).
+# Disable retries while upgrading the vulnerable HTTP download implementation.
+RUN apt-get -o Acquire::Retries=0 update && \
+    apt-get -o Acquire::Retries=0 install --no-install-recommends --only-upgrade -y apt && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.8.4ubuntu0.1 && \
+    apt-get install --no-install-recommends -y ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
@@ -48,7 +53,9 @@ ENV TIKTOKEN_CACHE_DIR=/workspace/.cache/tiktoken
 # Keep only binaries used by the application here. Build and development tools
 # live in the build stage and cannot be copied into the runtime image.
 RUN export DEBIAN_FRONTEND=noninteractive && \
-    apt-get update && \
+    apt-get -o Acquire::Retries=0 update && \
+    apt-get -o Acquire::Retries=0 install --no-install-recommends --only-upgrade -y apt && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.8.4ubuntu0.1 && \
     apt-get install --no-install-recommends -y \
     ca-certificates \
     ffmpeg \

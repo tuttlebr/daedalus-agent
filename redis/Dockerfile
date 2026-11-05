@@ -7,11 +7,14 @@ USER root
 
 COPY --chmod=755 compose-entrypoint.sh /usr/local/bin/redis-compose-entrypoint
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends --only-upgrade \
+# Disable retries while patching APT's vulnerable download path (USN-8996-1).
+RUN apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 install -y --no-install-recommends --only-upgrade \
+        apt \
         gpgv \
         libssl-dev \
         libssl3 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.4.15ubuntu0.1 \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -o 977 -g 988 /data
 
