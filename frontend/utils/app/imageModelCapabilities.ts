@@ -204,15 +204,16 @@ export function validateImageParamsForSubmit(
   params: Record<string, unknown> | ImageParams | undefined,
   model: unknown = DEFAULT_IMAGE_MODEL,
   mode: ImageMode = 'generate',
+  hasMask: boolean = false,
 ): ImageSizeValidationResult {
   if (!params) return { valid: true };
   const source = params as ImageParams;
   if (source.output_format === 'gif') {
-    if (mode === 'edit') {
+    if (hasMask) {
       return {
         valid: false,
         reason:
-          'Animated GIF output is available for generation only. Edits produce still images.',
+          'GIF animation does not support masks. Remove the mask or choose PNG, JPEG, or WebP.',
       };
     }
     if (source.background === 'transparent') {
@@ -224,7 +225,7 @@ export function validateImageParamsForSubmit(
     }
   }
   for (const [key, min, max, label] of [
-    ['frame_count', 2, 64, 'Frame count'],
+    ['frame_count', 2, mode === 'edit' ? 16 : 64, 'Frame count'],
     ['frame_duration_ms', 20, 2000, 'Frame duration (ms)'],
   ] as const) {
     const value = source[key];
@@ -288,11 +289,7 @@ export function cleanImageParamsForModel(
     const size = source.size;
     if (
       size === 'auto' ||
-      validateImageSize(
-        size,
-        caps.model,
-        mode === 'generate' ? source.output_format : undefined,
-      ).valid
+      validateImageSize(size, caps.model, source.output_format).valid
     ) {
       cleaned.size = size;
     }
@@ -300,8 +297,7 @@ export function cleanImageParamsForModel(
 
   if (
     source.output_format !== undefined &&
-    caps.outputFormats.includes(source.output_format) &&
-    (mode === 'generate' || source.output_format !== 'gif')
+    caps.outputFormats.includes(source.output_format)
   ) {
     cleaned.output_format = source.output_format;
   }

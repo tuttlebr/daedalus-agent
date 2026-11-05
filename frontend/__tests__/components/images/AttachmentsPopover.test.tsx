@@ -24,7 +24,42 @@ describe('Create image attachments', () => {
     useImagePanelStore.setState({
       inputImages: [],
       maskImage: null,
+      params: {},
     });
+  });
+
+  it('disables mask attachment for GIF but lets an existing mask be removed', async () => {
+    const ref = {
+      imageId: 'source',
+      sessionId: 'session',
+      mimeType: 'image/png',
+    };
+    useImagePanelStore.setState({
+      inputImages: [ref],
+      params: { output_format: 'gif' },
+      maskImage: { ...ref, imageId: 'mask' },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<EditAssetsPanel />));
+      expect(container.textContent).toContain(
+        'GIF animation does not support masks',
+      );
+      const remove = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Remove mask"]',
+      )!;
+      expect(remove.disabled).toBe(false);
+      await act(async () => remove.click());
+      expect(useImagePanelStore.getState().maskImage).toBeNull();
+      expect(
+        container.querySelector<HTMLInputElement>('input[accept="image/png"]')!
+          .disabled,
+      ).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   afterEach(() => {

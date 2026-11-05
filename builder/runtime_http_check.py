@@ -7,6 +7,7 @@ No external model, credential, cluster, or user data is accessed.
 
 import argparse
 import base64
+import binascii
 import concurrent.futures
 import hashlib
 import json
@@ -15,11 +16,15 @@ import re
 import select
 import shutil
 import socket
+import struct
 import subprocess  # nosec B404 - disposable local fixture, explicit argv
 import tempfile
 import threading
 import time
 import uuid
+import zlib
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -107,10 +112,29 @@ class Peers:
                 return False
 
             def do_POST(self):
-                body = json.loads(
-                    self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                )
-                if self.path == "/v1/images/generations":
+                raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if self.path == "/v1/images/edits":
+                    multipart = BytesParser(policy=policy.default).parsebytes(
+                        f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode()
+                        + raw
+                    )
+                    parts = {
+                        part.get_param(
+                            "name", header="content-disposition"
+                        ): part.get_payload(decode=True)
+                        for part in multipart.iter_parts()
+                    }
+                    image_data = parts.pop("image")
+                    assert image_data.startswith(
+                        b"\x89PNG\r\n\x1a\n"
+                    ), "Source image was not forwarded"
+                    body = {key: value.decode() for key, value in parts.items()}
+                    for key in ("n", "frame_count", "frame_duration_ms"):
+                        if key in body:
+                            body[key] = int(body[key])
+                else:
+                    body = json.loads(raw)
+                if self.path in {"/v1/images/generations", "/v1/images/edits"}:
                     peers.image_requests.append(body)
                     if body.get("stream"):
                         self.send_response(200)
@@ -1222,6 +1246,9 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
             "IMAGE_GENERATION_API_KEY": "PRIVATE_IMAGE_CREDENTIAL",
             "IMAGE_GENERATION_MODEL": "gpt-image-2.6-sunburst",
             "IMAGE_GENERATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
+            "IMAGE_AUGMENTATION_API_KEY": "PRIVATE_IMAGE_CREDENTIAL",
+            "IMAGE_AUGMENTATION_MODEL": "gpt-image-2.6-sunburst",
+            "IMAGE_AUGMENTATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
             "C2PA_SIGNING_MODE": "off",
         }
         log = (root / "runtime.log").open("w+")
@@ -1250,6 +1277,8 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         "",
                         "--appendonly",
                         "no",
+                        "--loadmodule",
+                        "/opt/redis-stack/lib/rejson.so",
                     ],
                     stdout=subprocess.DEVNULL,
                     check=True,
@@ -1994,10 +2023,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     # Create travels through the Rust HTTP proxy to the real
                     # Python route and SDK. Cover silent streams and requests
                     # still waiting for headers (including batches).
-                    for stream, count, animation in (
-                        (True, 1, {}),
-                        (False, 2, {}),
+                    image_cases = [
+                        ("generate", True, 1, {}),
+                        ("generate", False, 2, {}),
                         (
+                            "generate",
                             True,
                             1,
                             {
@@ -2008,7 +2038,60 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                                 "output_compression": 60,
                             },
                         ),
-                    ):
+                    ]
+                    if redis_image:
+
+                        def png_chunk(kind, data):
+                            return (
+                                struct.pack("!I", len(data))
+                                + kind
+                                + data
+                                + struct.pack("!I", binascii.crc32(kind + data))
+                            )
+
+                        source_png = (
+                            b"\x89PNG\r\n\x1a\n"
+                            + png_chunk(
+                                b"IHDR", struct.pack("!IIBBBBB", 16, 16, 8, 2, 0, 0, 0)
+                            )
+                            + png_chunk(
+                                b"IDAT", zlib.compress((b"\0" + b"\xff\0\0" * 16) * 16)
+                            )
+                            + png_chunk(b"IEND", b"")
+                        )
+                        redis_command(
+                            "JSON.SET",
+                            "generated:image:gif-source",
+                            "$",
+                            json.dumps(
+                                {
+                                    "userId": "alice",
+                                    "data": base64.b64encode(source_png).decode(),
+                                    "mimeType": "image/png",
+                                }
+                            ),
+                        )
+                        image_cases.append(
+                            (
+                                "edit",
+                                True,
+                                1,
+                                {
+                                    "output_format": "gif",
+                                    "frame_count": 3,
+                                    "frame_duration_ms": 125,
+                                    "partial_images": 2,
+                                    "output_compression": 60,
+                                    "imageRefs": [
+                                        {
+                                            "imageId": "gif-source",
+                                            "sessionId": "generated",
+                                        }
+                                    ],
+                                },
+                            )
+                        )
+                    for operation, stream, count, animation in image_cases:
                         peers.image_waiting.clear()
                         peers.image_disconnected.clear()
                         body = json.dumps(
@@ -2031,7 +2114,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                                 "Content-Length": str(len(body)),
                             }
                             request = (
-                                "POST /v1/images/generate HTTP/1.1\r\n"
+                                f"POST /v1/images/{operation} HTTP/1.1\r\n"
                                 + "".join(
                                     f"{name}: {value}\r\n"
                                     for name, value in raw_headers.items()
@@ -2436,7 +2519,7 @@ if __name__ == "__main__":
     parser.add_argument("--preparation", choices=("rust", "python"), default="rust")
     parser.add_argument(
         "--redis-image",
-        help="Disposable Redis image for exact approval integration checks",
+        help="Disposable Redis Stack image for image-edit, approval, and compaction integration checks",
     )
     parser.add_argument(
         "--report", help="Synthetic requests for differential comparison"

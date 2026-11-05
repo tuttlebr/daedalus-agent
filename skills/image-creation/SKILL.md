@@ -307,7 +307,7 @@ Use the current tool's `ImageOptions` contract:
   of `high`. This controls planning separately from rendering quality. Use
   lower complexity for focused edits and higher complexity for dense text or
   complex layouts; extra planning can increase latency and unwanted changes.
-- `output_format`: `png`, `jpeg`, `webp`, or `gif`. GIF is generation only.
+- `output_format`: `png`, `jpeg`, `webp`, or `gif`.
   For animation requests, choose `gif` and describe the subject, motion, and
   desired loop. `frame_count` accepts 2–64 (default 9); `frame_duration_ms`
   accepts 20–2000 milliseconds (default 200), rounded to 10 ms. Use these two
@@ -315,6 +315,9 @@ Use the current tool's `ImageOptions` contract:
   of 16, including sizes below the still-image minimum. Prefer `auto`; reduce
   frame count, dimensions, or output count if the provider's pixel budget is
   exceeded. GIF has no streaming, partial images, or custom compression.
+  To animate an existing image, use `operation=edit`, supply its `imageRef`,
+  and set `options.output_format=gif`. Image-to-GIF accepts 2–16 frames and
+  no masks. Describe the motion and what should remain fixed in the reference.
 - `background`: `auto`, `transparent`, or `opaque`. Transparency
   requires PNG/WebP. Preserve alpha through follow-up edits.
 - `output_compression`: 0–100 for JPEG/WebP; omit for PNG/GIF.
@@ -322,9 +325,9 @@ Use the current tool's `ImageOptions` contract:
 Honor explicit output choices over recommendations. Do not pass `model` or
 `input_fidelity` as per-call options. The application fixes the provider model
 to GPT Image 2.6 Sunburst and omits the legacy fidelity field.
-Editing a GIF uses its first frame and produces a still PNG/JPEG/WebP image;
-explain this limitation when an animation is supplied for editing. Animated
-editing is not supported. Do not request SVG output or a markup layer through
+GIF inputs supply only their first frame; explain this when an animation is
+used as a reference. GIF output creates a new animation from the supplied
+images, without preserving the source GIF's motion. Do not request SVG output or a markup layer through
 this tool; those provider features are not part of its current contract. Use
 the source-image and mask workflow for regional edits in Create.
 

@@ -65,6 +65,68 @@ def test_gif_streaming_is_rejected_before_provider_call():
         _run(collect())
 
 
+def test_image_to_gif_forwards_source_and_animation_settings():
+    from unittest.mock import AsyncMock
+
+    provider = AsyncMock(
+        return_value=SimpleNamespace(data=[SimpleNamespace(b64_json="R0lGODlh")])
+    )
+    client = SimpleNamespace(images=SimpleNamespace(edit=provider))
+    source = ("source.png", b"source-image", "image/png")
+    results = _run(
+        edit_images(
+            client,
+            model="gpt-image-2.6-sunburst",
+            image=source,
+            prompt="Animate this reference",
+            output_format="gif",
+            frame_count=3,
+            frame_duration_ms=125,
+            complexity="low",
+            stream=True,
+            partial_images=2,
+            output_compression=70,
+        )
+    )
+    assert provider.call_args.kwargs == {
+        "model": "gpt-image-2.6-sunburst",
+        "image": source,
+        "prompt": "Animate this reference",
+        "output_format": "gif",
+        "extra_body": {"complexity": "low", "frame_count": 3, "frame_duration_ms": 130},
+    }
+    assert results[0].mime_type == "image/gif"
+
+
+def test_gif_edit_rejects_mask_and_stream_before_provider_call():
+    with pytest.raises(ValueError, match="masks"):
+        _run(
+            edit_images(
+                None,
+                model="gpt-image-2.6-sunburst",
+                image=b"source",
+                prompt="loop",
+                output_format="gif",
+                mask=b"mask",
+            )
+        )
+
+    async def collect():
+        return [
+            event
+            async for event in stream_edit_images(
+                None,
+                model="gpt-image-2.6-sunburst",
+                image=b"source",
+                prompt="loop",
+                output_format="gif",
+            )
+        ]
+
+    with pytest.raises(ValueError, match="streaming"):
+        _run(collect())
+
+
 @dataclass
 class _Event:
     type: str

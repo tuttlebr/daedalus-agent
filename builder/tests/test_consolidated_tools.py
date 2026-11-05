@@ -229,7 +229,7 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
     assert "transparent-edit" in result
 
 
-def test_chat_generates_gif_and_reuses_its_first_frame_for_still_edits(monkeypatch):
+def test_chat_generates_gif_and_reuses_its_first_frame_for_animation(monkeypatch):
     import io
 
     from PIL import Image
@@ -251,7 +251,7 @@ def test_chat_generates_gif_and_reuses_its_first_frame_for_still_edits(monkeypat
             return_value=[SimpleNamespace(b64_json=encoded, mime_type="image/gif")]
         )
         edit = AsyncMock(
-            return_value=[SimpleNamespace(b64_json="aW1hZ2U=", mime_type="image/png")]
+            return_value=[SimpleNamespace(b64_json=encoded, mime_type="image/gif")]
         )
         store = AsyncMock(return_value="gif-output")
         monkeypatch.setattr(mod, "generate_images", generate)
@@ -287,11 +287,18 @@ def test_chat_generates_gif_and_reuses_its_first_frame_for_still_edits(monkeypat
             assert store.call_args.args[2] == "image/gif"
             result = await info.fn(
                 operation="edit",
-                prompt="Edit the first frame",
+                prompt="Animate the first frame",
                 guidance="exact",
                 imageRef={"imageId": "gif-output", "sessionId": "generated"},
+                options={
+                    "output_format": "gif",
+                    "frame_count": 3,
+                    "frame_duration_ms": 100,
+                },
             )
             assert "gif-output" in result
+            assert edit.call_args.kwargs["output_format"] == "gif"
+            assert edit.call_args.kwargs["frame_count"] == 3
             file = edit.call_args.kwargs["image"]
             assert file[2] == "image/jpeg"
             with Image.open(io.BytesIO(file[1])) as decoded:

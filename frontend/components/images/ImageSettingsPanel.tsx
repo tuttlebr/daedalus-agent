@@ -67,15 +67,14 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
       caps.outputFormats
         .filter(
           (value) =>
-            (mode === 'generate' || value !== 'gif') &&
-            (params.background !== 'transparent' ||
-              (value !== 'jpeg' && value !== 'gif')),
+            params.background !== 'transparent' ||
+            (value !== 'jpeg' && value !== 'gif'),
         )
         .map((value) => ({
           value,
           label: value === 'gif' ? 'Animated GIF' : value.toUpperCase(),
         })),
-    [caps.outputFormats, params.background, mode],
+    [caps.outputFormats, params.background],
   );
 
   const backgroundOptions = useMemo(
@@ -217,7 +216,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
                 label="Frames"
                 value={params.frame_count ?? 9}
                 min={2}
-                max={64}
+                max={mode === 'edit' ? 16 : 64}
                 onChange={(value) =>
                   setParam(
                     'frame_count',
@@ -242,7 +241,8 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
                 Describe the motion and loop in your prompt. GIFs appear when
                 complete. Timing rounds to 10 ms. Use Auto size or reduce the
                 size, frames, or outputs if the animation exceeds model limits.
-                Editing a GIF uses its first frame and produces a still image.
+                {mode === 'edit' &&
+                  ' Your source images guide the animation. Masks are not supported.'}
               </p>
             </>
           )}
@@ -283,7 +283,8 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
           <div className="border-t border-separator/70 pt-4">
             {hasGifInput && (
               <p className="mb-3 text-xs text-muted">
-                GIF edits use the first frame and produce a still image.
+                GIF inputs use only the first frame. Choose Animated GIF to
+                create a new animation; the original motion is not preserved.
               </p>
             )}
             <label

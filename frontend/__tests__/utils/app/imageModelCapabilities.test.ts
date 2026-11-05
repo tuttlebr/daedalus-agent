@@ -12,7 +12,7 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('image model capabilities', () => {
-  it('supports GIF frames and small sizes, then clears animation settings for still edits', () => {
+  it('supports GIF settings in both modes and clears them for still output', () => {
     const params = {
       output_format: 'gif' as const,
       frame_count: 3,
@@ -26,16 +26,41 @@ describe('image model capabilities', () => {
     expect(getImageOutputMimeType(params)).toBe('image/gif');
     expect(
       validateImageParamsForSubmit(params, DEFAULT_IMAGE_MODEL, 'edit').valid,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       cleanImageParamsForModel(params, DEFAULT_IMAGE_MODEL, 'edit'),
-    ).toEqual({});
+    ).toEqual(params);
     expect(
       cleanImageParamsForModel({ ...params, output_format: 'png' }),
     ).toEqual({ output_format: 'png' });
     expect(removeImageParamKeys({ ...params, prompt: 'loop' })).toEqual({
       prompt: 'loop',
     });
+  });
+
+  it('rejects GIF masks and the image-to-GIF frame limit without silently changing options', () => {
+    expect(
+      validateImageParamsForSubmit(
+        { output_format: 'gif' },
+        DEFAULT_IMAGE_MODEL,
+        'edit',
+        true,
+      ).reason,
+    ).toContain('does not support masks');
+    expect(
+      validateImageParamsForSubmit(
+        { output_format: 'gif', frame_count: 17 },
+        DEFAULT_IMAGE_MODEL,
+        'edit',
+      ).valid,
+    ).toBe(false);
+    expect(
+      validateImageParamsForSubmit(
+        { output_format: 'gif', frame_count: 16 },
+        DEFAULT_IMAGE_MODEL,
+        'edit',
+      ).valid,
+    ).toBe(true);
   });
 
   it.each([

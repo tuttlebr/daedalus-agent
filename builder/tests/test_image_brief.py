@@ -103,7 +103,7 @@ def test_gif_options_keep_small_frames_and_normalize_timing_and_transport():
         "size": "256x256",
     }
     edit = prepare(mode="edit", guidance="exact", parent=result)
-    assert edit.params == {"quality": "medium"}
+    assert edit.params == result.params
     still = prepare(guidance="exact", parent=result, options={"output_format": "png"})
     assert still.params == {"quality": "medium", "output_format": "png"}
 
@@ -126,10 +126,16 @@ def test_invalid_animation_settings_are_rejected(options):
         prepare(options=options)
 
 
-def test_gif_edits_and_legacy_model_gif_output_are_rejected():
-    with pytest.raises(ValueError, match="generation"):
-        prepare(mode="edit", options={"output_format": "gif"})
-    with pytest.raises(ValueError, match="generation"):
+def test_gif_edits_preserve_animation_options_with_edit_specific_frame_limit():
+    assert (
+        prepare(
+            mode="edit", options={"output_format": "gif", "frame_count": 16}
+        ).params["frame_count"]
+        == 16
+    )
+    with pytest.raises(ValueError, match="2-16"):
+        prepare(mode="edit", options={"output_format": "gif", "frame_count": 17})
+    with pytest.raises(ValueError, match="Sunburst"):
         mod.normalize_image_options(
             "gpt-image-2.5-sunburst", {"output_format": "gif"}, "generate"
         )

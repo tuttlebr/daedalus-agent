@@ -111,10 +111,12 @@ def _png_bytes(size, color):
 
 class TestRouteHandlers:
     @pytest.mark.parametrize("assisted", [False, True])
+    @pytest.mark.parametrize("mode", ["generate", "edit"])
     def test_gif_request_returns_signed_storage_path_without_streaming(
-        self, routes, monkeypatch, assisted
+        self, routes, monkeypatch, assisted, mode
     ):
         import asyncio
+        import base64
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
@@ -122,14 +124,26 @@ class TestRouteHandlers:
         from nat_helpers.image_brief import ImageBrief, ImageOptions
 
         monkeypatch.setenv("IMAGE_GENERATION_MODEL", "gpt-image-2.6-sunburst")
+        monkeypatch.setenv("IMAGE_AUGMENTATION_MODEL", "gpt-image-2.6-sunburst")
         provider = AsyncMock(
             return_value=[SimpleNamespace(b64_json="R0lGODlh", mime_type="image/gif")]
         )
         store = AsyncMock(return_value="stored-animation")
         stream = AsyncMock(side_effect=AssertionError("GIF must not stream"))
-        monkeypatch.setattr(routes, "generate_images", provider)
+        monkeypatch.setattr(routes, f"{mode}_images", provider)
         monkeypatch.setattr(routes, "store_image_in_redis", store)
-        monkeypatch.setattr(routes, "stream_generate_images", stream)
+        monkeypatch.setattr(routes, f"stream_{mode}_images", stream)
+        monkeypatch.setattr(
+            routes,
+            "fetch_image_from_redis",
+            AsyncMock(
+                return_value=(
+                    base64.b64encode(_png_bytes((32, 32), "blue")).decode(),
+                    "image/png",
+                )
+            ),
+        )
+        monkeypatch.setattr(routes, "fetch_image_context", AsyncMock(return_value=None))
         options = {
             "output_format": "gif",
             "frame_count": 3,
@@ -142,21 +156,72 @@ class TestRouteHandlers:
                 "_plan_brief",
                 AsyncMock(return_value=ImageBrief(options=ImageOptions(**options))),
             )
-        request = routes.GenerateRequest(
+        request = (
+            routes.GenerateRequest if mode == "generate" else routes.EditRequest
+        )(
             prompt="Animate a waving bird",
             stream=True,
             partial_images=2,
             guidance="auto" if assisted else "exact",
             **({} if assisted else options),
+            **(
+                {"imageRefs": [{"imageId": "source", "sessionId": "session"}]}
+                if mode == "edit"
+                else {}
+            ),
         )
         response = asyncio.run(
-            routes.router.handlers["/generate"](request, "alice-header", None, "token")
+            routes.router.handlers[f"/{mode}"](request, "alice-header", None, "token")
         )
         assert response.imageIds == ["stored-animation"]
         assert response.imageContext.params["output_format"] == "gif"
         assert provider.call_args.kwargs["frame_count"] == 3
         assert store.call_args.args[2] == "image/gif"
+        if mode == "edit":
+            source = provider.call_args.kwargs["image"]
+            assert source[2] == "image/png"
+            assert response.imageContext.inputImages[0]["imageId"] == "source"
+            assert Image.open(BytesIO(source[1])).getpixel((0, 0)) == (0, 0, 255)
         stream.assert_not_called()
+
+    def test_gif_edit_rejects_valid_mask_before_calling_provider(
+        self, routes, monkeypatch
+    ):
+        import asyncio
+        import base64
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setenv("IMAGE_AUGMENTATION_MODEL", "gpt-image-2.6-sunburst")
+        source = _png_bytes((32, 32), "blue")
+        mask = BytesIO()
+        Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(mask, format="PNG")
+        monkeypatch.setattr(
+            routes,
+            "fetch_image_from_redis",
+            AsyncMock(
+                side_effect=[
+                    (base64.b64encode(data).decode(), "image/png")
+                    for data in (source, mask.getvalue())
+                ]
+            ),
+        )
+        monkeypatch.setattr(routes, "fetch_image_context", AsyncMock(return_value=None))
+        provider = AsyncMock()
+        monkeypatch.setattr(routes, "edit_images", provider)
+        request = routes.EditRequest(
+            prompt="Animate",
+            guidance="exact",
+            output_format="gif",
+            imageRefs=[{"imageId": "source"}],
+            maskRef={"imageId": "mask"},
+        )
+        with pytest.raises(_FakeHTTPException) as raised:
+            asyncio.run(
+                routes.router.handlers["/edit"](request, "alice", None, "token")
+            )
+        assert raised.value.status_code == 400
+        assert "does not support masks" in raised.value.detail
+        provider.assert_not_awaited()
 
     def test_edit_decodes_each_unique_reference_once_and_keeps_user_order(
         self, routes, monkeypatch

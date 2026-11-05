@@ -538,7 +538,12 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setError('Add at least one input image or switch to Generate.');
       return;
     }
-    const paramsValidation = validateImageParamsForSubmit(params, model, mode);
+    const paramsValidation = validateImageParamsForSubmit(
+      params,
+      model,
+      mode,
+      mode === 'edit' && Boolean(maskImage),
+    );
     if (!paramsValidation.valid) {
       setError(paramsValidation.reason ?? 'Invalid image size');
       return;

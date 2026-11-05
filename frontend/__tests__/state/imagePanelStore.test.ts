@@ -42,7 +42,7 @@ describe('image panel history and assets', () => {
     expect(useImagePanelStore.getState().gallery).toEqual([output]);
   });
 
-  it('restores animation settings from history and drops them for a first-frame edit', () => {
+  it('restores animation settings from history and keeps them for image-to-GIF reuse', () => {
     const store = useImagePanelStore.getState();
     const params = {
       output_format: 'gif' as const,
@@ -61,10 +61,12 @@ describe('image panel history and assets', () => {
     const state = useImagePanelStore.getState();
     expect(state.mode).toBe('edit');
     expect(state.inputImages[0].mimeType).toBe('image/gif');
-    expect(state.params).not.toHaveProperty('frame_count');
-    expect(state.params).not.toHaveProperty('frame_duration_ms');
-    expect(state.params.output_format).not.toBe('gif');
-    expect(state.params).not.toHaveProperty('size');
+    expect(state.params).toMatchObject(params);
+    store.setParam('output_format', 'png');
+    expect(useImagePanelStore.getState().params).not.toHaveProperty(
+      'frame_count',
+    );
+    expect(useImagePanelStore.getState().params).not.toHaveProperty('size');
   });
 
   it('clears a mask if its primary input image is removed', () => {

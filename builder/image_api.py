@@ -204,10 +204,8 @@ class EditRequest(BaseModel):
     complexity: Literal["low", "medium", "high"] | None = None
     size: str | None = None
     input_fidelity: Literal["low", "high"] | None = None
-    output_format: Literal["png", "jpeg", "webp"] | None = None
-    # Recognize these fields so an unsupported animation edit is rejected,
-    # rather than silently ignored by Pydantic's default extra-field handling.
-    frame_count: int | None = Field(None, ge=2, le=64)
+    output_format: Literal["png", "jpeg", "webp", "gif"] | None = None
+    frame_count: int | None = Field(None, ge=2, le=16)
     frame_duration_ms: int | None = Field(None, ge=20, le=2000)
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
@@ -647,7 +645,16 @@ async def edit(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     options = context.params
-    if req.stream and options.get("n", 1) == 1:
+    if options.get("output_format") == "gif" and mask_file is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="GIF animation does not support masks; remove the mask or choose PNG, JPEG, or WebP",
+        )
+    if (
+        req.stream
+        and options.get("n", 1) == 1
+        and options.get("output_format") != "gif"
+    ):
         return StreamingResponse(
             _stream_stored_images(
                 stream_edit_images(

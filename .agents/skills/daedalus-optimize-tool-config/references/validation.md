@@ -64,6 +64,10 @@ image. `make runtime` builds and exercises both preparation paths; use the affec
 `builder/migration/` HTTP checks when the generic smoke check does not cover the
 change. Read their current arguments and prerequisites. Use `make rust-check` for
 Rust behavior changes and `make helm` when chart/configuration delivery changes.
+For image-to-GIF changes, pass a Redis Stack image via `RUNTIME_REDIS_IMAGE` or
+`runtime_http_check.py --redis-image` to exercise source lookup, multipart image
+forwarding, animation fields, and cancellation in the built backend. The fixture
+loads RedisJSON from `/opt/redis-stack/lib/rejson.so`; plain Redis is insufficient.
 Do not rebuild/deploy production merely to test wording.
 
 After changing this skill or its helper:

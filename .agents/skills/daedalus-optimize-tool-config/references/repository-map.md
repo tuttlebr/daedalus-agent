@@ -45,9 +45,10 @@ Create uses `builder/image_api.py` and
 tool defaults select `gpt-image-2.6-sunburst`; explicit deployment overrides
 remain authoritative. Complexity is separate from quality and travels through
 the pinned SDK's `extra_body`, as do GIF generation's `frame_count` and
-`frame_duration_ms`. GIF output is generation only and cannot stream; Create
-checks the prepared format before selecting transport. GIF previews/downloads
-serve the signed animation, bypassing JPEG thumbnails. First-frame GIF edits
+`frame_duration_ms`, including multipart edits. Image-to-GIF accepts 2–16
+frames and no masks. GIF output cannot stream; Create checks the prepared
+format before selecting transport and rejects masks with GIF output. GIF previews/downloads
+serve the signed animation, bypassing JPEG thumbnails. First-frame GIF inputs
 in Create and chat share `builder/nat_helpers/src/nat_helpers/image_edit_source.py`.
 Keep these contracts, automatic chat quality, Create controls, and
 `skills/image-creation/SKILL.md` aligned.

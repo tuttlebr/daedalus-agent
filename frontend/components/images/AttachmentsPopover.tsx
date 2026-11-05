@@ -371,8 +371,9 @@ function MaskSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const gifOutput = useImagePanelStore((s) => s.params.output_format === 'gif');
   const primaryImageIsPng = firstImage?.mimeType?.toLowerCase() === 'image/png';
-  const canAttachMask = Boolean(firstImage && primaryImageIsPng);
+  const canAttachMask = Boolean(firstImage && primaryImageIsPng && !gifOutput);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -381,6 +382,9 @@ function MaskSection({
       setError(null);
       setUploading(true);
       try {
+        if (useImagePanelStore.getState().params.output_format === 'gif') {
+          throw new Error('GIF animation does not support masks.');
+        }
         const validation = validateFileSize(file, 'image');
         if (!validation.valid) {
           throw new Error(
@@ -407,6 +411,9 @@ function MaskSection({
           );
         }
         const ref = await ingest(file, metadata);
+        if (useImagePanelStore.getState().params.output_format === 'gif') {
+          throw new Error('GIF animation does not support masks.');
+        }
         // Image 1 can be removed or replaced during the upload. The mask was
         // validated against the earlier image and must not pair with another.
         if (
@@ -432,6 +439,12 @@ function MaskSection({
       <div className="mb-2 text-xs text-muted md:text-[0.75rem]">
         Mask for Image 1 (Optional)
       </div>
+      {gifOutput && (
+        <p className="mb-2 text-xs text-muted">
+          GIF animation does not support masks. Remove any mask or choose PNG,
+          JPEG, or WebP output.
+        </p>
+      )}
       {mask ? (
         <div>
           <div className="relative group w-24 h-24 rounded-md overflow-hidden bg-panel ring-1 ring-separator/70">
@@ -480,7 +493,9 @@ function MaskSection({
                 'opacity-40 cursor-not-allowed',
             )}
           >
-            {!firstImage
+            {gifOutput
+              ? 'Masks unavailable for GIF'
+              : !firstImage
               ? 'Add Image 1 first'
               : !primaryImageIsPng
               ? 'Image 1 must be PNG'

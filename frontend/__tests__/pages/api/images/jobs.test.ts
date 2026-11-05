@@ -340,56 +340,74 @@ describe('/api/images/jobs', () => {
     });
   });
 
-  it('sends GIF frame settings without streaming and retains them in history', async () => {
-    mocks.fetch.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          imageIds: ['animation'],
-          model: 'gpt-image-2.6-sunburst',
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
-    );
-    const params = {
-      output_format: 'gif',
-      frame_count: 3,
-      frame_duration_ms: 100,
-      size: '256x256',
-    };
-    const { req, res } = createMockReqRes('POST', {
-      mode: 'generate',
-      prompt: 'A looping bird',
-      ...params,
-      stream: true,
-      partial_images: 2,
-      output_compression: 80,
-      prompt_rewriter: true,
-    });
-    await handler(req, res);
-    expect(res.status).toHaveBeenCalledWith(202);
-    const jobId = res.json.mock.calls[0][0].jobId;
-    await drainUntil(
-      () => mocks.store.get(`image-job:${jobId}`)?.status === 'completed',
-    );
-    const payload = JSON.parse(mocks.fetch.mock.calls[0][1].body);
-    expect(payload).toMatchObject(params);
-    for (const key of [
-      'stream',
-      'partial_images',
-      'output_compression',
-      'prompt_rewriter',
-    ])
-      expect(payload).not.toHaveProperty(key);
-    expect(
-      mocks.store.get('user:alice:imagePanelHistory')[0].params,
-    ).toMatchObject(params);
-  });
+  it.each(['generate', 'edit'])(
+    'sends %s GIF settings and source references without streaming and retains them in history',
+    async (mode) => {
+      mocks.fetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            imageIds: ['animation'],
+            model: 'gpt-image-2.6-sunburst',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const params = {
+        output_format: 'gif',
+        frame_count: 3,
+        frame_duration_ms: 100,
+        size: '256x256',
+      };
+      const { req, res } = createMockReqRes('POST', {
+        mode,
+        ...(mode === 'edit'
+          ? { imageRefs: [{ imageId: 'source', sessionId: 'session-1' }] }
+          : {}),
+        prompt: 'A looping bird',
+        ...params,
+        stream: true,
+        partial_images: 2,
+        output_compression: 80,
+        prompt_rewriter: true,
+      });
+      await handler(req, res);
+      expect(res.status).toHaveBeenCalledWith(202);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      await drainUntil(
+        () => mocks.store.get(`image-job:${jobId}`)?.status === 'completed',
+      );
+      const payload = JSON.parse(mocks.fetch.mock.calls[0][1].body);
+      expect(payload).toMatchObject(params);
+      expect(mocks.fetch.mock.calls[0][0]).toBe(
+        `http://backend.test/v1/images/${mode}`,
+      );
+      if (mode === 'edit') {
+        expect(payload.imageRefs).toEqual([
+          { imageId: 'source', sessionId: 'session-1' },
+        ]);
+        expect(
+          mocks.store.get('user:alice:imagePanelHistory')[0].inputImages,
+        ).toEqual(payload.imageRefs);
+      }
+      for (const key of [
+        'stream',
+        'partial_images',
+        'output_compression',
+        'prompt_rewriter',
+      ])
+        expect(payload).not.toHaveProperty(key);
+      expect(
+        mocks.store.get('user:alice:imagePanelHistory')[0].params,
+      ).toMatchObject(params);
+    },
+  );
 
-  it('rejects GIF edit output before starting a job', async () => {
+  it('rejects GIF edit masks before starting a job', async () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'edit',
       prompt: 'Make it blue',
       imageRefs: [{ imageId: 'source' }],
+      maskRef: { imageId: 'mask' },
       output_format: 'gif',
     });
     await handler(req, res);

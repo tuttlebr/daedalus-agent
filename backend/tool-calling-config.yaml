@@ -578,7 +578,8 @@ functions:
       a transparent generated or edited asset. options.complexity controls
       Sunburst 2.6 planning (low/medium/high), separately from quality. Generate
       animated GIFs with options.output_format=gif and optional frame_count and
-      frame_duration_ms. GIF edits use the first frame and output a still image.
+      frame_duration_ms. operation=edit animates imageRef into GIF (2-16 frames).
+      GIF inputs use only the first frame as a reference.
       Forward image refs verbatim
       in Markdown responses; for a standalone HTML artifact, preserve only
       the returned URL exactly as an img src. For a daily summary or daily

@@ -4,7 +4,7 @@ The unified visual_media agent tool and the dedicated user-facing panel's
 FastAPI routes both call these helpers so the SDK surface is consumed in
 exactly one place.
 
-Supports gpt-image-2.6-sunburst still-image generation/editing and GIF generation. Supported
+Supports gpt-image-2.6-sunburst still-image and GIF generation/editing. Supported
 options are forwarded when set and dropped when None (so API defaults
 kick in). The helper is also
 parameter-compatible with earlier gpt-image-1.x models for the shared
@@ -62,6 +62,8 @@ _GENERATE_KEYS = (
 )
 
 _EDIT_KEYS = (
+    "frame_count",
+    "frame_duration_ms",
     "quality",
     "complexity",
     "size",
@@ -267,6 +269,10 @@ async def edit_images(
     `image` is the shape the SDK accepts — a single file-like/tuple or a
     list of them. `mask`, when provided, is a single file-like/tuple.
     """
+    if options.get("output_format") == "gif" and mask is not None:
+        raise ValueError(
+            "GIF animation does not support masks; remove the mask or choose PNG, JPEG, or WebP"
+        )
     kwargs: dict[str, Any] = {
         "model": model,
         "image": image,
@@ -308,6 +314,8 @@ async def stream_edit_images(
     **options: Any,
 ) -> AsyncIterator[ImageStreamEvent]:
     """Stream client.images.edit and normalize partial/final images."""
+    if options.get("output_format") == "gif":
+        raise ValueError("GIF editing does not support streaming")
     kwargs: dict[str, Any] = {
         "model": model,
         "image": image,

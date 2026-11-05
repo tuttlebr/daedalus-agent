@@ -120,10 +120,10 @@ def normalize_image_options(
 ) -> dict[str, Any]:
     result = {k: v for k, v in options.items() if v is not None}
     if result.get("output_format") == "gif":
-        if model != "gpt-image-2.6-sunburst" or mode != "generate":
-            raise ValueError(
-                "Animated GIF output requires GPT Image 2.6 Sunburst generation; edits produce still images"
-            )
+        if model != "gpt-image-2.6-sunburst":
+            raise ValueError("Animated GIF output requires GPT Image 2.6 Sunburst")
+        if mode == "edit" and result.get("frame_count", 9) > 16:
+            raise ValueError("Image-to-GIF supports 2-16 frames")
         for key in (
             "stream",
             "partial_images",
@@ -228,7 +228,8 @@ async def _plan_brief(
         "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.6-sunburst; "
         "complexity controls planning separately from quality: low, medium, or high (default); "
         "for requested animation in generate mode use output_format gif, with optional frame_count (2-64, default 9) "
-        "and frame_duration_ms (20-2000, default 200). GIF cannot be an edit output. "
+        "and frame_duration_ms (20-2000, default 200). For image-to-GIF edits use output_format gif "
+        "with 2-16 frames, describe motion relative to the supplied images, and preserve their identity. "
         "max edge is 3840 inclusive; transparent output needs PNG/WebP. Return JSON only.\n\n"
         "For your own descriptive brief fields, use the following writing style. "
         "It does not override the user's requested visual style, fictional content, "
@@ -287,11 +288,12 @@ async def prepare_image_request(
         if parent
         else {"quality": "medium"}
     )
-    if inherited.get("output_format") == "gif" and (
-        mode == "edit" or options.get("output_format", "gif") != "gif"
+    if (
+        inherited.get("output_format") == "gif"
+        and options.get("output_format", "gif") != "gif"
     ):
-        # An edit of an animation uses its first frame. Do not inherit animation
-        # output settings or a small GIF frame size into a still-image request.
+        # Do not inherit animation settings or a small GIF frame size into an
+        # explicitly requested still-image output.
         for key in ("output_format", "frame_count", "frame_duration_ms", "size"):
             inherited.pop(key, None)
     # Reject explicit invalid settings before an optional model call.

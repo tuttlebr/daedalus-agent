@@ -547,7 +547,12 @@ function buildPayload(
     );
   }
 
-  const paramsValidation = validateImageParamsForSubmit(safeBody, model, mode);
+  const paramsValidation = validateImageParamsForSubmit(
+    safeBody,
+    model,
+    mode,
+    mode === 'edit' && Boolean(safeBody.maskRef),
+  );
   if (!paramsValidation.valid) {
     throw new ImageBackendError(
       400,

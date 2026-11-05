@@ -44,7 +44,7 @@ IMAGE_GUIDANCE_DESCRIPTION = (
     "skill_name='image-creation'), unless already loaded in this conversation. "
     "Keep prompt as the user's current request and supply a complete updated brief following the skill. "
     "Chat always uses automatic image quality. Use options for requested size, n, output_format, output_compression, and background. "
-    "Animated GIF generation uses output_format='gif', frame_count, and frame_duration_ms. GIF edits use the first frame and produce a still image. "
+    "Text-to-GIF and image-to-GIF use output_format='gif', frame_count, and frame_duration_ms; image-to-GIF supports 2-16 frames. GIF inputs use only the first frame as a reference. "
     "The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. "
     "Describe references in their input order. Never invent unseen image contents. "
     "Use guidance='exact' when the user asks to use their prompt verbatim. "
@@ -134,7 +134,7 @@ class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
     )
     output_format: Literal["png", "jpeg", "webp", "gif"] | None = Field(
         default=None,
-        description="Optional output file format. GIF is animated, generation only; JPEG is faster than PNG.",
+        description="Optional output file format. GIF animates text or source images; JPEG is faster than PNG.",
     )
     frame_count: int | None = Field(None, ge=2, le=64)
     frame_duration_ms: int | None = Field(None, ge=20, le=2000)

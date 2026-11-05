@@ -25,7 +25,7 @@ async function openSettings(page: import('@playwright/test').Page) {
     : page.getByRole('dialog');
 }
 
-test('GIF controls persist frame settings and offer still output when switching to edit', async ({
+test('GIF controls persist while uploading a source and submitting image-to-GIF', async ({
   page,
 }) => {
   await openApp(page);
@@ -65,11 +65,81 @@ test('GIF controls persist frame settings and offer still output when switching 
   const editSettings = await openSettings(page);
   await expect(
     editSettings.getByRole('combobox', { name: 'Format', exact: true }),
-  ).toHaveValue('png');
-  await expect(editSettings.locator('option[value="gif"]')).toHaveCount(0);
+  ).toHaveValue('gif');
+  await expect(editSettings.locator('option[value="gif"]')).toHaveCount(1);
   await expect(
     editSettings.getByRole('spinbutton', { name: 'Frames', exact: true }),
-  ).toHaveCount(0);
+  ).toHaveValue('3');
+  await expect(
+    editSettings.getByRole('spinbutton', { name: 'Frames', exact: true }),
+  ).toHaveAttribute('max', '16');
+  if (page.viewportSize()!.width < 1024)
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = readFileSync('public/icons/icon-512x512.png');
+  await page.route('**/api/session/imageStorage', (route) =>
+    route.fulfill({
+      json: {
+        imageId: 'image-to-gif-source',
+        sessionId: 'gif-test',
+        mimeType: 'image/png',
+      },
+    }),
+  );
+  await page.route('**/api/session/imageStorage?*', (route) =>
+    route.fulfill({ contentType: 'image/png', body: source }),
+  );
+  let assets = page.getByRole('tabpanel', { name: 'Create' });
+  if (page.viewportSize()!.width < 768) {
+    await page
+      .getByRole('button', { name: 'Edit assets', exact: true })
+      .click();
+    assets = page.getByRole('dialog', { name: 'Edit assets' });
+  }
+  await assets.locator('input[type="file"][multiple]').setInputFiles({
+    name: 'source.png',
+    mimeType: 'image/png',
+    buffer: source,
+  });
+  await expect(
+    assets.getByRole('button', {
+      name: 'Masks unavailable for GIF',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  if (page.viewportSize()!.width < 768)
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  let submitted: Record<string, unknown> | undefined;
+  await page.route('**/api/images/jobs*', (route) => {
+    if (route.request().method() === 'POST') {
+      submitted = route.request().postDataJSON();
+      return route.fulfill({
+        status: 202,
+        json: { jobId: 'image-to-gif-test', status: 'queued' },
+      });
+    }
+    return route.fulfill({
+      json: { jobId: 'image-to-gif-test', status: 'queued', jobs: [] },
+    });
+  });
+  await page
+    .getByRole('textbox', { name: 'Describe the edit to apply' })
+    .fill('Animate the supplied image with a gentle rocking motion.');
+  await page.getByRole('button', { name: 'Apply edit', exact: true }).click();
+  await expect
+    .poll(() => submitted)
+    .toMatchObject({
+      mode: 'edit',
+      output_format: 'gif',
+      frame_count: 3,
+      frame_duration_ms: 100,
+      imageRefs: [
+        {
+          imageId: 'image-to-gif-source',
+          sessionId: 'gif-test',
+          mimeType: 'image/png',
+        },
+      ],
+    });
 });
 
 test('image masks accept a single transparent pixel and reject opaque PNGs', async ({
