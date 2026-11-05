@@ -962,10 +962,10 @@ workflow:
     daily-summary: deep
     fantasy-football-recap: deep
     kubernetes-specialist: deep
-  max_iterations: 128
+  max_iterations: 264
   loop_guard:
     enabled: true
-    repeated_error_limit: 4
+    repeated_error_limit: 8
   max_history: 50
   max_history_tokens: 32000
   # Compact only large JSON-shaped tool results. The exact original remains in
@@ -983,7 +983,7 @@ workflow:
   # A daily briefing needs fewer schemas than general chat. After five minutes,
   # expose only the renderer so collected evidence becomes an answer while the
   # outer request still has time remaining.
-  daily_summary_research_budget_seconds: 300
+  daily_summary_research_budget_seconds: 600
   daily_summary_synthesis_retry_timeout_seconds: 75
   daily_summary_tools:
     - agent_skills_tool
