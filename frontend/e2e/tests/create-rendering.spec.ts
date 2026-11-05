@@ -69,7 +69,7 @@ function jobState(): ImageJob {
     mode: 'generate',
     status: 'running',
     prompt: 'Create rendering fixture',
-    model: 'gpt-image-2.5-sunburst',
+    model: 'gpt-image-2.6-sunburst',
     params: { n: 1, output_format: 'png' },
     inputImages: [],
     maskImage: null,

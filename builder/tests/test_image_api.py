@@ -118,6 +118,8 @@ class TestRouteHandlers:
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
+        monkeypatch.setenv("IMAGE_AUGMENTATION_MODEL", "gpt-image-2.6-sunburst")
+
         images = {
             "a": base64.b64encode(_png_bytes((4, 3), "red")).decode(),
             "b": base64.b64encode(_png_bytes((2, 2), "blue")).decode(),
@@ -136,6 +138,7 @@ class TestRouteHandlers:
         request = routes.EditRequest(
             prompt="combine",
             guidance="exact",
+            complexity="low",
             imageRefs=[
                 {"imageId": "a", "userId": "mallory"},
                 {"imageId": "b"},
@@ -148,6 +151,9 @@ class TestRouteHandlers:
         )
 
         assert response.imageIds == ["stored-image"]
+        assert response.model == "gpt-image-2.6-sunburst"
+        assert response.imageContext.params["complexity"] == "low"
+        assert provider.await_args.kwargs["complexity"] == "low"
         assert fetch.await_count == 2
         # Ownership comes from authenticated identity, never the request body.
         assert {call.kwargs["expected_user_id"] for call in fetch.await_args_list} == {
@@ -295,6 +301,19 @@ class TestRouteHandlers:
         assert failed[-1].startswith("event: error\n")
         assert "private upstream detail" not in failed[-1]
         assert closed == [True, True]
+
+
+@pytest.mark.parametrize("mode", ["generate", "edit"])
+def test_complexity_request_validation(mode):
+    request_type = GenerateRequest if mode == "generate" else EditRequest
+    extra = {"imageRefs": [{"imageId": "source"}]} if mode == "edit" else {}
+    for complexity in (None, "low", "medium", "high"):
+        assert (
+            request_type(prompt="fixture", complexity=complexity, **extra).complexity
+            == complexity
+        )
+    with pytest.raises(ValidationError, match="complexity"):
+        request_type(prompt="fixture", complexity="auto", **extra)
 
 
 class TestInternalAuth:

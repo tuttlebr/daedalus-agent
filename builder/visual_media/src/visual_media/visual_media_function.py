@@ -87,11 +87,11 @@ class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
     )
     image_timeout: float = Field(300.0, description="Image API timeout in seconds.")
     generation_model: str = Field(
-        "gpt-image-2.5-sunburst",
+        "gpt-image-2.6-sunburst",
         description="Model used for text-to-image generation.",
     )
     edit_model: str = Field(
-        "gpt-image-2.5-sunburst", description="Model used for image editing."
+        "gpt-image-2.6-sunburst", description="Model used for image editing."
     )
     quality: Literal["low", "medium", "high", "xhigh", "max", "auto"] | None = Field(
         default="auto",
@@ -100,11 +100,15 @@ class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
             "generation and editing always use automatic quality."
         ),
     )
+    complexity: Literal["low", "medium", "high"] | None = Field(
+        default=None,
+        description="GPT Image 2.6 planning complexity; omitted by default (high).",
+    )
     input_fidelity: Literal["low", "high"] | None = Field(
         default=None,
         description=(
             "Legacy image-edit fidelity setting retained for compatible models. "
-            "It is omitted from GPT Image 2.5 Sunburst requests."
+            "It is omitted from GPT Image 2.6 Sunburst requests."
         ),
     )
     size: str | None = Field(
@@ -139,7 +143,7 @@ class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
     background: Literal["auto", "transparent", "opaque"] | None = Field(
         default=None,
         description=(
-            "Default output background. GPT Image 2.5 Sunburst supports transparent "
+            "Default output background. GPT Image 2.6 Sunburst supports transparent "
             "backgrounds with PNG or WebP output."
         ),
     )

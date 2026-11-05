@@ -109,7 +109,16 @@ test('Create settings reflow, use equal control heights, and preserve collapsed 
       return { height: box.height, width: box.width };
     }),
   );
-  expect(boxes).toHaveLength(7);
+  expect(boxes).toHaveLength(8);
+  await expect(
+    settings.getByRole('combobox', { name: 'Model', exact: true }),
+  ).toHaveValue('gpt-image-2.6-sunburst');
+  const complexity = settings.getByRole('combobox', {
+    name: 'Complexity',
+    exact: true,
+  });
+  await expect(complexity).toHaveValue('');
+  await complexity.selectOption('low');
   // Pointer devices use the 36px control height; touch keeps 44px targets.
   const coarse = await page.evaluate(
     () => matchMedia('(pointer: coarse)').matches,
@@ -135,6 +144,7 @@ test('Create settings reflow, use equal control heights, and preserve collapsed 
   await expect(width).toBeHidden();
   await disclosure.click();
   await expect(width).toHaveValue('1536');
+  await expect(complexity).toHaveValue('low');
   await expect(settings.getByRole('combobox', { name: 'Outputs' })).toHaveValue(
     '2',
   );
@@ -247,7 +257,7 @@ test('desktop sidebar collapses without losing settings or access to output acti
             id: 'creation-1',
             mode: 'generate',
             prompt: 'A mountain lake at sunrise.',
-            model: 'gpt-image-2.5-sunburst',
+            model: 'gpt-image-2.6-sunburst',
             params: { output_format: 'png' },
             inputImages: [],
             maskImage: null,

@@ -1,7 +1,8 @@
 export type ImageMode = 'generate' | 'edit';
-export type ImageModel = 'gpt-image-2.5-sunburst';
+export type ImageModel = 'gpt-image-2.6-sunburst';
 
 export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ImageComplexity = 'low' | 'medium' | 'high';
 export type ImageSize = 'auto' | `${number}x${number}`;
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
@@ -11,6 +12,7 @@ export type ImageInputFidelity = 'low' | 'high';
 export interface ImageParams {
   n?: number;
   quality?: ImageQuality;
+  complexity?: ImageComplexity;
   size?: ImageSize;
   output_format?: ImageOutputFormat;
   output_compression?: number;
@@ -46,6 +48,7 @@ export interface ImageModelCapabilities {
   model: ImageModel;
   label: string;
   qualities: readonly ImageQuality[];
+  complexities: readonly ImageComplexity[];
   sizes: readonly ImageSize[];
   outputFormats: readonly ImageOutputFormat[];
   backgrounds: readonly ImageBackground[];
@@ -62,9 +65,9 @@ export interface ImageModelCapabilities {
   };
 }
 
-export const DEFAULT_IMAGE_MODEL: ImageModel = 'gpt-image-2.5-sunburst';
+export const DEFAULT_IMAGE_MODEL: ImageModel = 'gpt-image-2.6-sunburst';
 
-const GPT_IMAGE_2_5_SUNBURST_POPULAR_SIZES = [
+const GPT_IMAGE_2_6_SUNBURST_POPULAR_SIZES = [
   '1024x1024',
   '1024x1536',
   '1536x1024',
@@ -81,11 +84,12 @@ const GPT_IMAGE_2_5_SUNBURST_POPULAR_SIZES = [
   '2160x3840',
 ] as const satisfies readonly ImageSize[];
 
-const GPT_IMAGE_2_5_SUNBURST_CAPABILITIES: ImageModelCapabilities = {
-  model: 'gpt-image-2.5-sunburst',
-  label: 'GPT Image 2.5 Sunburst',
+const GPT_IMAGE_2_6_SUNBURST_CAPABILITIES: ImageModelCapabilities = {
+  model: 'gpt-image-2.6-sunburst',
+  label: 'GPT Image 2.6 Sunburst',
   qualities: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
-  sizes: ['auto', ...GPT_IMAGE_2_5_SUNBURST_POPULAR_SIZES],
+  complexities: ['low', 'medium', 'high'],
+  sizes: ['auto', ...GPT_IMAGE_2_6_SUNBURST_POPULAR_SIZES],
   outputFormats: ['png', 'jpeg', 'webp'],
   backgrounds: ['auto', 'transparent', 'opaque'],
   moderation: ['auto', 'low'],
@@ -104,6 +108,7 @@ const GPT_IMAGE_2_5_SUNBURST_CAPABILITIES: ImageModelCapabilities = {
 const PARAM_KEYS: (keyof ImageParams)[] = [
   'n',
   'quality',
+  'complexity',
   'size',
   'output_format',
   'output_compression',
@@ -120,7 +125,7 @@ export function getImageModelCapabilities(
   model: unknown,
 ): ImageModelCapabilities {
   resolveImageModel(model);
-  return GPT_IMAGE_2_5_SUNBURST_CAPABILITIES;
+  return GPT_IMAGE_2_6_SUNBURST_CAPABILITIES;
 }
 
 export function parseImageSize(
@@ -194,6 +199,12 @@ export function validateImageParamsForSubmit(
 ): ImageSizeValidationResult {
   if (!params) return { valid: true };
   const source = params as ImageParams;
+  if (
+    source.complexity !== undefined &&
+    !getImageModelCapabilities(model).complexities.includes(source.complexity)
+  ) {
+    return { valid: false, reason: 'Complexity must be low, medium, or high.' };
+  }
   return validateImageSize(source.size, model);
 }
 
@@ -224,6 +235,13 @@ export function cleanImageParamsForModel(
 
   if (source.quality !== undefined && caps.qualities.includes(source.quality)) {
     cleaned.quality = source.quality;
+  }
+
+  if (
+    source.complexity !== undefined &&
+    caps.complexities.includes(source.complexity)
+  ) {
+    cleaned.complexity = source.complexity;
   }
 
   if (source.size !== undefined) {
@@ -260,7 +278,7 @@ export function cleanImageParamsForModel(
     cleaned.background = source.background;
   }
 
-  // GPT Image 2.5 Sunburst transparency is available only with alpha-capable
+  // GPT Image 2.6 Sunburst transparency is available only with alpha-capable
   // output formats. Keep the user's transparency choice authoritative and
   // resolve an incompatible JPEG selection to the API's default PNG format.
   if (

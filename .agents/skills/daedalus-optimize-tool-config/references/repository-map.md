@@ -37,6 +37,16 @@ when aligning a tool; `builder/tests/test_tool_skill_alignment.py` checks severa
 cross-surface contracts. A source-planning result does not prove its tools are
 reachable, and a read-only label does not override the execution gate.
 
+Image generation and editing share `builder/nat_helpers/src/nat_helpers/image_brief.py`
+(`ImageOptions`) and `builder/nat_helpers/src/nat_helpers/openai_images.py`.
+Chat exposes them through `builder/visual_media/src/visual_media/visual_media_function.py`;
+Create uses `builder/image_api.py` and
+`frontend/utils/app/imageModelCapabilities.ts`. `.env.template` and standalone
+tool defaults select `gpt-image-2.6-sunburst`; explicit deployment overrides
+remain authoritative. Complexity is separate from quality and travels through
+the pinned SDK's `extra_body`. Keep the raster-only output contract, automatic
+chat quality, Create controls, and `skills/image-creation/SKILL.md` aligned.
+
 Autonomous completion also has a runtime-owned tool: the worker sends the schema
 from `builder/autonomous_agent/src/autonomous_agent/prompt.py` as
 `autonomy_output_schema`. `builder/runtime/src/autonomy_output.rs` adds

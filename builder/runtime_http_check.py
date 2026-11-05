@@ -52,6 +52,7 @@ class Peers:
         self.tool_disconnected = threading.Event()
         self.image_waiting = threading.Event()
         self.image_disconnected = threading.Event()
+        self.image_requests = []
 
     def handler(self):
         peers = self
@@ -110,6 +111,7 @@ class Peers:
                     self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 )
                 if self.path == "/v1/images/generations":
+                    peers.image_requests.append(body)
                     if body.get("stream"):
                         self.send_response(200)
                         self.send_header("Content-Type", "text/event-stream")
@@ -1218,7 +1220,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
             "AUTONOMOUS_LLM_MODEL_API_KEY": "PRIVATE_AUTONOMOUS_CREDENTIAL",
             "AUTONOMOUS_LLM_MODEL_MODEL": "fixture/autonomy",
             "IMAGE_GENERATION_API_KEY": "PRIVATE_IMAGE_CREDENTIAL",
-            "IMAGE_GENERATION_MODEL": "gpt-image-2.5-sunburst",
+            "IMAGE_GENERATION_MODEL": "gpt-image-2.6-sunburst",
             "IMAGE_GENERATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
             "C2PA_SIGNING_MODE": "off",
         }
@@ -2001,6 +2003,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                                 "guidance": "exact",
                                 "stream": stream,
                                 "n": count,
+                                "complexity": "low",
                             }
                         ).encode()
                         with socket.create_connection(
@@ -2024,6 +2027,10 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             assert peers.image_waiting.wait(
                                 10
                             ), "Image provider was not reached"
+                            sent = peers.image_requests[-1]
+                            assert sent["model"] == "gpt-image-2.6-sunburst", sent
+                            assert sent["complexity"] == "low", sent
+                            assert "extra_body" not in sent, sent
                         assert peers.image_disconnected.wait(
                             5
                         ), f"Image request survived disconnect: stream={stream}"

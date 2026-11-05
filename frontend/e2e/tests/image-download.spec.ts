@@ -76,7 +76,7 @@ test('Create saves original images while keeping its page and selection', async 
               id: 'download-fixture',
               mode: 'generate',
               prompt: 'Original image',
-              model: 'gpt-image-2.5-sunburst',
+              model: 'gpt-image-2.6-sunburst',
               params: { output_format: 'png' },
               inputImages: [],
               maskImage: null,

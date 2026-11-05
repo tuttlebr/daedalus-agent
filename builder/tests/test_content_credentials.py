@@ -283,7 +283,7 @@ def test_missing_configuration_rejects_before_provider_call(
     fn = getattr(
         openai_images, ("stream_" if streaming else "") + operation + "_images"
     )
-    kwargs = {"model": "gpt-image-2.5-sunburst", "prompt": "test"}
+    kwargs = {"model": "gpt-image-2.6-sunburst", "prompt": "test"}
     if operation == "edit":
         kwargs["image"] = ("image.png", image_bytes(), "image/png")
 
@@ -386,7 +386,7 @@ def image_api(monkeypatch):
     )
     monkeypatch.setattr(api, "_require_trusted_user", lambda *a: "private account")
     monkeypatch.setattr(
-        api, "_config_for", lambda *a: ("gpt-image-2.5-sunburst", "test", None)
+        api, "_config_for", lambda *a: ("gpt-image-2.6-sunburst", "test", None)
     )
     monkeypatch.setattr(api, "_get_client", lambda *a: MagicMock())
     return api
@@ -465,7 +465,7 @@ def test_create_stream_only_publishes_signed_completed_images(
                 source=source,
                 user_id="private account",
                 session_id="private session",
-                model="gpt-image-2.5-sunburst",
+                model="gpt-image-2.6-sunburst",
             )
         ]
 

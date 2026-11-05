@@ -298,11 +298,15 @@ Use the current tool's `ImageOptions` contract:
   application always delegates that choice to Sunburst. In Create, use
   `xhigh` or `max` only when it addresses an unmet quality requirement within
   the user's latency budget.
-- `size`: `auto` or `WIDTHxHEIGHT`. GPT Image 2.5 Sunburst accepts edges
+- `size`: `auto` or `WIDTHxHEIGHT`. GPT Image 2.6 Sunburst accepts edges
   divisible by 16, maximum edge 3840 inclusive, aspect ratio at most 3:1, and
   total pixels from 655,360 through 8,294,400. Examples: `1024x1024`,
   `1024x1536`, `1536x1024`, `3840x2160`.
 - `n`: 1–8; default to one unless the user requests variants.
+- `complexity`: `low`, `medium`, or `high`; omission uses the model default
+  of `high`. This controls planning separately from rendering quality. Use
+  lower complexity for focused edits and higher complexity for dense text or
+  complex layouts; extra planning can increase latency and unwanted changes.
 - `output_format`: `png`, `jpeg`, or `webp`.
 - `background`: `auto`, `transparent`, or `opaque`. Transparency
   requires PNG/WebP. Preserve alpha through follow-up edits.
@@ -310,7 +314,11 @@ Use the current tool's `ImageOptions` contract:
 
 Honor explicit output choices over recommendations. Do not pass `model` or
 `input_fidelity` as per-call options. The application fixes the provider model
-to GPT Image 2.5 Sunburst and omits the legacy fidelity field.
+to GPT Image 2.6 Sunburst and omits the legacy fidelity field.
+Daedalus exposes raster generation and editing with the formats above. Do not
+request SVG/GIF output or a markup layer through this tool; those provider
+features are not part of its current contract. Use the supported source-image
+and mask workflow for regional edits in Create.
 
 ## Verification and delivery
 
@@ -327,5 +335,7 @@ For analysis-only requests, use `operation=analyze` directly.
 invokes generation/editing; do not replace missing reporting images with art.
 
 Prompt craft follows the
-[OpenAI GPT Image 2.5 prompting guide](https://developers.openai.com/api/docs/guides/image-prompting).
+[OpenAI image prompting guide](https://developers.openai.com/api/docs/guides/image-prompting).
+Model controls follow the
+[GPT Image 2.6 generation guide](https://developers.openai.com/api/docs/guides/image-generation).
 The local shared brief and option validation govern Daedalus calls.

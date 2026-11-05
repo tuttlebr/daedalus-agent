@@ -28,6 +28,10 @@ class ImageOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
+    complexity: Literal["low", "medium", "high"] | None = Field(
+        None,
+        description="Planning complexity, separate from rendering quality. Omit for the model default (high).",
+    )
     size: str | None = None
     n: int | None = Field(None, ge=1, le=8)
     output_format: Literal["png", "jpeg", "webp"] | None = None
@@ -50,7 +54,7 @@ class ImageOptions(BaseModel):
             or max(width, height) > 3 * min(width, height)
             or not 655_360 <= width * height <= 8_294_400
         ):
-            raise ValueError("Size does not meet GPT Image 2.5 Sunburst constraints")
+            raise ValueError("Size does not meet GPT Image 2.6 Sunburst constraints")
         return value
 
 
@@ -103,10 +107,13 @@ def normalize_image_options(
     model: str, options: dict[str, Any], mode: str
 ) -> dict[str, Any]:
     result = {k: v for k, v in options.items() if v is not None}
-    if model == "gpt-image-2.5-sunburst":
+    if model in {"gpt-image-2.5-sunburst", "gpt-image-2.6-sunburst"}:
         keys = ImageOptions.model_fields
         ImageOptions.model_validate({k: v for k, v in result.items() if k in keys})
         result.pop("input_fidelity", None)
+    # Older configured providers do not accept the GPT Image 2.6 control.
+    if model != "gpt-image-2.6-sunburst":
+        result.pop("complexity", None)
     if mode == "generate":
         result.pop("input_fidelity", None)
     else:
@@ -188,7 +195,8 @@ async def _plan_brief(
         "or add extra outputs unless requested. Use medium quality by default, high for dense text or demanding edits, "
         "low when speed is requested, and xhigh/max only for an explicit unmet quality need. For edits, return the complete updated preserve list, dropping constraints the "
         "current request changes. Keep the input image order, one reference description per input. "
-        "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.5-sunburst; "
+        "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.6-sunburst; "
+        "complexity controls planning separately from quality: low, medium, or high (default); "
         "max edge is 3840 inclusive; transparent output needs PNG/WebP. Return JSON only.\n\n"
         "For your own descriptive brief fields, use the following writing style. "
         "It does not override the user's requested visual style, fictional content, "

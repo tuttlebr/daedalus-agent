@@ -2,8 +2,15 @@
 
 import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 
-from nat_helpers.openai_images import stream_edit_images, stream_generate_images
+import pytest
+from nat_helpers.openai_images import (
+    edit_images,
+    generate_images,
+    stream_edit_images,
+    stream_generate_images,
+)
 
 
 def _run(coro):
@@ -50,7 +57,7 @@ async def _collect(client):
         event
         async for event in stream_generate_images(
             client,
-            model="gpt-image-2.5-sunburst",
+            model="gpt-image-2.6-sunburst",
             prompt="draw a river",
             output_format="webp",
             partial_images=2,
@@ -63,7 +70,7 @@ async def _collect_edit(client):
         event
         async for event in stream_edit_images(
             client,
-            model="gpt-image-2.5-sunburst",
+            model="gpt-image-2.6-sunburst",
             image=("source.png", b"image", "image/png"),
             prompt="change the color",
             moderation="low",
@@ -80,7 +87,7 @@ async def _collect_transparent_generate(client):
         event
         async for event in stream_generate_images(
             client,
-            model="gpt-image-2.5-sunburst",
+            model="gpt-image-2.6-sunburst",
             prompt="draw an isolated river icon",
             background="transparent",
             partial_images=2,
@@ -99,7 +106,7 @@ def test_stream_generate_images_forwards_options_without_promoting_partials():
     events = _run(_collect(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2.5-sunburst",
+        "model": "gpt-image-2.6-sunburst",
         "prompt": "draw a river",
         "stream": True,
         "output_format": "webp",
@@ -134,7 +141,7 @@ def test_stream_generate_images_uses_png_for_transparent_output_by_default():
     events = _run(_collect_transparent_generate(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2.5-sunburst",
+        "model": "gpt-image-2.6-sunburst",
         "prompt": "draw an isolated river icon",
         "stream": True,
         "background": "transparent",
@@ -150,7 +157,7 @@ def test_stream_edit_images_drops_moderation_and_normalizes_transparent_jpeg():
     events = _run(_collect_edit(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2.5-sunburst",
+        "model": "gpt-image-2.6-sunburst",
         "image": ("source.png", b"image", "image/png"),
         "prompt": "change the color",
         "stream": True,
@@ -204,7 +211,7 @@ def test_abandoning_image_stream_closes_provider_connection():
             )
             function = stream_edit_images if mode == "edit" else stream_generate_images
             events = function(
-                client, model="gpt-image-2.5-sunburst", prompt="fixture", **options
+                client, model="gpt-image-2.6-sunburst", prompt="fixture", **options
             )
             await events.__anext__()
             assert not stream.closed
@@ -212,3 +219,52 @@ def test_abandoning_image_stream_closes_provider_connection():
             assert stream.closed
 
     _run(check())
+
+
+@pytest.mark.parametrize("mode", ["generate", "edit"])
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("complexity", [None, "low", "medium", "high"])
+def test_sunburst_complexity_reaches_sdk_for_all_request_paths(
+    mode, stream, complexity
+):
+    client = _Client([])
+    captured = {}
+
+    async def call(**kwargs):
+        captured.update(kwargs)
+        if stream:
+            event_type = "image_edit" if mode == "edit" else "image_generation"
+            return _Stream([_Event(f"{event_type}.completed", "final")])
+        return SimpleNamespace(data=[SimpleNamespace(b64_json="final")])
+
+    setattr(client.images, mode, call)
+    kwargs = {
+        "model": "gpt-image-2.6-sunburst",
+        "prompt": "fixture",
+        "complexity": complexity,
+        "quality": "max",
+        "input_fidelity": "high",
+    }
+    if mode == "edit":
+        kwargs["image"] = ("source.png", b"source", "image/png")
+        kwargs["mask"] = ("mask.png", b"mask", "image/png")
+
+    async def run():
+        if stream:
+            function = stream_edit_images if mode == "edit" else stream_generate_images
+            return [event async for event in function(client, **kwargs)]
+        function = edit_images if mode == "edit" else generate_images
+        return await function(client, **kwargs)
+
+    assert len(_run(run())) == 1
+    assert captured["model"] == "gpt-image-2.6-sunburst"
+    assert captured["quality"] == "max"
+    assert "input_fidelity" not in captured
+    assert "complexity" not in captured  # Not a named argument in the pinned SDK.
+    if complexity is None:
+        assert "extra_body" not in captured
+    else:
+        assert captured["extra_body"] == {"complexity": complexity}
+    if mode == "edit":
+        assert captured["image"] == kwargs["image"]
+        assert captured["mask"] == kwargs["mask"]

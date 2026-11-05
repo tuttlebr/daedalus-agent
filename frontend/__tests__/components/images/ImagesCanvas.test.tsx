@@ -22,7 +22,7 @@ const output = (imageId: string, partial = false): GalleryImage => ({
   partial,
   prompt: imageId,
   mode: 'generate',
-  model: 'gpt-image-2.5-sunburst',
+  model: 'gpt-image-2.6-sunburst',
   params: {},
   createdAt: 1,
 });

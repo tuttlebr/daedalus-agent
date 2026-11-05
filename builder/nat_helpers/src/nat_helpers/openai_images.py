@@ -4,11 +4,11 @@ The unified visual_media agent tool and the dedicated user-facing panel's
 FastAPI routes both call these helpers so the SDK surface is consumed in
 exactly one place.
 
-Targets the gpt-image-2.5-sunburst schema — all optional kwargs listed in that
-schema are forwarded verbatim when the caller sets them, and dropped
-when they're None (so SDK defaults kick in). The helper is also
+Supports gpt-image-2.6-sunburst raster generation and editing. Supported
+options are forwarded when set and dropped when None (so API defaults
+kick in). The helper is also
 parameter-compatible with earlier gpt-image-1.x models for the shared
-kwargs. GPT Image 2.5 Sunburst transparent backgrounds are normalized to an
+kwargs. GPT Image 2.6 Sunburst transparent backgrounds are normalized to an
 alpha-capable PNG or WebP output before the request is sent.
 """
 
@@ -49,6 +49,7 @@ class ImageStreamEvent:
 # are dropped centrally so the SDK defaults kick in.
 _GENERATE_KEYS = (
     "quality",
+    "complexity",
     "size",
     "n",
     "output_format",
@@ -60,6 +61,7 @@ _GENERATE_KEYS = (
 
 _EDIT_KEYS = (
     "quality",
+    "complexity",
     "size",
     "n",
     "output_format",
@@ -92,6 +94,10 @@ def _prune(mapping: dict[str, Any], allowed: tuple[str, ...]) -> dict[str, Any]:
             pruned["output_format"] = "png"
         if pruned["output_format"] == "png":
             pruned.pop("output_compression", None)
+    # The pinned OpenAI SDK predates GPT Image 2.6. extra_body is serialized
+    # into both generation JSON and edit multipart forms by the real SDK.
+    if "complexity" in pruned:
+        pruned["extra_body"] = {"complexity": pruned.pop("complexity")}
     return pruned
 
 

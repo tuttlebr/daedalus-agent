@@ -4,6 +4,7 @@ import {
   getImageModelCapabilities,
   getImageOutputMimeType,
   resolveImageModel,
+  removeImageParamKeys,
   validateImageSize,
   validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
@@ -11,8 +12,8 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('image model capabilities', () => {
-  it('uses Sunburst and exposes every GPT Image 2.5 quality level', () => {
-    expect(DEFAULT_IMAGE_MODEL).toBe('gpt-image-2.5-sunburst');
+  it('uses Sunburst and exposes every GPT Image 2.6 quality level', () => {
+    expect(DEFAULT_IMAGE_MODEL).toBe('gpt-image-2.6-sunburst');
     expect(getImageModelCapabilities(DEFAULT_IMAGE_MODEL).qualities).toEqual([
       'auto',
       'low',
@@ -22,9 +23,15 @@ describe('image model capabilities', () => {
       'max',
     ]);
     expect(resolveImageModel('gpt-image-2')).toBe(DEFAULT_IMAGE_MODEL);
+    expect(resolveImageModel('gpt-image-2.5-sunburst')).toBe(
+      DEFAULT_IMAGE_MODEL,
+    );
+    expect(getImageModelCapabilities(DEFAULT_IMAGE_MODEL).complexities).toEqual(
+      ['low', 'medium', 'high'],
+    );
   });
 
-  it('cleans unsupported GPT Image 2.5 Sunburst params', () => {
+  it('cleans unsupported GPT Image 2.6 Sunburst params', () => {
     expect(
       cleanImageParamsForModel(
         {
@@ -37,7 +44,7 @@ describe('image model capabilities', () => {
           input_fidelity: 'high',
           n: 99,
         },
-        'gpt-image-2.5-sunburst',
+        'gpt-image-2.6-sunburst',
       ),
     ).toEqual({
       quality: 'high',
@@ -73,14 +80,14 @@ describe('image model capabilities', () => {
     expect(
       cleanImageParamsForModel(
         { moderation: 'low' },
-        'gpt-image-2.5-sunburst',
+        'gpt-image-2.6-sunburst',
         'generate',
       ),
     ).toEqual({ moderation: 'low' });
     expect(
       cleanImageParamsForModel(
         { moderation: 'low' },
-        'gpt-image-2.5-sunburst',
+        'gpt-image-2.6-sunburst',
         'edit',
       ),
     ).toEqual({});
@@ -104,7 +111,7 @@ describe('image model capabilities', () => {
     expect(validateImageSize('3840x2160').valid).toBe(true);
   });
 
-  it('rejects custom sizes that violate GPT Image 2.5 Sunburst constraints', () => {
+  it('rejects custom sizes that violate GPT Image 2.6 Sunburst constraints', () => {
     expect(validateImageSize('1024x4096').reason).toContain('Maximum edge');
     expect(validateImageSize('1000x1000').reason).toContain('multiples of 16');
     expect(validateImageSize('512x512').reason).toContain('at least');
@@ -121,4 +128,35 @@ describe('image model capabilities', () => {
       reason: 'Use WIDTHxHEIGHT, for example 2048x2048.',
     });
   });
+
+  it.each(['generate', 'edit'] as const)(
+    'preserves explicit complexity for %s',
+    (mode) => {
+      for (const complexity of ['low', 'medium', 'high'] as const) {
+        expect(
+          cleanImageParamsForModel(
+            { complexity, quality: 'max' },
+            DEFAULT_IMAGE_MODEL,
+            mode,
+          ),
+        ).toEqual({ complexity, quality: 'max' });
+      }
+      expect(cleanImageParamsForModel({}, DEFAULT_IMAGE_MODEL, mode)).toEqual(
+        {},
+      );
+      expect(
+        cleanImageParamsForModel(
+          { complexity: 'auto' },
+          DEFAULT_IMAGE_MODEL,
+          mode,
+        ),
+      ).toEqual({});
+      expect(
+        removeImageParamKeys({ prompt: 'fixture', complexity: 'auto' }),
+      ).toEqual({ prompt: 'fixture' });
+      expect(validateImageParamsForSubmit({ complexity: 'auto' }).valid).toBe(
+        false,
+      );
+    },
+  );
 });

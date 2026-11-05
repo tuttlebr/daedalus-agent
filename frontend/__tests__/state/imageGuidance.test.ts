@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 const image: GalleryImage = {
   imageId: 'generated-bird',
   mode: 'generate',
-  model: 'gpt-image-2.5-sunburst',
+  model: 'gpt-image-2.6-sunburst',
   createdAt: 1,
   prompt: imageContext.prompt,
   params: imageContext.params,

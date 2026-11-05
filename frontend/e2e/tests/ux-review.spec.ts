@@ -609,7 +609,7 @@ test('saved image history survives failed deletion and clearing', async ({
     id: 'saved-creation',
     mode: 'generate',
     prompt: 'A quiet mountain lake',
-    model: 'gpt-image-2.5-sunburst',
+    model: 'gpt-image-2.6-sunburst',
     params: {},
     inputImages: [],
     maskImage: null,

@@ -78,7 +78,7 @@ describe('ChatInput inline document download', () => {
     useImageChatDraftStore.getState().queue({
       imageId: 'created-image',
       mode: 'generate',
-      model: 'gpt-image-2.5-sunburst',
+      model: 'gpt-image-2.6-sunburst',
       createdAt: 1,
       prompt: imageContext.prompt,
       params: imageContext.params,
@@ -387,7 +387,7 @@ describe('ChatInput inline document download', () => {
             useImageChatDraftStore.getState().queue({
               imageId: 'next-image',
               mode: 'generate',
-              model: 'gpt-image-2.5-sunburst',
+              model: 'gpt-image-2.6-sunburst',
               createdAt: 1,
               prompt: imageContext.prompt,
               params: imageContext.params,

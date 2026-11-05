@@ -5,7 +5,7 @@ const output = {
   imageId: 'output-1',
   prompt: 'A concise prompt',
   mode: 'generate' as const,
-  model: 'gpt-image-2.5-sunburst' as const,
+  model: 'gpt-image-2.6-sunburst' as const,
   params: { output_format: 'png' as const },
   createdAt: 1,
 };
@@ -70,5 +70,18 @@ describe('image panel history and assets', () => {
     expect(useImagePanelStore.getState().params).not.toHaveProperty(
       'moderation',
     );
+  });
+
+  it('restores legacy history with the current model and preserves complexity for edits', () => {
+    const store = useImagePanelStore.getState();
+    store.setHistory([{ ...entry, model: 'gpt-image-2.5-sunburst' }]);
+    store.restoreFromHistory(entry.id);
+    expect(useImagePanelStore.getState().model).toBe('gpt-image-2.6-sunburst');
+    expect(useImagePanelStore.getState().history[0].model).toBe(
+      'gpt-image-2.5-sunburst',
+    );
+    store.setParam('complexity', 'low');
+    store.setMode('edit');
+    expect(useImagePanelStore.getState().params.complexity).toBe('low');
   });
 });

@@ -13,7 +13,7 @@ from nat_helpers.image_utils import fetch_image_context
 def prepare(**kwargs):
     return asyncio.run(
         mod.prepare_image_request(
-            model="gpt-image-2.5-sunburst",
+            model="gpt-image-2.6-sunburst",
             mode=kwargs.pop("mode", "generate"),
             prompt=kwargs.pop("prompt", "A watercolor bird"),
             options=kwargs.pop("options", {}),
@@ -185,9 +185,10 @@ def test_invalid_sizes_rejected_before_optional_model(size, monkeypatch):
     planner.assert_not_called()
 
 
-def test_api_normalization_omits_fidelity_and_preserves_alpha():
+@pytest.mark.parametrize("model", ["gpt-image-2.5-sunburst", "gpt-image-2.6-sunburst"])
+def test_api_normalization_omits_fidelity_and_preserves_alpha(model):
     result = mod.normalize_image_options(
-        "gpt-image-2.5-sunburst",
+        model,
         {
             "input_fidelity": "high",
             "size": "3840x2160",
@@ -203,6 +204,36 @@ def test_api_normalization_omits_fidelity_and_preserves_alpha():
         "background": "transparent",
         "output_format": "png",
     }
+
+
+@pytest.mark.parametrize("mode", ["generate", "edit"])
+@pytest.mark.parametrize("complexity", ["low", "medium", "high"])
+def test_complexity_overrides_brief_and_survives_followup(mode, complexity):
+    context = prepare(
+        mode=mode,
+        brief=ImageBrief(options=ImageOptions(complexity="high")),
+        options={"complexity": complexity, "quality": "max"},
+    )
+    assert context.params["complexity"] == complexity
+    assert context.params["quality"] == "max"
+    followup = prepare(mode="edit", parent=context, guidance="exact")
+    assert followup.params["complexity"] == complexity
+
+
+def test_complexity_defaults_to_provider_and_rejects_invalid_values(monkeypatch):
+    assert "complexity" not in prepare(guidance="exact").params
+    planner = AsyncMock()
+    monkeypatch.setattr(mod, "_plan_brief", planner)
+    with pytest.raises(ValueError, match="complexity"):
+        prepare(options={"complexity": "auto"}, use_model=True)
+    planner.assert_not_called()
+
+
+@pytest.mark.parametrize("model", ["gpt-image-2.5-sunburst", "gpt-image-1.5"])
+def test_legacy_provider_overrides_do_not_receive_complexity(model):
+    assert mod.normalize_image_options(
+        model, {"quality": "high", "complexity": "low"}, "generate"
+    ) == {"quality": "high"}
 
 
 def test_context_fetch_checks_owner_and_reads_metadata_only():
@@ -243,7 +274,7 @@ def test_create_route_returns_and_stores_prepared_context(monkeypatch):
     monkeypatch.setattr(
         image_api,
         "_config_for",
-        lambda *_: ("gpt-image-2.5-sunburst", "test-key", None),
+        lambda *_: ("gpt-image-2.6-sunburst", "test-key", None),
     )
     monkeypatch.setattr(image_api, "_get_client", lambda *_: object())
     generate = AsyncMock(
@@ -284,7 +315,7 @@ def test_stream_completion_retains_prepared_context(monkeypatch):
                 source="test",
                 user_id="alice",
                 session_id="session",
-                model="gpt-image-2.5-sunburst",
+                model="gpt-image-2.6-sunburst",
                 image_context=context,
             )
         ]

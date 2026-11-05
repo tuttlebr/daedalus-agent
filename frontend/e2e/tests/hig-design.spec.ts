@@ -1199,7 +1199,7 @@ test('saved images remain visible and can continue into editing', async ({
             id: 'creation-1',
             mode: 'generate',
             prompt: 'A mountain lake at sunrise.',
-            model: 'gpt-image-2.5-sunburst',
+            model: 'gpt-image-2.6-sunburst',
             params: { output_format: 'png' },
             inputImages: [],
             maskImage: null,

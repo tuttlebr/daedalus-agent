@@ -144,6 +144,27 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               )
             }
           />
+          <LabeledSelect
+            label="Complexity"
+            value={params.complexity ?? ''}
+            options={[
+              { value: '', label: 'Default (High)' },
+              ...caps.complexities.map((value) => ({
+                value,
+                label: labelForValue(value),
+              })),
+            ]}
+            onChange={(value) =>
+              setParam(
+                'complexity',
+                (value || undefined) as ImageParams['complexity'],
+              )
+            }
+          />
+          <p className="col-span-full text-[0.75rem] leading-relaxed text-muted">
+            Complexity controls planning. Low suits focused edits; high helps
+            with dense text and layouts and can take longer.
+          </p>
           <SizeControl
             value={params.size}
             options={sizeOptions}

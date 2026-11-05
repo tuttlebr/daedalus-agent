@@ -24,12 +24,12 @@ describe('image presets', () => {
     ]);
   });
 
-  it('cleans every preset for GPT Image 2.5 Sunburst', () => {
+  it('cleans every preset for GPT Image 2.6 Sunburst', () => {
     for (const preset of IMAGE_PRESETS) {
       const applied = applyPreset(
         preset,
         'an object',
-        'gpt-image-2.5-sunburst',
+        'gpt-image-2.6-sunburst',
       );
       expect(applied.prompt).not.toContain('{{subject}}');
       expect(applied.params).not.toHaveProperty('input_fidelity');

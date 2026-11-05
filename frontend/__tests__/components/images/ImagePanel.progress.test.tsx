@@ -100,7 +100,7 @@ describe('Create polling across renders', () => {
       mode: 'generate',
       status: completed ? 'completed' : 'running',
       prompt: 'render regression',
-      model: 'gpt-image-2.5-sunburst',
+      model: 'gpt-image-2.6-sunburst',
       params: { n: 1 },
       inputImages: [],
       maskImage: null,

@@ -558,6 +558,7 @@ functions:
     verbose: false
   visual_media_tool:
     _type: visual_media
+    # .env.template defaults generation and editing to GPT Image 2.6 Sunburst.
     generation_api_endpoint: ${IMAGE_GENERATION_BASE_URL}
     generation_api_key: ${IMAGE_GENERATION_API_KEY}
     generation_model: ${IMAGE_GENERATION_MODEL}
@@ -574,7 +575,9 @@ functions:
       image_url, videoRef, or video_url. The backend derives ownership
       from the authenticated request; never pass user_id. Image outputs
       are markdown refs. Set background=transparent when the user requests
-      a transparent generated or edited asset. Forward image refs verbatim
+      a transparent generated or edited asset. options.complexity controls
+      Sunburst 2.6 planning (low/medium/high), separately from quality.
+      Forward image refs verbatim
       in Markdown responses; for a standalone HTML artifact, preserve only
       the returned URL exactly as an img src. For a daily summary or daily
       briefing, use the briefing renderer's source-photo handling. Do not call

@@ -237,6 +237,7 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     n: int | None = Field(None, ge=1, le=8)
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
+    complexity: Literal["low", "medium", "high"] | None = None
     size: str | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
@@ -257,6 +258,7 @@ class EditRequest(BaseModel):
     maskRef: ImageRef | None = None
     n: int | None = Field(None, ge=1, le=8)
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
+    complexity: Literal["low", "medium", "high"] | None = None
     size: str | None = None
     input_fidelity: Literal["low", "high"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None

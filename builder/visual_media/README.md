@@ -29,10 +29,10 @@ functions:
     redis_url: redis://redis:6379
     generation_api_endpoint: null
     generation_api_key: null
-    generation_model: gpt-image-2.5-sunburst
+    generation_model: gpt-image-2.6-sunburst
     edit_api_endpoint: null
     edit_api_key: null
-    edit_model: gpt-image-2.5-sunburst
+    edit_model: gpt-image-2.6-sunburst
     comprehension_api_endpoint: http://localhost:8000
     comprehension_api_key: null
     comprehension_model: nvidia/NVIDIA-Nemotron-Nano-12B-v2
@@ -47,17 +47,18 @@ Important fields:
 | `generation_api_*`    | Endpoint + key for text-to-image. Falls back to `image_api_*` then `OPENAI_API_KEY`.                                                               |
 | `edit_api_*`          | Endpoint + key for image editing. Falls back to `image_api_*` then `OPENAI_API_KEY`.                                                               |
 | `comprehension_api_*` | Endpoint + key for the VLM. Falls back to `NVIDIA_API_KEY`.                                                                                        |
-| `generation_model`    | Model used for `operation="generate"` (default `gpt-image-2.5-sunburst`).                                                                          |
-| `edit_model`          | Model used for `operation="edit"` (default `gpt-image-2.5-sunburst`).                                                                              |
+| `generation_model`    | Model used for `operation="generate"` (default `gpt-image-2.6-sunburst`).                                                                          |
+| `edit_model`          | Model used for `operation="edit"` (default `gpt-image-2.6-sunburst`).                                                                              |
 | `comprehension_model` | VLM model used for `operation="analyze"`.                                                                                                          |
 | `quality`             | Create accepts `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, or `"auto"`; chat always sends `"auto"`.                                         |
+| `complexity`          | GPT Image 2.6 planning control: `"low"`, `"medium"`, or `"high"`; omitted by default (provider uses high). Separate from quality.                  |
 | `size`                | e.g. `"1024x1024"`, `"1536x1024"`, `"3840x2160"`, or `"auto"`. Any Sunburst-compliant resolution (edges multiple of 16, aspect ≤ 3:1) is accepted. |
-| `input_fidelity`      | Legacy compatibility field; omitted from GPT Image 2.5 Sunburst calls.                                                                             |
+| `input_fidelity`      | Legacy compatibility field; omitted from GPT Image 2.6 Sunburst calls.                                                                             |
 | `n`                   | 1–8 variations per call.                                                                                                                           |
 | `moderation`          | `"auto"` (default) or `"low"`; generation only.                                                                                                    |
 | `output_format`       | `"png"` (default), `"jpeg"`, or `"webp"`.                                                                                                          |
 | `output_compression`  | 0–100 for jpeg or webp outputs.                                                                                                                    |
-| `background`          | `"auto"`, `"transparent"`, or `"opaque"`. Transparent GPT Image 2.5 Sunburst output uses PNG (default) or WebP; JPEG is normalized to PNG.         |
+| `background`          | `"auto"`, `"transparent"`, or `"opaque"`. Transparent GPT Image 2.6 Sunburst output uses PNG (default) or WebP; JPEG is normalized to PNG.         |
 | `user`                | Optional end-user identifier forwarded for abuse monitoring.                                                                                       |
 
 ## Function Signature
@@ -146,6 +147,19 @@ precedence over recommendations. Create supports Sunburst's `xhigh` and `max`
 qualities; chat always uses `auto`. The shared capability check drops legacy
 input fidelity, validates dimensions, and preserves alpha through PNG/WebP
 output. Invalid explicit settings are rejected before preparation.
+
+Both paths support GPT Image 2.6 Sunburst's `complexity` control. Lower values
+can suit focused edits; higher values can help with dense text and complex
+layouts. Explicit choices override brief suggestions and follow-up edits inherit
+the selected image's setting. The shared client sends this field via `extra_body`
+because the pinned OpenAI SDK predates it. Older configured models omit the field.
+
+Set `IMAGE_GENERATION_MODEL` and `IMAGE_AUGMENTATION_MODEL` to
+`gpt-image-2.6-sunburst` in existing deployments; `.env.template` provides these
+defaults for new configurations. Existing endpoint and credential overrides are
+preserved. The integration supports PNG, JPEG, and WebP, including streaming and
+Create's PNG mask workflow. Provider SVG/GIF output and markup layers are not
+exposed by Daedalus. See the [OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 Generated images store `imageContext` alongside their bytes: original and final
 prompts, the brief, effective parameters, ordered parent references, skill hash,
