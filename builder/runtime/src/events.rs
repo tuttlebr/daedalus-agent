@@ -67,6 +67,13 @@ impl Events {
         self.raw(format!("intermediate_data: {data}\n\n")).await
     }
 
+    /// Content-free, run-wide model usage, sent once just before a successful
+    /// terminal event. Totals are null when any model call omitted that field;
+    /// the `reported_*` sums cover only calls that reported it.
+    pub async fn usage(&self, snapshot: Value) -> Result<()> {
+        self.event("usage", snapshot).await
+    }
+
     pub async fn finish(&self, reason: &str) -> Result<()> {
         self.event(
             "message",

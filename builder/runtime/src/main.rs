@@ -338,13 +338,27 @@ fn response_stream(
     })
 }
 
+/// Chat Completions usage from the run's usage event, only when every model
+/// call reported both totals; partial sums are not presented as totals.
+fn completion_usage(snapshot: &Value) -> Option<Value> {
+    let input = snapshot["input_tokens"].as_u64()?;
+    let output = snapshot["output_tokens"].as_u64()?;
+    let mut usage = json!({"prompt_tokens": input, "completion_tokens": output,
+        "total_tokens": input.saturating_add(output)});
+    if let Some(cached) = snapshot["cached_tokens"].as_u64() {
+        usage["prompt_tokens_details"] = json!({"cached_tokens": cached});
+    }
+    Some(usage)
+}
+
 /// Collect a run's SSE output into one Chat Completions response. The streaming
 /// terminal reason, such as `mcp_approval_required`, survives, and events a
 /// caller must act on (approval, OAuth, applied steering) stay in
-/// `daedalus_events` in their stream order. Tool progress is omitted.
+/// `daedalus_events` in their stream order. Tool progress is omitted; complete
+/// run usage becomes the standard `usage` field.
 fn completion(stream: &str) -> (u16, Value) {
     let (mut id, mut content, mut finish, mut failed) = (Value::Null, String::new(), None, None);
-    let mut events = Vec::new();
+    let (mut events, mut usage) = (Vec::new(), None);
     for frame in stream.split("\n\n") {
         let mut name = "message";
         let mut data = None;
@@ -368,6 +382,7 @@ fn completion(stream: &str) -> (u16, Value) {
                 }
             }
             "error" => failed = data["error"]["message"].as_str().map(str::to_owned),
+            "usage" => usage = completion_usage(&data),
             _ => events.push(json!({"event":name,"data":data})),
         }
     }
@@ -379,6 +394,9 @@ fn completion(stream: &str) -> (u16, Value) {
     };
     let mut body = json!({"id":id,"object":"chat.completion","choices":[{"index":0,
         "message":{"role":"assistant","content":content},"finish_reason":finish}]});
+    if let Some(usage) = usage {
+        body["usage"] = usage;
+    }
     if !events.is_empty() {
         body["daedalus_events"] = json!(events);
     }
@@ -1128,6 +1146,59 @@ mod tests {
             (502, json!({"error":{"message":"Agent run timed out"}}))
         );
         assert_eq!(completion("").0, 502);
+    }
+
+    #[tokio::test]
+    async fn run_usage_precedes_the_terminal_event_and_never_reports_partial_totals() {
+        let metrics = control::Metrics::default();
+        // Like the agent: each call is counted before dispatch.
+        for (input, output, cached) in [(100, 20, 10), (50, 5, 0)] {
+            metrics
+                .model_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            metrics.record_usage(Some(input), Some(output), Some(cached));
+        }
+        let (sender, mut receiver) = mpsc::channel(16);
+        let events = Events {
+            run_id: "run-usage".into(),
+            sender,
+        };
+        events.delta("Answer").await.unwrap();
+        events.usage(metrics.snapshot()).await.unwrap();
+        events.finish("stop").await.unwrap();
+        drop(events);
+        let mut stream = String::new();
+        while let Some(bytes) = receiver.recv().await {
+            stream.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        assert!(
+            stream.find("event: usage").unwrap()
+                < stream.find("\"finish_reason\":\"stop\"").unwrap(),
+            "{stream}"
+        );
+        let (status, body) = completion(&stream);
+        assert_eq!(status, 200);
+        assert_eq!(
+            body["usage"],
+            json!({"prompt_tokens":150,"completion_tokens":25,"total_tokens":175,
+                "prompt_tokens_details":{"cached_tokens":10}})
+        );
+        // Usage never becomes a caller event.
+        assert!(body.get("daedalus_events").is_none());
+
+        // A call without reported output leaves the total unknown: no usage.
+        metrics
+            .model_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        metrics.record_usage(Some(1), None, None);
+        let partial = format!(
+            "event: usage\ndata: {}\n\n\
+             event: message\ndata: {{\"id\":\"r\",\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n",
+            metrics.snapshot()
+        );
+        let (status, body) = completion(&partial);
+        assert_eq!(status, 200);
+        assert!(body.get("usage").is_none(), "{body}");
     }
 
     #[tokio::test]

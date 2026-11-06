@@ -785,6 +785,7 @@ impl Agent {
                 if withhold_text {
                     response_text.delta(&self.events, &partial).await?;
                 }
+                self.events.usage(self.handle.metrics.snapshot()).await?;
                 self.events.finish("stop").await?;
                 return Ok(());
             }
@@ -1180,6 +1181,7 @@ impl Agent {
                 }
                 response_text.begin_block();
                 response_text.delta(&self.events, &content).await?;
+                self.events.usage(self.handle.metrics.snapshot()).await?;
                 self.events
                     .finish(if reason == "mcp_approval_required" {
                         "mcp_approval_required"
