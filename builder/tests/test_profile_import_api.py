@@ -256,3 +256,49 @@ def test_replace_preserves_old_documents_until_retention_completed(
         run(import_profile_memories(req, "tuttlebr"))
     assert fake.delete_calls == []
     assert fake.batch_calls[0]["items"][0]["document_id"] not in {"old-0", "old-1"}
+
+
+def test_replace_inventory_stops_when_a_page_adds_no_new_documents(monkeypatch):
+    # A service that ignores offset returns the same full page forever.
+    fake = FakeHindsight()
+    fake.list_calls = 0
+
+    async def list_documents(**kwargs):
+        fake.list_calls += 1
+        assert fake.list_calls <= 3, "inventory kept paging a repeated page"
+        return {"items": [{"id": f"old-{i}"} for i in range(100)]}
+
+    fake.list_documents = list_documents
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
+    monkeypatch.setattr(hindsight_client, "client_from_env", lambda: fake)
+    req = profile_request().model_copy(update={"mode": "replace"})
+
+    result = run(import_profile_memories(req, "tuttlebr"))
+
+    assert fake.list_calls == 2
+    assert result.replaced == 100
+    assert len(fake.delete_calls) == 100
+
+
+def test_replace_inventory_is_bounded_before_any_write(monkeypatch):
+    import profile_import_api
+
+    fake = FakeHindsight()
+    fake.list_calls = 0
+
+    async def list_documents(**kwargs):
+        fake.list_calls += 1
+        start = kwargs["offset"]
+        return {"items": [{"id": f"old-{start + i}"} for i in range(100)]}
+
+    fake.list_documents = list_documents
+    monkeypatch.setattr(profile_import_api, "PROFILE_INVENTORY_MAX_PAGES", 3)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
+    monkeypatch.setattr(hindsight_client, "client_from_env", lambda: fake)
+    req = profile_request().model_copy(update={"mode": "replace"})
+
+    with pytest.raises(RuntimeError, match="inventory"):
+        run(import_profile_memories(req, "tuttlebr"))
+    assert fake.list_calls == 3
+    assert fake.batch_calls == []
+    assert fake.delete_calls == []

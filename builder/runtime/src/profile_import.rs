@@ -429,12 +429,18 @@ pub(crate) fn identifier(value: &Value) -> String {
         ),
     }
 }
+/// Replacement lists the previous profile before writing anything. Bound that
+/// inventory so a service that ignores pagination cannot keep it running.
+const INVENTORY_MAX_PAGES: usize = 1000;
 async fn import(client: &hindsight::Client, user: &str, input: &Value) -> Result<Value> {
     let replace = input["mode"] == "replace";
     let mut previous = BTreeSet::new();
     if replace {
         let mut offset = 0usize;
-        loop {
+        for page in 0..=INVENTORY_MAX_PAGES {
+            if page == INVENTORY_MAX_PAGES {
+                bail!("Profile inventory exceeds its page limit");
+            }
             let offset_string = offset.to_string();
             let page = client
                 .request(
@@ -458,6 +464,7 @@ async fn import(client: &hindsight::Client, user: &str, input: &Value) -> Result
                     .as_array()
                     .ok_or_else(|| anyhow::anyhow!("Invalid profile inventory"))?,
             };
+            let known = previous.len();
             for item in items {
                 if !item.is_object()
                     || !truthy(&item["id"])
@@ -467,7 +474,9 @@ async fn import(client: &hindsight::Client, user: &str, input: &Value) -> Result
                 }
                 previous.insert(identifier(&item["id"]));
             }
-            if items.len() < 100 {
+            // A short page ends the inventory; so does a page with no new IDs,
+            // which a service that ignores offset would repeat indefinitely.
+            if items.len() < 100 || previous.len() == known {
                 break;
             }
             offset += items.len();
@@ -548,6 +557,57 @@ mod tests {
             other => other,
         }
     }
+    #[tokio::test]
+    async fn replacement_inventory_stops_at_a_repeated_page_and_is_bounded() {
+        use crate::memory_api::tests::peers;
+        let body =
+            json!({"mode":"replace","entries":[{"label":"Name","memory":"Synthetic Alice"}]});
+        // A service that ignores offset repeats one full page. A later call
+        // fails, so an unbounded inventory surfaces as an error, not a hang.
+        fn repeated(call: &Value, index: usize) -> Value {
+            match call["method"].as_str().unwrap() {
+                "GET" if index < 4 => json!({"items":
+                    (0..100).map(|i| json!({"id":format!("old-{i:03}")})).collect::<Vec<_>>()}),
+                "GET" => panic!("inventory kept paging a repeated page"),
+                "POST" => json!({"success":true,"status":"completed"}),
+                _ => json!({}),
+            }
+        }
+        let (base, calls, peer) = peers::hindsight(repeated).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        let (status, reply) =
+            peers::send(&app, "POST", "/v1/profile/import", Some(body.clone())).await;
+        let calls = calls.lock().await.clone();
+        peer.abort();
+        assert_eq!((status, &reply["replaced"]), (200, &json!(100)), "{reply}");
+        let gets = calls.iter().filter(|call| call["method"] == "GET").count();
+        assert_eq!(gets, 2);
+
+        // Every page is new: the inventory stops at its page limit before
+        // retaining or deleting anything.
+        fn endless(call: &Value, _: usize) -> Value {
+            assert_eq!(call["method"], "GET", "nothing may be written");
+            let query = call["query"].as_str().unwrap();
+            let offset: usize = query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("offset="))
+                .unwrap()
+                .parse()
+                .unwrap();
+            json!({"items":(0..100).map(|i| json!({"id":format!("old-{}", offset + i)})).collect::<Vec<_>>()})
+        }
+        let (base, calls, peer) = peers::hindsight(endless).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/profile/import", Some(body)).await,
+            (500, json!({"detail":"Profile import failed."}))
+        );
+        let calls = calls.lock().await.clone();
+        peer.abort();
+        assert_eq!(calls.len(), INVENTORY_MAX_PAGES);
+        assert!(calls.iter().all(|call| call["method"] == "GET"));
+    }
+
     #[tokio::test]
     async fn replacement_deletes_old_profile_only_after_confirmed_retention() {
         use crate::memory_api::tests::peers;

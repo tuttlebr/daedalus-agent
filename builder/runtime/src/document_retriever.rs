@@ -117,6 +117,15 @@ fn valid_schema(schema: &pb::CollectionSchema) -> bool {
     // Struct-array parameters deliberately accept strings after JSON failure.
 }
 
+/// Cache only a found collection. A private collection is created by its
+/// owner's first upload or ingest, which must be searchable immediately rather
+/// than after a cached "missing" answer expires.
+fn remember_existence(cache: &Cache<bool>, collection: &str, exists: bool) {
+    if exists {
+        cache.insert(collection, true);
+    }
+}
+
 pub struct Retriever {
     client: milvus::Client,
     embedder: Arc<embeddings::Client>,
@@ -196,7 +205,7 @@ impl Retriever {
                 .map_err(|e| self.read_failure(e, false, deadline))?
         };
         let value = listed.iter().any(|v| v == collection);
-        self.collections.insert(collection, value);
+        remember_existence(&self.collections, collection, value);
         Ok(value)
     }
     async fn fields(
@@ -318,5 +327,21 @@ impl Retriever {
                 .or_else(|| self.settings["distance_cutoff"].as_str()?.parse().ok()),
         )?;
         Ok(self.reranker.apply(query, documents).await)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_collections_are_not_cached() {
+        let cache = Cache::new();
+        // A search before the user's first upload finds no collection.
+        remember_existence(&cache, "user_uploads_alice", false);
+        assert_eq!(cache.get("user_uploads_alice"), None);
+        // The upload creates it; the next lookup must list collections again.
+        remember_existence(&cache, "user_uploads_alice", true);
+        assert_eq!(cache.get("user_uploads_alice"), Some(true));
     }
 }

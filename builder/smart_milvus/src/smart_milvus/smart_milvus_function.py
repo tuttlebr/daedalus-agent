@@ -147,7 +147,10 @@ class MilvusRetriever:
             )
             value = collection_name in collections
 
-            self._cache_collection(collection_name, value)
+            # Cache only a found collection. A private collection is created by
+            # its owner's first upload, which must be searchable immediately.
+            if value:
+                self._cache_collection(collection_name, value)
             return value
 
     def _get_cached_schema(self, collection_name: str) -> dict[str, Any] | None:

@@ -336,3 +336,74 @@ def test_disabled_mode_neither_reads_nor_writes_hindsight(monkeypatch):
     assert get_result == "Memories as a JSON: \n[]"
     assert hindsight.retain_calls == []
     assert hindsight.recall_calls == []
+
+
+def test_add_memory_keeps_success_when_the_post_write_receipt_fails(
+    monkeypatch, caplog
+):
+    """A committed write is reported as added even if its receipt cannot be saved."""
+
+    async def _run():
+        from nat_helpers import daedalus_memory_tools as tools
+        from nat_helpers import idempotency
+
+        monkeypatch.setattr(tools, "authenticated_user_id_from_context", lambda: "u")
+        monkeypatch.setattr(
+            tools, "execution_id_from_context_or_none", lambda: "request-1"
+        )
+
+        async def reserve_operation(**_kwargs):
+            return SimpleNamespace(
+                acquired=True, state="in_progress", stored_result=None
+            )
+
+        async def complete_operation(_reservation, _result):
+            raise ConnectionError("receipt store unavailable")
+
+        monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
+        monkeypatch.setattr(idempotency, "complete_operation", complete_operation)
+        hindsight = configure_hindsight(monkeypatch)
+        tool = [
+            item
+            async for item in tools.daedalus_add_memory(
+                tools.DaedalusAddMemoryConfig(), object()
+            )
+        ][0]
+        return await tool.fn(tools.AddMemoryInput(memory="Remember this")), hindsight
+
+    with caplog.at_level("WARNING"):
+        result, hindsight = run(_run())
+
+    assert result.startswith("Memory added successfully")
+    assert len(hindsight.retain_calls) == 1
+    assert "memory_write_receipt_unavailable" in caplog.text
+
+
+def test_add_memory_reservation_failure_still_prevents_the_write(monkeypatch):
+    """Errors before the write commits are never swallowed into a success."""
+
+    async def _run():
+        from nat_helpers import daedalus_memory_tools as tools
+        from nat_helpers import idempotency
+
+        monkeypatch.setattr(tools, "authenticated_user_id_from_context", lambda: "u")
+        monkeypatch.setattr(
+            tools, "execution_id_from_context_or_none", lambda: "request-1"
+        )
+
+        async def reserve_operation(**_kwargs):
+            raise ConnectionError("reservation store unavailable")
+
+        monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
+        hindsight = configure_hindsight(monkeypatch)
+        tool = [
+            item
+            async for item in tools.daedalus_add_memory(
+                tools.DaedalusAddMemoryConfig(), object()
+            )
+        ][0]
+        return await tool.fn(tools.AddMemoryInput(memory="Remember this")), hindsight
+
+    result, hindsight = run(_run())
+    assert result.startswith("Error: add_memory idempotency unavailable")
+    assert hindsight.retain_calls == []

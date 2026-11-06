@@ -33,6 +33,10 @@ impl Collections {
 
 #[derive(Debug)]
 pub enum WaitError {
+    /// The deadline passed before this caller owned the collection; its work
+    /// never started.
+    Queued,
+    /// The deadline passed after the work started; it keeps running detached.
     Timeout,
     Failed(anyhow::Error),
 }
@@ -52,24 +56,25 @@ where
     W: Future<Output = Result<T>> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::time::timeout(duration, async move {
-        let guard = lock.lock_owned().await;
-        // No await separates lock acquisition from moving it into the worker.
-        // Dropping JoinHandle detaches the worker without dropping its guard.
-        tokio::spawn(async move {
-            let _guard = guard;
-            let result = work().await;
-            if result.is_err() {
-                tracing::warn!("Owned ingestion finished with an error");
-            }
-            result
-        })
+    let deadline = tokio::time::Instant::now() + duration;
+    let guard = tokio::time::timeout_at(deadline, lock.lock_owned())
         .await
+        .map_err(|_| WaitError::Queued)?;
+    // No await separates lock acquisition from moving it into the worker.
+    // Dropping JoinHandle detaches the worker without dropping its guard.
+    let worker = tokio::spawn(async move {
+        let _guard = guard;
+        let result = work().await;
+        if result.is_err() {
+            tracing::warn!("Owned ingestion finished with an error");
+        }
+        result
+    });
+    tokio::time::timeout_at(deadline, worker)
+        .await
+        .map_err(|_| WaitError::Timeout)?
         .map_err(|error| WaitError::Failed(error.into()))?
         .map_err(WaitError::Failed)
-    })
-    .await
-    .map_err(|_| WaitError::Timeout)?
 }
 
 #[cfg(test)]
@@ -159,7 +164,7 @@ mod tests {
                 queued.abort();
                 assert!(queued.await.unwrap_err().is_cancelled());
             } else {
-                assert!(matches!(queued.await.unwrap(), Err(WaitError::Timeout)));
+                assert!(matches!(queued.await.unwrap(), Err(WaitError::Queued)));
             }
             drop(held);
             run(lock, Duration::from_secs(1), || async { Ok(()) })

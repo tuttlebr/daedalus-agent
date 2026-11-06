@@ -220,10 +220,20 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: ToolRegi
         if reservation is not None:
             from nat_helpers.idempotency import complete_operation
 
-            if not await complete_operation(reservation, result):
-                logger.error(
-                    "Memory write succeeded but its idempotency result couldn't be finalized"
+            # The memory is already retained. An unavailable receipt store must
+            # not turn that success into a tool error (the model could then
+            # write it again); the reservation stays in_progress, which still
+            # blocks replays. Same as the Rust tool and document ingestion.
+            try:
+                finalized = await complete_operation(reservation, result)
+            except Exception as exc:
+                logger.warning(
+                    "memory_write_receipt_unavailable error_class=%s",
+                    type(exc).__name__,
                 )
+            else:
+                if not finalized:
+                    logger.warning("memory_write_receipt_not_owned")
         return result
 
     yield ToolDefinition.from_fn(

@@ -389,6 +389,22 @@ class TestSingleListCollectionsRoundTrip:
         client.list_collections.return_value = []
         assert asyncio.run(retriever._collection_exists("nope")) is False
 
+    def test_missing_collection_is_seen_as_soon_as_it_is_created(self):
+        # A user's private collection is created by their first upload. A
+        # search before that upload must not hide the new collection.
+        retriever, client = self._make_retriever()
+        client.list_collections.return_value = []
+
+        async def search_create_search():
+            assert await retriever._collection_exists("col") is False
+            client.list_collections.return_value = ["col"]
+            assert await retriever._collection_exists("col") is True
+            # A found collection is cached.
+            assert await retriever._collection_exists("col") is True
+
+        asyncio.run(search_create_search())
+        assert client.list_collections.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # F-022 — synchronous Milvus calls stay off the event loop and metadata caches

@@ -297,7 +297,6 @@ impl Processor {
                 .await;
                 // Batch responses contain summary counts, not the generated
                 // Markdown, including when that Markdown cannot be UTF-8 encoded.
-                let _markdown_unencodable = result.markdown_unencodable;
                 document_batch::Outcome {
                     status: result.status.into(),
                     filename: result.filename,
@@ -508,7 +507,7 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(waiting, Err(WaitError::Timeout)),
+            matches!(waiting, Err(WaitError::Queued)),
             "a tool ingest must wait for the upload's write"
         );
         drop(upload);

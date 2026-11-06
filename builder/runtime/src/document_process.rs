@@ -62,8 +62,6 @@ pub struct Outcome {
     pub collection: String,
     pub markdown: String,
     #[serde(skip)]
-    pub markdown_unencodable: bool,
-    #[serde(skip)]
     pub surrogates: crate::document_json::Surrogates,
     pub error: String,
 }
@@ -264,7 +262,6 @@ pub async fn run<S: Services>(
         pages: 0,
         collection: collection.clone(),
         markdown: String::new(),
-        markdown_unencodable: false,
         surrogates: Default::default(),
         error,
     };
@@ -421,16 +418,17 @@ pub async fn run<S: Services>(
             extract(engine.clone(), input.clone(), owned.clone()),
         )
         .await;
+        let before_indexing = || {
+            failure(
+                format!(
+                    "Error processing document with NvIngest: timed out after {:.0} seconds before indexing started. No chunks were written for this document.",
+                    timeout.as_secs_f64()
+                ),
+                json!(filename),
+            )
+        };
         let result = match extracted {
-            Err(_) => {
-                return failure(
-                    format!(
-                        "Error processing document with NvIngest: timed out after {:.0} seconds before indexing started. No chunks were written for this document.",
-                        timeout.as_secs_f64()
-                    ),
-                    json!(filename),
-                );
-            }
+            Err(_) => return before_indexing(),
             Ok(Err(error)) => Err(WaitError::Failed(error)),
             Ok(Ok(extraction)) => {
                 if lock.try_lock().is_err() {
@@ -449,7 +447,6 @@ pub async fn run<S: Services>(
         };
         let error = match result {
             Ok((markdown, pages, chunks, failures, surrogates)) => {
-                let unencodable = markdown.chars().any(|c| surrogates.contains_key(&c));
                 return Outcome {
                     status: if failures == 0 { "success" } else { "partial" },
                     filename: json!(filename),
@@ -458,13 +455,13 @@ pub async fn run<S: Services>(
                     pages,
                     collection,
                     markdown,
-                    markdown_unencodable: unencodable,
                     surrogates,
                     error: String::new(),
                 };
             }
             Err(WaitError::Failed(error)) => error,
-            _ => {
+            Err(WaitError::Queued) => return before_indexing(),
+            Err(WaitError::Timeout) => {
                 return failure(
                     format!(
                         "Error processing document with NvIngest: timed out after {:.0} seconds. The SDK operation may still be running; collection ownership is retained until it finishes. Do not retry blindly.",
@@ -781,7 +778,13 @@ mod tests {
         )
         .await;
         assert_eq!(actual.status, "success");
-        assert!(actual.markdown_unencodable);
+        // The Markdown keeps the surrogate's marker for the caller to encode.
+        assert!(
+            actual
+                .markdown
+                .chars()
+                .any(|c| actual.surrogates.contains_key(&c))
+        );
         assert_eq!(actual.chunks, 1);
         assert_eq!(fake.observed.lock().unwrap().builds.len(), 1);
     }
@@ -962,5 +965,41 @@ mod tests {
         let observed = fake.observed.lock().unwrap();
         assert_eq!(observed.builds.len(), 1);
         assert!(observed.events.iter().all(|e| e["phase"] != "indexing"));
+    }
+    #[tokio::test]
+    async fn lock_wait_timeout_reports_that_no_write_started() {
+        // Extraction finishes, but another writer holds the collection for
+        // the whole deadline, so this document's write never starts.
+        let data = fixture();
+        let case = &data["cases"][0];
+        let fake = Fake::new(&data, case);
+        let locks = Collections::default();
+        let collection = case["expected"]["collection"].as_str().unwrap();
+        let held = locks.get(collection).lock_owned().await;
+        let options = Options {
+            ingest_timeout_seconds: 1.,
+            ..Options::default()
+        };
+        let outcome = run(
+            &fake,
+            &locks,
+            &options,
+            serde_json::from_value(case["request"].clone()).unwrap(),
+            Some(fake.callback()),
+        )
+        .await;
+        drop(held);
+        let observed = fake.observed.lock().unwrap();
+        assert!(
+            observed.events.iter().all(|e| e["phase"] != "indexing"),
+            "no write may start"
+        );
+        assert!(observed.events.iter().any(|e| e["phase"] == "waiting"));
+        assert_eq!(outcome.status, "failure");
+        assert!(
+            outcome.error.contains("before indexing started"),
+            "lock-wait timeout must report that nothing was written, got: {}",
+            outcome.error
+        );
     }
 }

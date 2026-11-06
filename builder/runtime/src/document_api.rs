@@ -368,6 +368,74 @@ mod tests {
         assert_eq!(failure(&anyhow::anyhow!("operation timed out")).0, 504);
     }
 
+    #[tokio::test]
+    async fn document_routes_reject_another_users_upload() {
+        use crate::memory_api::tests::peers;
+        let record = json!({"userId":"synthetic-bob","filename":"bob.txt","data":"dGV4dA=="});
+        let (redis, commands, redis_peer) = peers::redis_documents(vec![(
+            "document:session-1:document-1".into(),
+            record.to_string(),
+        )])
+        .await;
+        // A refused NV-Ingest port bounds the owner's control request.
+        let app = peers::app_with(
+            "http://127.0.0.1:1",
+            &redis,
+            &[
+                ("NV_INGEST_HOST", "127.0.0.1"),
+                ("NV_INGEST_PORT", "1"),
+                ("DOCUMENT_INGEST_TIMEOUT_SECONDS", "1"),
+            ],
+        );
+        let reference = json!({"documentId":"document-1","sessionId":"session-1"});
+        let denied = "Error: You do not have access to this document. Please upload the document again from your account.";
+        for route in ["/v1/documents/extract", "/v1/documents/markdown"] {
+            assert_eq!(
+                peers::send_as(
+                    &app,
+                    "synthetic-alice",
+                    "POST",
+                    route,
+                    Some(json!({"documentRef":reference}))
+                )
+                .await,
+                (403, json!({"detail":denied})),
+                "{route}"
+            );
+            // The body cannot claim the owner's identity either.
+            assert_eq!(
+                peers::send_as(
+                    &app,
+                    "synthetic-alice",
+                    "POST",
+                    route,
+                    Some(json!({"documentRef":reference,"username":"synthetic-bob"}))
+                )
+                .await,
+                (403, json!({"detail":"username must match x-user-id"})),
+                "{route}"
+            );
+        }
+        // The owner passes the ownership check and reaches extraction.
+        let (status, _) = peers::send_as(
+            &app,
+            "synthetic-bob",
+            "POST",
+            "/v1/documents/extract",
+            Some(json!({"documentRef":reference})),
+        )
+        .await;
+        redis_peer.abort();
+        assert_eq!(status, 504);
+        assert!(
+            commands
+                .lock()
+                .await
+                .iter()
+                .any(|c| c[0] == "JSON.GET" && c[1] == "document:session-1:document-1")
+        );
+    }
+
     #[test]
     fn frozen_http_validation() {
         let fixture: Value =

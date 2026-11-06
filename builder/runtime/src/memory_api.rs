@@ -833,6 +833,18 @@ pub(crate) mod tests {
             Arc<Mutex<Vec<Vec<String>>>>,
             tokio::task::JoinHandle<()>,
         ) {
+            redis_documents(Vec::new()).await
+        }
+        /// The same peer, also answering JSON.GET for the given stored
+        /// documents (key, JSON text); other keys miss.
+        pub async fn redis_documents(
+            documents: Vec<(String, String)>,
+        ) -> (
+            String,
+            Arc<Mutex<Vec<Vec<String>>>>,
+            tokio::task::JoinHandle<()>,
+        ) {
+            let documents = Arc::new(documents);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let url = format!("redis://{}", listener.local_addr().unwrap());
             let commands = Arc::new(Mutex::new(Vec::new()));
@@ -841,6 +853,7 @@ pub(crate) mod tests {
                 loop {
                     let (stream, _) = listener.accept().await.unwrap();
                     let seen = seen.clone();
+                    let documents = documents.clone();
                     tokio::spawn(async move {
                         let (read, mut write) = stream.into_split();
                         let mut read = tokio::io::BufReader::new(read);
@@ -861,14 +874,20 @@ pub(crate) mod tests {
                                 data.truncate(length);
                                 args.push(String::from_utf8(data).unwrap());
                             }
-                            let reply: &[u8] = match args[0].to_ascii_uppercase().as_str() {
-                                "GET" => b"$-1\r\n",
-                                "SCAN" => b"*2\r\n$1\r\n0\r\n*0\r\n",
-                                "DEL" => b":0\r\n",
-                                _ => b"+OK\r\n",
+                            let reply: Vec<u8> = match args[0].to_ascii_uppercase().as_str() {
+                                "JSON.GET" => documents
+                                    .iter()
+                                    .find(|(key, _)| *key == args[1])
+                                    .map_or(b"$-1\r\n".to_vec(), |(_, value)| {
+                                        format!("${}\r\n{value}\r\n", value.len()).into_bytes()
+                                    }),
+                                "GET" => b"$-1\r\n".to_vec(),
+                                "SCAN" => b"*2\r\n$1\r\n0\r\n*0\r\n".to_vec(),
+                                "DEL" => b":0\r\n".to_vec(),
+                                _ => b"+OK\r\n".to_vec(),
                             };
                             seen.lock().await.push(args);
-                            write.write_all(reply).await.unwrap();
+                            write.write_all(&reply).await.unwrap();
                         }
                     });
                 }
@@ -876,15 +895,21 @@ pub(crate) mod tests {
             (url, commands, task)
         }
         pub fn app(hindsight: &str, redis: &str) -> Router {
+            app_with(hindsight, redis, &[])
+        }
+        /// The routed application with additional environment settings.
+        pub fn app_with(hindsight: &str, redis: &str, extra: &[(&str, &str)]) -> Router {
+            let mut env: std::collections::HashMap<String, String> = [
+                ("HINDSIGHT_API_URL".into(), hindsight.into()),
+                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                ("REDIS_URL".into(), redis.into()),
+            ]
+            .into();
+            env.extend(extra.iter().map(|(k, v)| ((*k).into(), (*v).into())));
             let config = crate::config::Config::new(
                 json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
                     "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
-                [
-                    ("HINDSIGHT_API_URL".into(), hindsight.into()),
-                    ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
-                    ("REDIS_URL".into(), redis.into()),
-                ]
-                .into(),
+                env,
             )
             .unwrap();
             let http = reqwest::Client::new();
@@ -904,12 +929,22 @@ pub(crate) mod tests {
             path: &str,
             body: Option<Value>,
         ) -> (u16, Value) {
+            send_as(app, "synthetic-alice", method, path, body).await
+        }
+        /// Sends as the given authenticated `x-user-id`.
+        pub async fn send_as(
+            app: &Router,
+            user: &str,
+            method: &str,
+            path: &str,
+            body: Option<Value>,
+        ) -> (u16, Value) {
             use tower::ServiceExt;
             let request = axum::http::Request::builder()
                 .method(method)
                 .uri(path)
                 .header("x-daedalus-internal-token", "synthetic-internal")
-                .header("x-user-id", "synthetic-alice")
+                .header("x-user-id", user)
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(
                     body.map(|b| b.to_string()).unwrap_or_default(),
@@ -925,6 +960,73 @@ pub(crate) mod tests {
                 serde_json::from_slice(&bytes).unwrap_or(Value::Null),
             )
         }
+    }
+
+    #[tokio::test]
+    async fn memory_routes_use_the_authenticated_users_bank() {
+        let (base, calls, peer) = peers::hindsight(|_, _| json!({"items":[]})).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        // Neither a query parameter nor a body can choose another user's bank.
+        for user in ["synthetic-alice", "synthetic-bob"] {
+            assert_eq!(
+                peers::send_as(
+                    &app,
+                    user,
+                    "GET",
+                    "/v1/memories?user_id=synthetic-mallory&limit=5",
+                    None
+                )
+                .await
+                .0,
+                200
+            );
+            assert_eq!(
+                peers::send_as(
+                    &app,
+                    user,
+                    "PATCH",
+                    "/v1/memories/memory-1",
+                    Some(json!({"text":"Updated"}))
+                )
+                .await
+                .0,
+                200
+            );
+            assert_eq!(
+                peers::send_as(&app, user, "DELETE", "/v1/memory-sources/document-1", None)
+                    .await
+                    .0,
+                200
+            );
+        }
+        let calls = calls.lock().await.clone();
+        peer.abort();
+        let paths: Vec<_> = calls
+            .iter()
+            .map(|call| call["path"].as_str().unwrap().to_owned())
+            .collect();
+        let expected: Vec<_> = ["synthetic-alice", "synthetic-bob"]
+            .into_iter()
+            .flat_map(|user| {
+                let bank = crate::memory::bank_id(user);
+                [
+                    format!("/v1/default/banks/{bank}/memories/list"),
+                    format!("/v1/default/banks/{bank}/memories/memory-1"),
+                    format!("/v1/default/banks/{bank}/documents/document-1"),
+                ]
+            })
+            .collect();
+        assert_eq!(paths, expected);
+        assert_ne!(
+            crate::memory::bank_id("synthetic-alice"),
+            crate::memory::bank_id("synthetic-bob")
+        );
+        assert!(calls.iter().all(|call| {
+            !call["query"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("mallory")
+        }));
     }
 
     #[tokio::test]

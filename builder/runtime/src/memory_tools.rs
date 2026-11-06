@@ -412,11 +412,14 @@ impl Tools {
         {
             return UNAVAILABLE.into();
         }
+        // The memory is already retained. An unavailable receipt store must not
+        // turn that success into a tool error, as document ingest receipts do;
+        // the reservation stays in progress, which still blocks blind replays.
         if let Some(reservation) = reservation {
             match self.complete(reservation).await {
-                Ok(true) => {},
-                Ok(false) => tracing::warn!(event="memory_write_receipt_not_owned"),
-                Err(_) => return "Tool failed (RedisError). Check its arguments and service availability.".into(),
+                Ok(true) => {}
+                Ok(false) => tracing::warn!(event = "memory_write_receipt_not_owned"),
+                Err(_) => tracing::warn!(event = "memory_write_receipt_unavailable"),
             }
         }
         ADDED.into()
@@ -526,6 +529,50 @@ mod tests {
             &json!({"metadata":{"approval_token":"two"}}),
         );
         assert_ne!(a, b);
+    }
+
+    #[tokio::test]
+    async fn committed_memory_stays_added_when_its_receipt_cannot_be_written() {
+        use crate::memory_api::tests::peers;
+        let (base, calls, peer) = peers::hindsight(|_, _| json!({})).await;
+        // The RESP peer acquires the reservation (SET NX answers OK) but its
+        // reply to the completion script is not an integer, so recording the
+        // receipt fails after the memory write was accepted.
+        let (redis, commands, redis_peer) = peers::redis().await;
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: [
+                ("HINDSIGHT_API_URL".to_string(), base),
+                (
+                    "HINDSIGHT_API_KEY".to_string(),
+                    "synthetic-memory-key".to_string(),
+                ),
+                ("REDIS_URL".to_string(), redis),
+            ]
+            .into(),
+        };
+        let tools = Tools::new(&config).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "synthetic-alice".parse().unwrap());
+        headers.insert("x-daedalus-execution-scope", "autonomy".parse().unwrap());
+        headers.insert("x-daedalus-execution-id", "synthetic-run".parse().unwrap());
+        let result = tools
+            .call(
+                &json!({"_type":"daedalus_add_memory"}),
+                &json!({"memory":"Prefers metric units"}),
+                &headers,
+            )
+            .await;
+        peer.abort();
+        redis_peer.abort();
+        assert_eq!(result, ADDED);
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0]["path"].as_str().unwrap().ends_with("/memories"));
+        let commands = commands.lock().await;
+        assert!(commands.iter().any(|c| c[0].eq_ignore_ascii_case("EVAL")));
     }
 
     #[test]

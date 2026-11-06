@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/profile", tags=["profile"])
 
 MAX_PROFILE_IMPORT_ENTRIES = int(os.getenv("PROFILE_IMPORT_MAX_ENTRIES", "250"))
+# Replacement lists the previous profile before writing anything. Bound that
+# inventory so a service that ignores pagination cannot keep it running.
+PROFILE_INVENTORY_PAGE_SIZE = 100
+PROFILE_INVENTORY_MAX_PAGES = 1000
 
 
 class ProfileEntry(BaseModel):
@@ -161,21 +165,29 @@ async def import_profile_memories(
     previous_documents = set()
     if req.mode == "replace":
         offset = 0
-        while True:
+        for page_number in range(PROFILE_INVENTORY_MAX_PAGES + 1):
+            if page_number == PROFILE_INVENTORY_MAX_PAGES:
+                raise RuntimeError("Hindsight profile inventory exceeds its page limit")
             page = await client.list_documents(
                 user_id=user_id,
-                limit=100,
+                limit=PROFILE_INVENTORY_PAGE_SIZE,
                 offset=offset,
                 tags=["source:profile-import"],
             )
             items = page.get("items", [])
             if not isinstance(items, list):
                 raise RuntimeError("Hindsight returned an invalid profile inventory")
+            known = len(previous_documents)
             for item in items:
                 if not isinstance(item, dict) or not str(item.get("id") or "").strip():
                     raise RuntimeError("Hindsight returned an invalid profile document")
                 previous_documents.add(str(item["id"]))
-            if len(items) < 100:
+            # A short page ends the inventory; so does a page with no new IDs,
+            # which a service that ignores offset would repeat indefinitely.
+            if (
+                len(items) < PROFILE_INVENTORY_PAGE_SIZE
+                or len(previous_documents) == known
+            ):
                 break
             offset += len(items)
 
