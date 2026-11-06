@@ -781,3 +781,36 @@ def test_autonomous_worker_crash_never_replays_a_dispatched_backend_request():
                 replacement.redis.delete(*keys)
         stopped.redis.close()
         replacement.redis.close()
+
+
+def test_autonomous_legacy_claim_without_a_phase_is_interrupted_not_replayed():
+    """Older workers left claims with no dispatch phase: never run them again."""
+    store = RedisStore(os.environ["REDIS_URL"])
+    user_id = f"legacy-claim-itest-{uuid.uuid4().hex}"
+    processing_key = autonomy_key(user_id, "processing")
+    try:
+        legacy = json.dumps({"id": "legacy", "trigger": "manual"})
+        queued = json.dumps({"id": "queued", "trigger": "manual"})
+        store.redis.lpush(processing_key, legacy)
+        store.redis.lpush(autonomy_key(user_id, "queue"), queued)
+        store.redis.set(
+            autonomy_key(user_id, "runs"),
+            json.dumps([{"id": "run-legacy", "status": "running"}]),
+        )
+        assert store.acquire_lease(user_id, ttl_seconds=30)
+
+        assert store.reclaim_processing(user_id) == 1
+
+        assert store.redis.llen(processing_key) == 0
+        assert not store.redis.exists(autonomy_key(user_id, "processing_state"))
+        # Only the request that never reached a worker remains queued.
+        assert store.redis.lrange(autonomy_key(user_id, "queue"), 0, -1) == [queued]
+        (run,) = store.list_runs(user_id)
+        assert run["status"] == "aborted"
+        assert "will not be retried automatically" in run["summary"]
+    finally:
+        try:
+            for redis_key in store.redis.scan_iter(match=f"autonomy:{user_id}:*"):
+                store.redis.delete(redis_key)
+        finally:
+            store.redis.close()

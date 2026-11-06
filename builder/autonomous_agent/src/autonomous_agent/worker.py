@@ -45,6 +45,10 @@ MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = 6900
 CANCEL_POLL_SECONDS = 1.0
 
 
+class _InterruptedBeforeDispatch(Exception):
+    """The run was stopped before its backend request was fenced as started."""
+
+
 def log(message: str) -> None:
     print(f"[autonomy] {time.strftime('%Y-%m-%d %H:%M:%S')} {message}", flush=True)
 
@@ -245,8 +249,12 @@ def run_once(
             request=request,
             exploration=exploration,
         )
-        store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
+        if abort is not None and abort.is_set():
+            # Stop, shutdown or a lost lease arrived before dispatch. Leave the
+            # claim undispatched so recovery can prove it safe to run again.
+            raise _InterruptedBeforeDispatch
+        store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         # The fence is the no-replay guarantee for every caller, not only the
         # lease-heartbeat path.
         store.mark_backend_started(user_id)
@@ -302,8 +310,6 @@ def run_once(
         stored_items = store.append_feed_items(
             user_id, feed_items, require_lease=abort is not None
         )
-        if stored_items is None:  # defensive: legacy stores returned None
-            stored_items = feed_items
         deduped = max(0, len(feed_items) - len(stored_items))
 
         run["status"] = "completed"
@@ -327,6 +333,24 @@ def run_once(
                 "workspaceUpdated": changed,
             },
         )
+        return run
+    except _InterruptedBeforeDispatch:
+        if store.cancel_requested(user_id, run["id"]):
+            run["status"] = "cancelled"
+            run["summary"] = "Run cancelled before its request reached the backend."
+            event = "run_cancelled"
+        else:
+            # "aborted" keeps the claim in processing, where recovery finds it
+            # still undispatched and queues it again.
+            run["status"] = "aborted"
+            run["summary"] = (
+                "Run was interrupted before its request reached the backend. "
+                "The request will be queued again."
+            )
+            event = "run_aborted"
+        run["completedAt"] = now_ms()
+        store.upsert_run(user_id, run)
+        store.log_event(user_id, run["id"], event, run["summary"], level="warn")
         return run
     except WorkerLeaseLost:
         run["status"] = "aborted"

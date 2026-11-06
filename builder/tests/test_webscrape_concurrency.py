@@ -208,3 +208,96 @@ def test_research_mode_requires_operator_opt_in():
             await registry.close()
 
     asyncio.run(exercise())
+
+
+def _robots_fixture(monkeypatch, responder):
+    """Count robots.txt requests while every article is a cache hit."""
+    import httpx
+
+    requests = []
+
+    async def fake_get(client, url, **_kwargs):
+        requests.append(url)
+        return await responder(url, httpx)
+
+    async def article(self, url, **_kwargs):
+        return SimpleNamespace(
+            url=url,
+            markdown=f"# Fixture\n\n_Source: {url}_\n\nBody.",
+            fetched_at="2026-11-06T00:00:00Z",
+        ), "hit"
+
+    monkeypatch.setattr(scrape, "_get_following_safe_redirects", fake_get)
+    monkeypatch.setattr(PublicContentSession, "article", article)
+    monkeypatch.setattr(scrape, "_truncate_to_token_limit", lambda s, *a: (s, False))
+    return requests
+
+
+async def _scrape_all(urls, *, concurrent=False, **config):
+    registry = ToolRegistry({"functions": {"scrape": {"_type": "webscrape", **config}}})
+    try:
+        tool = await registry.get_function("scrape")
+        calls = [tool.ainvoke({"url": url}) for url in urls]
+        if concurrent:
+            return await asyncio.gather(*calls)
+        return [await call for call in calls]
+    finally:
+        await registry.close()
+
+
+def test_robots_policy_is_fetched_once_per_origin(monkeypatch):
+    async def allow(url, httpx):
+        return httpx.Response(
+            200,
+            text="User-agent: *\nDisallow: /private\n",
+            request=httpx.Request("GET", url),
+        )
+
+    requests = _robots_fixture(monkeypatch, allow)
+    urls = ["https://news.test/a", "https://news.test/b", "https://news.test/private/x"]
+    results = asyncio.run(_scrape_all(urls))
+
+    assert requests == ["https://news.test/robots.txt"]
+    assert "cache: hit" in results[0] and "cache: hit" in results[1]
+    # The cached parser still decides each path.
+    assert results[2].startswith("Error:") and "disallows" in results[2]
+
+
+def test_concurrent_scrapes_share_one_robots_fetch(monkeypatch):
+    async def slow_allow(url, httpx):
+        await asyncio.sleep(0.05)
+        return httpx.Response(404, request=httpx.Request("GET", url))
+
+    requests = _robots_fixture(monkeypatch, slow_allow)
+    urls = [f"https://news.test/{index}" for index in range(4)]
+    results = asyncio.run(_scrape_all(urls, concurrent=True, max_concurrency=4))
+
+    assert requests == ["https://news.test/robots.txt"]
+    assert all("cache: hit" in result for result in results)
+
+
+def test_transient_robots_failures_are_not_cached(monkeypatch):
+    async def unavailable(url, httpx):
+        return httpx.Response(503, request=httpx.Request("GET", url))
+
+    requests = _robots_fixture(monkeypatch, unavailable)
+    results = asyncio.run(_scrape_all(["https://news.test/a", "https://news.test/b"]))
+
+    assert len(requests) == 2
+    assert all("cache: hit" in result for result in results)
+
+
+def test_slow_robots_fetch_is_bounded_by_the_scrape_timeout(monkeypatch):
+    import time
+
+    async def stalled(url, httpx):
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+    _robots_fixture(monkeypatch, stalled)
+    started = time.perf_counter()
+    # The configured minimum deadline; the stalled peer would take 30 s.
+    (result,) = asyncio.run(_scrape_all(["https://slow.test/a"], timeout=5))
+
+    assert time.perf_counter() - started < 10
+    assert result.startswith("Error:"), result

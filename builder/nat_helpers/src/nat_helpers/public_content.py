@@ -98,8 +98,6 @@ class PublicArticle:
     url: str
     markdown: str
     fetched_at: str
-    etag: str | None = None
-    last_modified: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -294,8 +292,6 @@ class PublicContentSession:
             url=url,
             markdown=markdown,
             fetched_at=fetched_at,
-            etag=response.headers.get("etag"),
-            last_modified=response.headers.get("last-modified"),
         )
         ttl = _cache_ttl(response.headers, self.ttl)
         size = len(markdown.encode("utf-8"))

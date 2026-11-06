@@ -640,42 +640,25 @@ def parse_structured_output(text: str) -> dict[str, Any]:
 
 
 def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str, Any]]:
-    items = output.get("feed_items")
-    if not isinstance(items, list):
-        return []
+    """Convert validated ``parse_structured_output`` results to feed records.
 
-    result: list[dict[str, Any]] = []
-    for item in items[:2]:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title") or "").strip()
-        bluf = str(item.get("bluf") or "").strip()
-        if not title and not bluf:
-            continue
-        result.append(
-            new_feed_item(
-                run_id=run_id,
-                lane=str(item.get("lane") or "known").strip().lower(),
-                title=title or "Untitled finding",
-                bluf=bluf or title,
-                body=str(item.get("body") or "").strip(),
-                source_url=str(
-                    item.get("source_url") or item.get("sourceUrl") or ""
-                ).strip(),
-                thread_key=str(
-                    item.get("thread_key") or item.get("threadKey") or ""
-                ).strip(),
-                is_update=item.get("is_update") is True or item.get("isUpdate") is True,
-                update_of=str(
-                    item.get("update_of") or item.get("updateOfFeedItemId") or ""
-                ).strip(),
-                change_summary=str(
-                    item.get("change_summary") or item.get("changeSummary") or ""
-                ).strip(),
-                confidence=str(item.get("confidence") or "medium").strip().lower(),
-                confidence_reason=str(
-                    item.get("confidence_reason") or item.get("confidenceReason") or ""
-                ).strip(),
-            )
+    The publication model has already enforced the field names, types, enums,
+    non-blank title/BLUF and the two-item limit.
+    """
+    return [
+        new_feed_item(
+            run_id=run_id,
+            lane=item["lane"],
+            title=item["title"],
+            bluf=item["bluf"],
+            body=item["body"],
+            source_url=item["source_url"],
+            thread_key=item["thread_key"],
+            is_update=item["is_update"],
+            update_of=item["update_of"],
+            change_summary=item["change_summary"],
+            confidence=item["confidence"],
+            confidence_reason=item["confidence_reason"],
         )
-    return result
+        for item in output["feed_items"]
+    ]

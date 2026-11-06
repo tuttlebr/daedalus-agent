@@ -224,34 +224,58 @@ def test_runtime_schema_rejects_results_that_publication_rejects(output):
     assert parse_structured_output(json.dumps(accepted))["summary"] == "Done."
 
 
-def test_feed_items_from_output_limits_and_normalizes():
-    output = {
-        "feed_items": [
+def test_feed_items_from_output_maps_the_validated_contract():
+    # Production converts only parse_structured_output results, so feed the
+    # same validated shape instead of input the publication contract rejects.
+    output = parse_structured_output(
+        json.dumps(
             {
-                "lane": "Known",
-                "title": "Primary source moved",
-                "bluf": "The topology changed.",
-                "body": "Worth tracking.",
-                "source_url": "https://example.com",
-                "thread_key": "example-thread",
-                "is_update": True,
-                "update_of": "prior-item",
-                "change_summary": "The topology now has a second region; previously it had one.",
-                "confidence": "High",
-                "confidence_reason": "Primary source.",
+                "summary": "Tracked topology change.",
+                "feed_items": [
+                    {
+                        "lane": "known",
+                        "title": "  Primary source moved ",
+                        "bluf": "The topology changed.",
+                        "body": "Worth tracking.",
+                        "source_url": "https://example.com",
+                        "thread_key": "example-thread",
+                        "is_update": True,
+                        "update_of": "prior-item",
+                        "change_summary": "The topology now has a second region; previously it had one.",
+                        "confidence": "high",
+                        "confidence_reason": "Primary source.",
+                    },
+                    {"title": "Second", "bluf": "Independent finding."},
+                ],
             }
-        ]
-    }
+        )
+    )
 
     items = feed_items_from_output("run-1", output)
 
-    assert len(items) == 1
+    assert len(items) == 2
     assert items[0]["lane"] == "known"
+    assert items[0]["title"] == "Primary source moved"
     assert items[0]["sourceUrl"] == "https://example.com"
     assert items[0]["threadKey"] == "example-thread"
     assert items[0]["isUpdate"] is True
     assert items[0]["updateOfFeedItemId"] == "prior-item"
     assert items[0]["changeSummary"] == output["feed_items"][0]["change_summary"]
+    assert items[0]["confidence"] == "high"
+    # Defaults stay off the stored record.
+    assert items[1]["lane"] == "known"
+    assert items[1]["confidence"] == "medium"
+    assert not {"threadKey", "isUpdate", "updateOfFeedItemId"} & items[1].keys()
+
+
+def test_structured_output_rejects_feed_items_outside_the_contract():
+    for item in (
+        {"title": "T", "bluf": "B", "lane": "Known"},
+        {"title": "T", "bluf": "B", "sourceUrl": "https://example.com"},
+        {"title": " ", "bluf": "B"},
+    ):
+        with pytest.raises(ValueError):
+            parse_structured_output(json.dumps({"summary": "S", "feed_items": [item]}))
 
 
 def test_apply_workspace_updates_only_allows_known_mutable_sections():

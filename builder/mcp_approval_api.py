@@ -50,31 +50,60 @@ def create_mcp_approval_router() -> APIRouter:
             raise HTTPException(
                 409, "Direct execution is limited to approval-gated operations"
             )
-        valid, _ = await asyncio.to_thread(
-            validate_approval_token,
-            make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
+        invalid = HTTPException(
+            409, "Exact MCP approval credential is missing or invalid"
+        )
+        # Keep the two identity components distinct, as Rust does. The call
+        # name is "{server}__{tool}", so a separator in the server name would
+        # redirect a valid credential to a different operation; "connect" is
+        # discovery, never an approved operation.
+        if (
+            "__" in body.server_name
+            or body.tool_name == "connect"
+            or body.server_name not in request.app.state.mcp.groups
+        ):
+            raise invalid
+        redis_client = make_redis_client(os.getenv("APPROVAL_REDIS_URL"))
+
+        def check(*, consume: bool) -> bool:
+            valid, _ = validate_approval_token(
+                redis_client,
+                user_id=user,
+                token=request.headers.get("x-daedalus-approval-token", ""),
+                action_type="mcp_mutation",
+                server_name=body.server_name,
+                tool_name=body.tool_name,
+                arguments_sha256=body.arguments_sha256,
+                consume=consume,
+            )
+            return valid
+
+        if not await asyncio.to_thread(check, consume=False):
+            raise invalid
+        # Exact execution always spends its credential, including for an
+        # operation whose policy changed to auto-approve after issuance, so a
+        # credential can never execute twice. Consumption is atomic; a
+        # concurrent duplicate request loses here.
+        if not await asyncio.to_thread(check, consume=True):
+            raise invalid
+        with approval.consumed_execution_scope(
             user_id=user,
-            token=request.headers.get("x-daedalus-approval-token", ""),
-            action_type="mcp_mutation",
             server_name=body.server_name,
             tool_name=body.tool_name,
-            arguments_sha256=body.arguments_sha256,
-            consume=False,
-        )
-        if not valid:
-            raise HTTPException(
-                409, "Exact MCP approval credential is missing or invalid"
-            )
-        record = request.app.state.executions.start(user, body, arguments)
+            arguments=arguments,
+        ):
+            record = request.app.state.executions.start(user, body, arguments)
         try:
             await asyncio.wait_for(record.first_outcome.wait(), timeout=130)
         except TimeoutError:
             pass
+        # Same mapping as the Rust route: only a failure is 422; running,
+        # OAuth-pending and cancelled records are reported with 202.
         status = (
             200
             if record.status == "completed"
             else 422
-            if record.status in ("failed", "cancelled")
+            if record.status == "failed"
             else 202
         )
         return JSONResponse(record.payload(initial=True), status_code=status)

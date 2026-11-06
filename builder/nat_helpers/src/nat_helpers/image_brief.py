@@ -275,7 +275,11 @@ def _inherit_settings(
     altered, so an explicit invalid combination is still reported."""
     inherited = dict(inherited)
     output_format = requested.get("output_format")
-    if inherited.get("output_format") == "gif" and output_format not in (None, "gif"):
+    still_requested = output_format not in (None, "gif") or (
+        # A transparent background needs a still PNG/WebP output.
+        output_format is None and requested.get("background") == "transparent"
+    )
+    if inherited.get("output_format") == "gif" and still_requested:
         # A still output keeps neither animation settings nor a GIF frame size.
         for key in ("output_format", "frame_count", "frame_duration_ms", "size"):
             inherited.pop(key, None)

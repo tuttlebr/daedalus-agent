@@ -159,6 +159,42 @@ def test_reference_resolving_to_private_address_is_rejected(public_dns):
     assert public_dns == ["wiki.internal.test"]
 
 
+@pytest.mark.parametrize("with_references", [True, False])
+def test_dns_failure_keeps_a_ledgered_citation_with_a_warning(
+    monkeypatch, with_references
+):
+    """An audit fetches nothing; an unavailable resolver is not an unsafe host."""
+
+    def unavailable(host, *_args, **_kwargs):
+        raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in resolution")
+
+    monkeypatch.setattr(socket, "getaddrinfo", unavailable)
+    url = "https://developer.nvidia.com/cuda-toolkit"
+
+    async def scenario():
+        audit = await _audit_fn()
+        answer = (
+            f"CUDA supports GPU acceleration [1].\n\n**References:**\n- [1] NVIDIA CUDA - {url}"
+            if with_references
+            else f"CUDA supports GPU acceleration ({url})."
+        )
+        return json.loads(
+            await audit(
+                answer_markdown=answer,
+                source_urls_json=json.dumps([url]),
+                require_references=with_references,
+            )
+        )
+
+    result = run(scenario())
+    assert result["passed"] is True
+    assert result["invalid_citations"] == []
+    if with_references:
+        assert result["valid_citations"] == [{"number": 1, "url": url}]
+        assert "[1]" in result["repaired_markdown"]
+    assert f"unresolved_host: {url}" in result["warnings"]
+
+
 @pytest.mark.parametrize(
     "second_url",
     [

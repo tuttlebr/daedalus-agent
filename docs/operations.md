@@ -224,7 +224,10 @@ scrapes (integer 1–8, default 1). The shipped workflow enables two verificatio
 and four scrapes. Set either to `1` to restore its serial dispatch;
 `workflow.parallel_tool_calls: false` serializes all dispatch within each run.
 Each Python tool instance also enforces its limit across concurrent runs. Scrape
-admission covers robots checks, retrieval and conversion. Other stateful tools
+admission and the configured timeout cover robots checks, retrieval and
+conversion. Each scrape tool instance caches an origin's robots policy for ten
+minutes and shares one in-flight fetch per origin; transport failures and
+server errors are not cached. Other stateful tools
 retain their existing serialization. `make migration` includes the built-image
 retrieval, result-binding, concurrency, steering, and cancellation checks in
 `builder/migration/leaf_check.py`.

@@ -7,6 +7,8 @@ import logging
 import math
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -510,6 +512,29 @@ def _create_mcp_approval_marker(
     return register_approval_marker(marker)
 
 
+# Set only by the owner-authenticated execute route after it has consumed the
+# exact credential, as Rust's execution path consumes before calling the tool.
+_consumed_execution: ContextVar[tuple[str, str, str, str] | None] = ContextVar(
+    "daedalus_consumed_mcp_execution", default=None
+)
+
+
+@contextmanager
+def consumed_execution_scope(
+    *, user_id: str, server_name: str, tool_name: str, arguments: dict
+):
+    """Authorize exactly one already-consumed call for tasks started inside."""
+
+    logical_server, normalized_tool = _mcp_policy_target(server_name, tool_name)
+    token = _consumed_execution.set(
+        (user_id, logical_server, normalized_tool, _canonical_mcp_call(arguments)[1])
+    )
+    try:
+        yield
+    finally:
+        _consumed_execution.reset(token)
+
+
 def _validate_mcp_approval(
     tool_name: str,
     payload: dict,
@@ -566,6 +591,18 @@ def _validate_mcp_approval(
             "authenticated approval context is required before an execution "
             "credential can be created"
         )
+    consumed = _consumed_execution.get()
+    if consumed is not None:
+        # The execute route already spent the credential for this exact call;
+        # never spend or reuse it again, and never authorize a different call.
+        logical_server, normalized_tool = _mcp_policy_target(server_name, tool_name)
+        try:
+            arguments_sha256 = _canonical_mcp_call(payload, input_schema)[1]
+        except Exception:
+            return False, "approval validation is unavailable"
+        if consumed == (user_id, logical_server, normalized_tool, arguments_sha256):
+            return True, "approved"
+        return False, "approval credential does not match this operation"
     token = str(approval_token or "").strip()
     if not token:
         from nat_helpers.autonomous_llm import is_authenticated_autonomy_request

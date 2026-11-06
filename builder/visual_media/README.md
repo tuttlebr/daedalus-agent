@@ -183,10 +183,10 @@ prompts, the brief, effective parameters, ordered parent references, skill hash,
 and assistance status. Completed JSON/SSE responses carry that context into job
 status and history. Follow-up edits inherit the selected primary image's output
 settings; a complete new brief replaces obsolete preservation/text constraints.
-The latest user request takes precedence: a still format drops inherited
-animation settings and GIF frame size, GIF output drops an inherited transparent
-background, and an inherited frame count above the image-to-GIF limit of 16 is
-reduced to it. Settings proposed by Create's prompt assistance that would make
+The latest user request takes precedence: a still format, or a transparent
+background without a format, drops inherited animation settings and GIF frame
+size, GIF output drops an inherited transparent background, and an inherited
+frame count above the image-to-GIF limit of 16 is reduced to it. Settings proposed by Create's prompt assistance that would make
 the request invalid are discarded; explicit invalid settings return their
 validation message in Create and chat. Chat edits use full-resolution edit
 sources, never the smaller vision-analysis derivative.

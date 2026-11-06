@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from nat_helpers.safe_http import _PinnedPublicAsyncBackend, get_public_response_async
 from nat_helpers.url_guard import (
+    UnresolvableHostError,
     UnsafeURLError,
     resolve_public_addresses,
     validate_public_url,
@@ -126,6 +127,31 @@ class TestValidatePublicURL:
 
         with pytest.raises(UnsafeURLError, match="non-public"):
             resolve_public_addresses("mixed.example")
+
+    @pytest.mark.parametrize("answer", ["error", "empty"])
+    def test_unresolvable_host_stays_unsafe_but_is_distinguishable(
+        self, monkeypatch, answer
+    ):
+        def _resolve(*_args, **_kwargs):
+            if answer == "error":
+                raise socket.gaierror(socket.EAI_AGAIN, "temporary failure")
+            return []
+
+        monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+        # Fetching callers catch UnsafeURLError, so they still fail closed.
+        with pytest.raises(UnresolvableHostError) as raised:
+            validate_public_url("https://down.example/", check_dns=True)
+        assert isinstance(raised.value, UnsafeURLError)
+
+    def test_private_resolution_is_not_reported_as_unresolvable(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_a, **_k: [(socket.AF_INET, None, None, "", ("10.0.0.4", 0))],
+        )
+        with pytest.raises(UnsafeURLError) as raised:
+            resolve_public_addresses("internal.example")
+        assert not isinstance(raised.value, UnresolvableHostError)
 
 
 class TestPinnedPublicTransport:

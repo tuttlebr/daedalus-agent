@@ -626,6 +626,13 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     emitted_result = True
                 await queue.put({"event": event, "data": data})
 
+            def executor_state():
+                return {
+                    "attempts": dict(run.artifacts.attempts),
+                    "briefing_execution": run.artifacts.briefing_execution,
+                    "nonretryable_mcp_results": run.artifacts.nonretryable_mcp_results,
+                }
+
             async def invoke():
                 try:
                     await invoke_once()
@@ -635,16 +642,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     # escape) must still terminate the stream instead of
                     # leaving heartbeats running until the runtime's deadline.
                     if not emitted_result:
-                        with contextlib.suppress(asyncio.QueueFull):
-                            queue.put_nowait(
-                                {
-                                    "event": "result",
-                                    "data": {
-                                        "content": "Tool failed (RuntimeError). Check its arguments and service availability.",
-                                        "is_error": True,
-                                    },
-                                }
+                        data = {
+                            "content": "Tool failed (RuntimeError). Check its arguments and service availability.",
+                            "is_error": True,
+                        }
+                        if explicit:
+                            # Explicit callers store this state for the next
+                            # call; never hand them a missing state.
+                            data.update(
+                                loaded_skills=[], executor_state=executor_state()
                             )
+                        with contextlib.suppress(asyncio.QueueFull):
+                            queue.put_nowait({"event": "result", "data": data})
 
             async def invoke_once():
                 started = time.monotonic()
@@ -694,11 +703,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     )
                     if explicit:
                         result.setdefault("loaded_skills", [])
-                        result["executor_state"] = {
-                            "attempts": dict(run.artifacts.attempts),
-                            "briefing_execution": run.artifacts.briefing_execution,
-                            "nonretryable_mcp_results": run.artifacts.nonretryable_mcp_results,
-                        }
+                        result["executor_state"] = executor_state()
                     await emit("result", result)
 
             task = asyncio.create_task(invoke())
@@ -745,10 +750,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
         # state and returns only the state needed for the next invocation.
         artifacts = AgentRun()
         state = body.context.executor_state
-        artifacts.attempts = Counter(state.get("attempts", {}))
-        artifacts.briefing_execution = dict(state.get("briefing_execution", {}))
+        # A member can be null after an older runtime stored a failed call's
+        # state; treat it as empty instead of failing every later call.
+        artifacts.attempts = Counter(state.get("attempts") or {})
+        artifacts.briefing_execution = dict(state.get("briefing_execution") or {})
         artifacts.nonretryable_mcp_results = dict(
-            state.get("nonretryable_mcp_results", {})
+            state.get("nonretryable_mcp_results") or {}
         )
         run = RunContext(
             user,

@@ -25,6 +25,15 @@ class UnsafeURLError(ValueError):
     """Raised when a URL targets a disallowed scheme or non-public address."""
 
 
+class UnresolvableHostError(UnsafeURLError):
+    """DNS gave no answer, so the target address is unknown, not proven internal.
+
+    Fetching callers must still refuse the URL (it inherits ``UnsafeURLError``).
+    Checks that make no request can distinguish an unavailable resolver from a
+    host that resolves to a non-public address.
+    """
+
+
 def _ip_is_public(ip: str) -> bool:
     try:
         addr = ipaddress.ip_address(ip)
@@ -63,11 +72,11 @@ def resolve_public_addresses(host: str) -> tuple[str, ...]:
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise UnsafeURLError(f"Could not resolve host '{host}': {exc}") from exc
+        raise UnresolvableHostError(f"Could not resolve host '{host}': {exc}") from exc
 
     addresses = tuple(dict.fromkeys(info[4][0] for info in infos))
     if not addresses:
-        raise UnsafeURLError(f"Host '{host}' did not resolve to any address.")
+        raise UnresolvableHostError(f"Host '{host}' did not resolve to any address.")
     for ip in addresses:
         if not _ip_is_public(ip):
             # The message reaches the model through tool output; name the

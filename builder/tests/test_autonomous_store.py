@@ -8,7 +8,14 @@ from autonomous_agent.store import RedisStore, key
 
 
 class _FakeRedis:
-    """Minimal in-memory Redis list emulation for queue mechanics."""
+    """Minimal in-memory Redis list emulation for queue mechanics.
+
+    ``eval`` selects a Python re-implementation by matching script text; it
+    never runs the Lua. These tests therefore do not validate the reclaim,
+    dispatch-fence or acknowledgement scripts themselves. The real scripts are
+    exercised against Redis in tests/test_integration_redis.py
+    (``make test-integration``).
+    """
 
     def __init__(self):
         self.lists: dict[str, list[str]] = {}
@@ -101,6 +108,12 @@ class _FakeRedis:
                 return 0
             self.lrem(processing_key, 1, raw)
             self.hashes.setdefault(state_key, {}).pop(raw, None)
+            return 1
+        if "redis.call('SET', KEYS[2]" in script:
+            lease_key, target_key, token, value = args
+            if self.kv.get(lease_key) != token:
+                return 0
+            self.kv[target_key] = value
             return 1
         assert num_keys == 1
         redis_key, token, *_rest = args
@@ -1094,3 +1107,71 @@ def test_reclaim_summary_says_a_requeued_request_runs_again():
     assert "queued again" in run["summary"]
     assert "will not be retried" not in run["summary"]
     assert request["id"] == "req-2"
+
+
+def test_stop_before_dispatch_leaves_the_claim_requeueable(monkeypatch):
+    """A shutdown observed before dispatch must not fence the claim as started.
+
+    The backend was never contacted, so recovery must queue the request again
+    instead of dropping it as possibly dispatched.
+    """
+    import threading
+
+    from autonomous_agent import worker
+
+    store = _store()
+    assert store.acquire_lease("u")
+    raw = json.dumps({"id": "r1", "trigger": "manual", "prompt": "check"})
+    store.redis.lpush(key("u", "queue"), raw)
+    request = store.dequeue("u", timeout=0)
+
+    class Backend:
+        calls = 0
+
+        def call(self, *_args, **_kwargs):
+            Backend.calls += 1
+            raise AssertionError("an interrupted run must not dispatch")
+
+    abort = threading.Event()
+    abort.set()  # The heartbeat observed SIGTERM before dispatch.
+    monkeypatch.setattr(worker, "SHUTDOWN", threading.Event())
+    worker.SHUTDOWN.set()
+    run = worker.run_once(
+        store=store, backend=Backend(), user_id="u", request=request, abort=abort
+    )
+
+    assert Backend.calls == 0
+    assert run["status"] == "aborted"
+    assert "queued again" in run["summary"]
+    assert store.redis.hgetall(key("u", "processing_state")) == {raw: "claimed"}
+    # The worker loop skips complete() for aborted runs; a replacement
+    # reclaims the still-undispatched claim and runs it again.
+    store.redis.delete(key("u", "lease"))
+    replacement = RedisStore()
+    replacement.redis = store.redis
+    assert replacement.acquire_lease("u")
+    assert replacement.reclaim_processing("u") == 1
+    assert replacement.dequeue("u", timeout=0) == json.loads(raw)
+
+
+def test_dashboard_stop_before_dispatch_is_recorded_as_cancelled():
+    import threading
+
+    from autonomous_agent import worker
+
+    store = _store()
+    assert store.acquire_lease("u")
+    store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+    request = store.dequeue("u", timeout=0)
+    store.cancel_requested = lambda _user, _run: True
+    abort = threading.Event()
+    abort.set()
+
+    class Backend:
+        def call(self, *_args, **_kwargs):
+            raise AssertionError("a cancelled run must not dispatch")
+
+    run = worker.run_once(
+        store=store, backend=Backend(), user_id="u", request=request, abort=abort
+    )
+    assert run["status"] == "cancelled"

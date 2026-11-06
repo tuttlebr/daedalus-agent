@@ -1139,3 +1139,51 @@ def test_non_bool_hint_does_not_override_exact_local_registry():
     )
     assert ok is True
     assert reason == "read-only"
+
+
+def test_consumed_execution_scope_authorizes_only_its_exact_call(monkeypatch):
+    from nat_helpers import identity
+
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _fallback: "alice",
+    )
+    payload = {"namespace": "production", "name": "api", "replicas": 3}
+    with mcp_patches.consumed_execution_scope(
+        user_id="alice",
+        server_name="restricted_mcp_server",
+        tool_name="scale_deployment",
+        arguments=payload,
+    ):
+        # The execute route already spent the credential: no second spend.
+        assert mcp_patches._validate_mcp_approval(
+            "scale_deployment", dict(payload), server_name="restricted_mcp_server"
+        ) == (True, "approved")
+        changed, reason = mcp_patches._validate_mcp_approval(
+            "scale_deployment",
+            {**payload, "replicas": 30},
+            server_name="restricted_mcp_server",
+        )
+        assert changed is False and "does not match" in reason
+        other, _ = mcp_patches._validate_mcp_approval(
+            "delete_deployment", dict(payload), server_name="restricted_mcp_server"
+        )
+        assert other is False
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _fallback: "mallory",
+    )
+    with mcp_patches.consumed_execution_scope(
+        user_id="alice",
+        server_name="restricted_mcp_server",
+        tool_name="scale_deployment",
+        arguments=payload,
+    ):
+        assert (
+            mcp_patches._validate_mcp_approval(
+                "scale_deployment", dict(payload), server_name="restricted_mcp_server"
+            )[0]
+            is False
+        )

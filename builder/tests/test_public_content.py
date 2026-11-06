@@ -56,7 +56,7 @@ def test_article_coalesces_fetch_conversion_and_expires(monkeypatch):
         assert one[0] is two[0]
         assert {one[1], two[1]} == {"miss", "coalesced"}
         assert len(calls) == fetch_mock.await_count == 1
-        assert one[0].fetched_at and one[0].etag == "v1"
+        assert one[0].fetched_at
         assert (
             await session.article(
                 "https://example.com/article", converter=lambda *_: "article"

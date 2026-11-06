@@ -1059,3 +1059,40 @@ def test_private_sandbox_requests_ignore_ambient_http_proxy(monkeypatch):
             await proxy.wait_closed()
 
     run(_run())
+
+
+def test_tool_instance_reuses_one_pooled_client_and_closes_it():
+    """A briefing render's sequential calls share one connection pool."""
+    import llm_sandbox.llm_sandbox_function as mod
+
+    created, closed = [], []
+
+    class PooledClient(FakeAsyncClient):
+        def __init__(self, base_url=None, **kwargs):
+            super().__init__(base_url=base_url, **kwargs)
+            created.append(self)
+
+        async def aclose(self):
+            closed.append(self)
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(),
+            execute_response(request_id="req-1"),
+            execute_response(request_id="req-2"),
+            execute_response(request_id="req-3"),
+        ]
+        with patch.object(mod.httpx, "AsyncClient", PooledClient):
+            generator = mod.llm_sandbox_function(sandbox_config(), MagicMock())
+            definition = await generator.__anext__()
+            for index in range(3):
+                assert f"req-{index + 1}" in await definition.fn(
+                    command=f"printf {index}"
+                )
+            assert closed == []
+            await generator.aclose()
+
+    run(_run())
+    assert len(created) == 1
+    assert closed == created

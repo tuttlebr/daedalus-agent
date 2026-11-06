@@ -84,7 +84,9 @@ run, validates its arguments, and serializes them as the final JSON response.
 Completion must be submitted alone after research tools finish. If the model
 answers in prose or malformed JSON, the runtime withholds that text and allows
 only the completion tool next, preserving completed evidence without repeating
-research or actions. The worker validates the result again before publishing;
+research or actions. Completion keeps two model rounds of its own, a submission
+and one argument correction, even when research used the last allowed iteration;
+model retries do not spend them. The worker validates the result again before publishing;
 invalid results fail without exposing raw model text. Interactive requests cannot
 enable this background completion contract.
 
@@ -283,7 +285,9 @@ domain retrieval, NVIDIA documentation, Perplexity, skills, sandbox and weather
 tools. It talks directly to their configured services.
 Python runs RSS, generic scraping, source verification, briefing rendering and
 visual media, and serves the image API and remaining public adapters behind the
-Rust proxy. The [ownership table](rust-migration.md#current-ownership) and
+Rust proxy. The briefing renderer calls its configured sandbox through the
+Python `llm_sandbox` adapter, so the Python sandbox client stays in use even
+though model sandbox calls are native Rust. The [ownership table](rust-migration.md#current-ownership) and
 `main.rs` route registrations identify the boundary.
 Internal tool endpoints require the shared internal credential and are blocked
 at the public Rust proxy. The block applies to the path actually forwarded, after
@@ -344,7 +348,8 @@ canonical arguments. A scheduled autonomy run has no user watching it, so the
 gate, in Rust and in the Python fallback, refuses an operation that would need
 approval instead of recording an approval nobody can answer. The refusal is an
 unexecuted-call error, and the run continues with its other work. If a run
-still ends at an approval boundary, the worker records it as a blocked run.
+still ends at an approval boundary, the worker records it as a failed run with
+an `approval_blocked` event.
 Uncertain remote mutations are never automatically retried.
 
 The shipped Kubernetes MCP group uses `approval_policy: auto_approve` for its

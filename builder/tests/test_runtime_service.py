@@ -33,3 +33,110 @@ def test_cleanup_report_accepts_partial_runtime_usage(monkeypatch, outcome):
     assert report.metrics["cached_tokens"] is None
     assert report.metrics["output_tokens"] == 12
     assert report.metrics["reported_input_tokens"] == 8
+
+
+class _App:
+    """Record route handlers; conftest replaces FastAPI with a MagicMock."""
+
+    def __init__(self, **_kwargs):
+        self.routes = {}
+        self.state = SimpleNamespace()
+
+    def _route(self, method, path):
+        return lambda handler: self.routes.setdefault((method, path), handler)
+
+    def post(self, path):
+        return self._route("POST", path)
+
+    def get(self, path):
+        return self._route("GET", path)
+
+    def delete(self, path):
+        return self._route("DELETE", path)
+
+    def add_middleware(self, *_args, **_kwargs):
+        pass
+
+
+class _Escape(BaseException):
+    """A non-Exception escape that bypasses the handler's own error result."""
+
+
+def _explicit_call(monkeypatch, call, executor_state):
+    import asyncio
+
+    monkeypatch.setitem(sys.modules, "redis.asyncio", SimpleNamespace(Redis=object))
+    import daedalus_runtime.service as service
+    import nat_helpers.front_end as front_end
+
+    monkeypatch.setattr(service, "FastAPI", _App)
+    monkeypatch.setattr(service, "StreamingResponse", lambda body, **_kw: body)
+    monkeypatch.setattr(service, "authenticated_user_id_from_context", lambda: "alice")
+    monkeypatch.setattr(front_end, "attach_daedalus_routes", lambda app: app)
+    app = service.create_app("/unused.yaml")
+    app.state.tools = SimpleNamespace(
+        workflow={"tools": ["leaf_tool"]},
+        mcp=SimpleNamespace(groups={}),
+        call=call,
+    )
+    handler = app.routes[("POST", "/runtime/v1/tools/call")]
+    body = service.ExplicitToolCall.model_validate(
+        {
+            "name": "leaf_tool",
+            "arguments": {},
+            "context": {
+                "version": 1,
+                "query": "q",
+                "available_tools": ["leaf_tool"],
+                "executor_state": executor_state,
+            },
+        }
+    )
+    request = SimpleNamespace(headers={}, app=app)
+
+    async def consume():
+        lines = []
+        stream = await handler(body, request)
+        try:
+            async for line in stream:
+                lines.append(json.loads(line))
+        except _Escape:
+            pass
+        return lines
+
+    return asyncio.run(consume())
+
+
+def test_null_executor_state_members_are_treated_as_empty(monkeypatch):
+    async def call(_body, run, _emit, *, explicit):
+        assert explicit and run.artifacts.briefing_execution == {}
+        return {"content": "ok"}
+
+    (event,) = _explicit_call(
+        monkeypatch,
+        call,
+        {
+            "attempts": None,
+            "briefing_execution": None,
+            "nonretryable_mcp_results": None,
+        },
+    )
+    assert event["event"] == "result"
+    assert event["data"]["executor_state"] == {
+        "attempts": {},
+        "briefing_execution": {},
+        "nonretryable_mcp_results": {},
+    }
+
+
+def test_fallback_terminal_result_returns_executor_state(monkeypatch):
+    async def call(_body, run, _emit, *, explicit):
+        run.artifacts.attempts["leaf_tool"] += 1
+        raise _Escape
+
+    (event,) = _explicit_call(monkeypatch, call, {"attempts": {"leaf_tool": 2}})
+    assert event["event"] == "result"
+    assert event["data"]["is_error"] is True
+    assert event["data"]["loaded_skills"] == []
+    # The caller stores this state for the next call of the tool.
+    assert event["data"]["executor_state"]["attempts"] == {"leaf_tool": 3}

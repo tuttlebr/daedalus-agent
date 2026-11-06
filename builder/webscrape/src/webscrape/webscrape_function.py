@@ -5,6 +5,9 @@ import mimetypes
 import os
 import re
 import tempfile
+import time
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from typing import Literal
 from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -367,15 +370,23 @@ def _describe_retrieval_failure(
 # ---------------------------------------------------------------------------
 
 
-async def _check_robots(
-    *,
-    url: str,
-    parsed_url: ParseResult,
+# A robots policy: ``None`` allows every path, a parser decides per URL, and a
+# string is the denial message for the whole origin.
+_RobotsPolicy = RobotFileParser | str | None
+_ROBOTS_CACHE_TTL_SECONDS = 600.0
+_ROBOTS_CACHE_MAX_ENTRIES = 256
+
+
+async def _load_robots_policy(
+    robots_url: str,
     client: httpx.AsyncClient,
-    user_agent: str,
     allowed_schemes: list[str] | None = None,
-) -> None:
-    robots_url = urljoin(f"{parsed_url.scheme}://{parsed_url.netloc}", "/robots.txt")
+) -> tuple[_RobotsPolicy, bool]:
+    """Fetch one origin's robots policy and whether it may be cached.
+
+    Transport failures and server errors proceed optimistically, as before,
+    but are not cached so the next scrape asks again.
+    """
     try:
         # Manually follow redirects so each hop is SSRF-validated (F-002a); the
         # client is configured with follow_redirects=False at the call site.
@@ -388,15 +399,16 @@ async def _check_robots(
             robots_url,
             exc,
         )
-        raise PermissionError(
-            "robots.txt redirected to a disallowed target; scraping is not permitted."
-        ) from exc
+        return (
+            "robots.txt redirected to a disallowed target; scraping is not permitted.",
+            True,
+        )
     except httpx.RequestError as exc:
         logger.warning("Failed to retrieve robots.txt from %s: %s", robots_url, exc)
-        return
+        return None, False
 
     if response.status_code in {401, 403}:
-        raise PermissionError("Access to robots.txt denied; scraping is not permitted.")
+        return "Access to robots.txt denied; scraping is not permitted.", True
 
     if response.status_code >= 500:
         logger.warning(
@@ -404,15 +416,107 @@ async def _check_robots(
             robots_url,
             response.status_code,
         )
-        return
+        return None, False
 
     if response.status_code == 404:
-        return
+        return None, True
 
     robots_parser = RobotFileParser()
     robots_parser.parse(response.text.splitlines())
+    return robots_parser, True
 
-    if not robots_parser.can_fetch(user_agent, url):
+
+class _RobotsPolicyCache:
+    """Per-tool robots policies: bounded, expiring and fetched once at a time.
+
+    Concurrent scrapes of one origin share a single fetch. That fetch has its
+    own deadline and is shielded from a waiter's cancellation, so one caller's
+    timeout cannot fail the others.
+    """
+
+    def __init__(
+        self,
+        *,
+        timeout: float,
+        ttl_seconds: float = _ROBOTS_CACHE_TTL_SECONDS,
+        max_entries: int = _ROBOTS_CACHE_MAX_ENTRIES,
+    ) -> None:
+        self.timeout = timeout
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._entries: OrderedDict[str, tuple[float, _RobotsPolicy]] = OrderedDict()
+        self._pending: dict[str, asyncio.Task] = {}
+
+    async def get(
+        self,
+        robots_url: str,
+        load: Callable[[], Awaitable[tuple[_RobotsPolicy, bool]]],
+    ) -> _RobotsPolicy:
+        entry = self._entries.get(robots_url)
+        if entry is not None:
+            if entry[0] > time.monotonic():
+                return entry[1]
+            del self._entries[robots_url]
+        task = self._pending.get(robots_url)
+        if task is None:
+            task = asyncio.create_task(self._bounded(load))
+            self._pending[robots_url] = task
+            task.add_done_callback(lambda done: self._finish(robots_url, done))
+        policy, _cacheable = await asyncio.shield(task)
+        return policy
+
+    async def _bounded(self, load) -> tuple[_RobotsPolicy, bool]:
+        try:
+            async with asyncio.timeout(self.timeout):
+                return await load()
+        except TimeoutError:
+            # Same outcome as a transport failure: proceed, do not cache.
+            logger.warning("robots.txt fetch exceeded %ss", self.timeout)
+            return None, False
+
+    def _finish(self, robots_url: str, task: asyncio.Task) -> None:
+        if self._pending.get(robots_url) is task:
+            del self._pending[robots_url]
+        if task.cancelled() or task.exception() is not None:
+            return
+        policy, cacheable = task.result()
+        if not cacheable:
+            return
+        self._entries[robots_url] = (time.monotonic() + self.ttl_seconds, policy)
+        self._entries.move_to_end(robots_url)
+        while len(self._entries) > self.max_entries:
+            self._entries.popitem(last=False)
+
+    async def aclose(self) -> None:
+        tasks = list(self._pending.values())
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._pending.clear()
+
+
+async def _check_robots(
+    *,
+    url: str,
+    parsed_url: ParseResult,
+    client: httpx.AsyncClient,
+    user_agent: str,
+    allowed_schemes: list[str] | None = None,
+    cache: _RobotsPolicyCache | None = None,
+) -> None:
+    robots_url = urljoin(f"{parsed_url.scheme}://{parsed_url.netloc}", "/robots.txt")
+
+    async def load():
+        return await _load_robots_policy(robots_url, client, allowed_schemes)
+
+    if cache is None:
+        policy, _cacheable = await load()
+    else:
+        policy = await cache.get(robots_url, load)
+
+    if isinstance(policy, str):
+        raise PermissionError(policy)
+    if policy is not None and not policy.can_fetch(user_agent, url):
         raise PermissionError(
             "robots.txt disallows accessing this URL with the configured user agent."
         )
@@ -521,6 +625,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
             transport=PublicAsyncHTTPTransport(),
             trust_env=False,
         ) as robots_client:
+            robots_policies = _RobotsPolicyCache(timeout=config.timeout)
 
             async def _fetch_response(url: str, output_mode: str) -> str:
                 """Return markdown from a bounded, anonymous public URL fetch."""
@@ -541,24 +646,24 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                 except (AttributeError, ValueError, UnsafeURLError) as exc:
                     return _format_error(str(exc))
 
-                if config.respect_robots_txt:
-                    try:
-                        with phase_timing("daedalus.webscrape.robots"):
-                            await _check_robots(
-                                url=url,
-                                parsed_url=parsed_url,
-                                client=robots_client,
-                                user_agent=config.user_agent,
-                                allowed_schemes=config.allowed_schemes,
-                            )
-                    except (PermissionError, UnsafeURLError) as exc:
-                        return _format_error(str(exc))
-
                 try:
-                    # Direct retrieval and its optional reader share one deadline
-                    # and admission slot. Reader results stay out of the direct
-                    # cache used by RSS and source verification.
+                    # The robots check, direct retrieval and the optional reader
+                    # share one deadline and admission slot. Reader results stay
+                    # out of the direct cache used by RSS and source verification.
                     async with asyncio.timeout(config.timeout):
+                        if config.respect_robots_txt:
+                            try:
+                                with phase_timing("daedalus.webscrape.robots"):
+                                    await _check_robots(
+                                        url=url,
+                                        parsed_url=parsed_url,
+                                        client=robots_client,
+                                        user_agent=config.user_agent,
+                                        allowed_schemes=config.allowed_schemes,
+                                        cache=robots_policies,
+                                    )
+                            except (PermissionError, UnsafeURLError) as exc:
+                                return _format_error(str(exc))
                         try:
                             article, cache_status = await content_session.article(
                                 url,
@@ -656,15 +761,22 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                 if config.enable_research_mode
                 else ""
             )
-            yield ToolDefinition.from_fn(
-                _research_response_fn if config.enable_research_mode else _response_fn,
-                description=config.description
-                or (
-                    "Scrape public web content and convert to markdown with source "
-                    "URL and fetch time. Uses bounded anonymous article caching and "
-                    "connection-time public DNS validation; document converters only "
-                    "receive local response files. Operator-enabled domains can use "
-                    "external Jina Reader when direct extraction is blocked or empty."
-                    + research_description
-                ),
-            )
+            try:
+                yield ToolDefinition.from_fn(
+                    _research_response_fn
+                    if config.enable_research_mode
+                    else _response_fn,
+                    description=config.description
+                    or (
+                        "Scrape public web content and convert to markdown with "
+                        "source URL and fetch time. Uses bounded anonymous article "
+                        "caching and connection-time public DNS validation; "
+                        "document converters only receive local response files. "
+                        "Operator-enabled domains can use external Jina Reader "
+                        "when direct extraction is blocked or empty."
+                        + research_description
+                    ),
+                )
+            finally:
+                # Stop shared robots fetches before their client closes.
+                await robots_policies.aclose()

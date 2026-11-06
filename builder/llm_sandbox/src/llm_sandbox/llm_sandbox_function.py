@@ -10,6 +10,7 @@ import os
 import re
 import time
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
@@ -805,6 +806,16 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     cached_capabilities: dict[str, Any] | None = None
     cache_expires_at = 0.0
+    # One pooled client per tool instance: a briefing render makes about a
+    # dozen sequential calls, which must not each open a new connection.
+    shared_client: httpx.AsyncClient | None = None
+
+    @asynccontextmanager
+    async def _client():
+        nonlocal shared_client
+        if shared_client is None:
+            shared_client = _internal_http_client(base_url=config.base_url)
+        yield shared_client
 
     async def _discover(
         client: httpx.AsyncClient, *, force: bool = False
@@ -892,7 +903,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
             )
 
         try:
-            async with _internal_http_client(base_url=config.base_url) as client:
+            async with _client() as client:
                 capabilities = await _discover(
                     client, force=operation == "list_commands"
                 )
@@ -1149,3 +1160,5 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
         logger.warning("Function exited early!")
     finally:
         logger.info("Cleaning up llm_sandbox function.")
+        if shared_client is not None:
+            await shared_client.aclose()

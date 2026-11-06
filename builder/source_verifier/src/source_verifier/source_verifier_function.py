@@ -43,7 +43,11 @@ from daedalus_runtime.tools import (
     register_tool,
 )
 from nat_helpers.public_content import PublicContentSession, public_content_session
-from nat_helpers.url_guard import UnsafeURLError, validate_public_url
+from nat_helpers.url_guard import (
+    UnresolvableHostError,
+    UnsafeURLError,
+    validate_public_url,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
 from webscrape.webscrape_function import (
@@ -894,12 +898,20 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
 
 
 def _safe_audit_url(url: str) -> tuple[bool, str | None]:
+    """Return ``(safe, reason)``; a safe URL may still carry a warning reason.
+
+    An audit fetches nothing. A resolver failure says nothing about whether
+    the host is internal, so it keeps the citation with an ``unresolved_host``
+    warning; a host that resolves to a non-public address is still rejected.
+    """
     try:
         parsed = urlparse(url.strip())
         hostname = (parsed.hostname or "").lower()
         if hostname in _PLACEHOLDER_HOSTS:
             return False, "placeholder_url"
         validate_public_url(url, check_dns=True)
+    except UnresolvableHostError:
+        return True, "unresolved_host"
     except ValueError as exc:
         return False, f"unsafe_url: {exc}"
     return True, None
@@ -1323,6 +1335,8 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 safe, reason = safety[url]
                 if not safe:
                     invalid.append({"reason": reason, "url": url})
+                elif reason:
+                    warnings.append(f"{reason}: {url}")
             return json.dumps(
                 {
                     "passed": not invalid,
@@ -1386,6 +1400,8 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                     }
                 )
                 continue
+            if reason:
+                warnings.append(f"{reason}: {url}")
             if source_urls_json.strip() and normalized not in allowed_norms:
                 invalid.append(
                     {

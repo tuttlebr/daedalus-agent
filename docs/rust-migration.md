@@ -21,6 +21,11 @@ profile and cannot establish production feature coverage.
 | Memory, profile import, document and collection HTTP APIs                                                                | Rust                         | Existing route, storage and browser compatibility checks                                                 |
 | Remaining public adapters                                                                                                | Python behind the Rust proxy | Preserve their existing routes and authentication                                                        |
 
+Model calls to the sandbox use the native Rust tool. Python briefing rendering
+still runs its configured `sandbox_tool` (`llm_sandbox_tool` in the shipped
+workflow) through the Python `llm_sandbox` adapter, which therefore remains a
+production path rather than rollback-only code.
+
 The Rust tool registry is in `builder/runtime/src/preparation.rs`; public route
 ownership is in `builder/runtime/src/main.rs`. A `rust-minimal` image also exists
 for configurations using only native tools. It does not support the complete

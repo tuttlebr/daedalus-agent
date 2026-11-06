@@ -457,6 +457,13 @@ def _parent(params, **brief):
             {"options": {"output_format": "gif"}},
             {"output_format": "gif"},
         ),
+        # A transparent background requests a still asset, so an inherited
+        # animation yields instead of rejecting the user's only choice.
+        (
+            {"output_format": "gif", "frame_count": 12, "size": "512x512"},
+            {"options": {"background": "transparent"}},
+            {"background": "transparent", "output_format": "png"},
+        ),
         # A long generated animation edits at the image-to-GIF frame limit.
         (
             {"output_format": "gif", "frame_count": 40},
