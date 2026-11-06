@@ -162,6 +162,19 @@ def test_stale_wrong_and_shadowing_entries_are_reported_and_repaired(tmp_path):
     assert (mirror / "two").is_dir() and not (mirror / "two").is_symlink()
 
 
+def test_unrelated_links_in_the_mirror_are_left_alone(tmp_path):
+    root = skill_repo(tmp_path / "repo", "one")
+    sync_module.sync(root)
+    mirror = root / ".claude/skills"
+    personal = tmp_path / "personal-skills/mine"
+    personal.mkdir(parents=True)
+    (mirror / "mine").symlink_to(personal)
+    (mirror / "relative").symlink_to("../../../other/skills/relative")
+    assert sync_module.sync(root, fix=False) == []
+    sync_module.sync(root)
+    assert (mirror / "mine").is_symlink() and (mirror / "relative").is_symlink()
+
+
 def test_personal_copies_are_reported(tmp_path):
     root = skill_repo(tmp_path / "repo", "one")
     home = tmp_path / "home"

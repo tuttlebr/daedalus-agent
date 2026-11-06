@@ -94,7 +94,7 @@ repos:
         always_run: true
       - id: bash-syntax-check
         name: Bash syntax check
-        entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --
+        entry: bash -c 'status=0; for path in "$@"; do bash -n "$path" || status=1; done; exit "$status"' --
         language: system
         # Select by identify type, not extension: executable scripts with a
         # shell shebang and no suffix are checked as well as *.sh files.

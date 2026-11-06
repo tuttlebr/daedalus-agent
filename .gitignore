@@ -16,7 +16,6 @@ autonomous-images/
 *.bak
 build/
 .cache/
-Cargo.lock
 .classpath
 .claude/
 clear-mem.sh

@@ -17,6 +17,15 @@ NUMBERED_AUTH_PATTERN = re.compile(
 MINIMUM_BCRYPT_COST = 12
 
 
+def _single_quoted(value: str) -> bool:
+    """Match `_env_value`: a closing quote may be followed only by a comment."""
+    closing = value.find("'", 1) if value.startswith("'") else -1
+    if closing == -1:
+        return False
+    rest = value[closing + 1 :].strip()
+    return not rest or rest.startswith("#")
+
+
 def find_unquoted_password_hashes(path: Path) -> list[str]:
     """Return configured hash keys that Compose would interpolate."""
     unquoted: list[str] = []
@@ -33,7 +42,7 @@ def find_unquoted_password_hashes(path: Path) -> list[str]:
             separator
             and value
             and PASSWORD_HASH_KEY_PATTERN.fullmatch(key)
-            and not (len(value) >= 2 and value[0] == value[-1] == "'")
+            and not _single_quoted(value)
         ):
             unquoted.append(key)
     return sorted(unquoted)

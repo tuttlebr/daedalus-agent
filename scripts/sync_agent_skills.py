@@ -57,7 +57,10 @@ def sync(root=ROOT, fix=True):
                 link.symlink_to(want)
         for link in sorted(directory.iterdir()) if directory.exists() else ():
             if link.is_symlink() and link.name not in names:
-                if SOURCE.name in os.readlink(link):
+                # Only links into this repository's skills are ours to prune;
+                # personal links in the same directory are left alone.
+                target = Path(os.path.normpath(directory / os.readlink(link)))
+                if target.parent == Path(os.path.normpath(root / SOURCE)):
                     problems.append(f"{mirror / link.name}: stale link")
                     if fix:
                         link.unlink()

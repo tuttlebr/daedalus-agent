@@ -38,14 +38,18 @@ def test_accepts_contiguous_numbered_users():
     assert count == 2
 
 
-def test_accepts_single_quoted_hash_source(tmp_path):
+@pytest.mark.parametrize("suffix", ["", " # rotated monthly", "  "])
+def test_accepts_single_quoted_hash_source(tmp_path, suffix):
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "AUTH_USER_1_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'\n",
+        "AUTH_USER_1_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'" + suffix + "\n",
         encoding="utf-8",
     )
 
     assert validate_auth_env.find_unquoted_password_hashes(env_path) == []
+    assert validate_auth_env.load_env(env_path)["AUTH_USER_1_PASSWORD_HASH"] == (
+        "$2b$12$" + "a" * 53
+    )
 
 
 @pytest.mark.parametrize(

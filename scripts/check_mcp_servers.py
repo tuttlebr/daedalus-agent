@@ -18,6 +18,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from validate_auth_env import load_env  # noqa: E402
+
 PROTOCOL_VERSION = "2025-03-26"
 CLIENT_INFO = {"name": "daedalus-mcp-preflight", "version": "0.1.0"}
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
@@ -99,37 +102,22 @@ def load_yaml(path: Path, _visited: set[Path] | None = None) -> dict[str, Any]:
 
 
 def load_env_file(path: Path | None) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if path is None or not path.exists():
-        return values
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        if "=" not in line:
-            continue
-
-        key, raw_value = line.split("=", 1)
-        key = key.strip()
-        value = raw_value.strip()
-        if not key:
-            continue
-        if value and value[0] in {"'", '"'}:
-            try:
-                parsed = shlex.split(value, comments=False, posix=True)
-                value = parsed[0] if parsed else ""
-            except ValueError:
-                value = value.strip("'\"")
-        values[key] = value
-    return values
+    """Read the env file exactly as deploy.sh does for the workload Secret."""
+    if path is None:
+        return {}
+    if not path.is_file():
+        raise CheckError(f"env file not found: {path}")
+    try:
+        return load_env(path)
+    except ValueError as exc:
+        raise CheckError(f"{path}: {exc}") from exc
 
 
 def merged_env(env_file: Path | None) -> dict[str, str]:
-    values = load_env_file(env_file)
-    values.update(os.environ)
+    # The deployed Secret holds the env file's values, so they win; the shell
+    # environment only fills names the file does not define.
+    values = dict(os.environ)
+    values.update(load_env_file(env_file))
     return values
 
 
@@ -769,9 +757,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    env = merged_env(args.env_file)
-
     try:
+        env = merged_env(args.env_file)
         config = load_yaml(args.config)
         servers = discover_mcp_servers(config, env)
     except CheckError as exc:

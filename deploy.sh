@@ -121,8 +121,13 @@ if [[ "$BACKEND_CONFIG" != /* ]]; then
 fi
 
 COMPOSE_CMD=(docker compose -f "$SCRIPT_DIR/docker-compose.yaml")
+MCP_PREFLIGHT_ENV_ARGS=()
 if [[ -f "$ENV_FILE" ]]; then
+  ENV_FILE="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
+  # Interpolation and the services' env_file entries read the same file.
+  export DAEDALUS_COMPOSE_ENV_FILE="$ENV_FILE"
   COMPOSE_CMD=(docker compose --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yaml")
+  MCP_PREFLIGHT_ENV_ARGS=(--env-file "$ENV_FILE")
 fi
 
 run() {
@@ -897,7 +902,7 @@ if [[ "$SKIP_MCP_PREFLIGHT" == false ]]; then
     # the temporary curl pod to the backend Service or its egress policy.
     run python3 "$SCRIPT_DIR/scripts/check_mcp_servers.py" \
       --config "$BACKEND_CONFIG" \
-      --env-file "$ENV_FILE" \
+      ${MCP_PREFLIGHT_ENV_ARGS[@]+"${MCP_PREFLIGHT_ENV_ARGS[@]}"} \
       --kubernetes-namespace "$NAMESPACE" \
       --kubernetes-secret "$RELEASE-backend-env" \
       --kubernetes-pod-label app.kubernetes.io/name=daedalus \

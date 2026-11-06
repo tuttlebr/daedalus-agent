@@ -499,3 +499,42 @@ def test_authenticated_cluster_probe_requires_kubernetes_secret():
         assert "--kubernetes-secret" in str(exc)
     else:
         raise AssertionError("authenticated probe should require a Secret")
+
+
+def test_env_file_is_read_like_the_deployed_secret(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "KUBERNETES_MCP_SERVER=http://mcp.local:8080/mcp # cluster server\n"
+        "MCP_TOKEN='literal$token' # quoted\n",
+        encoding="utf-8",
+    )
+    # An exported value must not mask what the Secret will actually contain.
+    monkeypatch.setenv("MCP_TOKEN", "shell-token")
+    monkeypatch.setenv("ONLY_IN_SHELL", "kept")
+    env = check_mcp_servers.merged_env(env_file)
+    assert env["KUBERNETES_MCP_SERVER"] == "http://mcp.local:8080/mcp"
+    assert env["MCP_TOKEN"] == "literal$token"
+    assert env["ONLY_IN_SHELL"] == "kept"
+
+
+def test_missing_or_invalid_env_file_fails_setup(tmp_path, monkeypatch):
+    monkeypatch.chdir(SCRIPT.parent.parent)
+    monkeypatch.setattr(
+        sys, "argv", [str(SCRIPT), "--env-file", str(tmp_path / "absent.env")]
+    )
+    assert check_mcp_servers.main() == 2
+    bad = tmp_path / "bad.env"
+    bad.write_text("TOKEN=unquoted$value\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--env-file", str(bad)])
+    assert check_mcp_servers.main() == 2
+
+
+def test_deploy_env_file_reaches_compose_services_and_preflight():
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    compose = (DEPLOY.parent / "docker-compose.yaml").read_text(encoding="utf-8")
+    # Compose's --env-file only feeds interpolation; services read env_file.
+    assert "${DAEDALUS_COMPOSE_ENV_FILE:-.env}" in compose
+    assert 'export DAEDALUS_COMPOSE_ENV_FILE="$ENV_FILE"' in deploy
+    # A missing env file is skipped, not passed to the preflight.
+    assert 'MCP_PREFLIGHT_ENV_ARGS=(--env-file "$ENV_FILE")' in deploy
+    assert '--env-file "$ENV_FILE" \\\n      --kubernetes-namespace' not in deploy
