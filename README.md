@@ -38,6 +38,7 @@ schedule. Use by two people does not establish suitability for a public service.
 | Understand tool execution and exact answers       | [Tool contracts](docs/tool-correctness.md)                                                                  |
 | Validate model or research changes                | [Evaluation guide](evaluation/tool-correctness/README.md), [Research workflows](docs/research-workflows.md) |
 | Review long-running workflows and recovery limits | [Workflow guide](docs/long-running-workflows.md)                                                            |
+| Use Daedalus from OpenAI or Anthropic clients     | [Compatibility API](docs/compatibility-api.md)                                                              |
 | Run isolated experiments with durable files       | [Sandbox exploration](docs/sandbox-exploration.md)                                                          |
 | Understand Rust ownership and rollback            | [Runtime compatibility](docs/rust-migration.md)                                                             |
 | Understand skill maintenance or image signing     | [Skill guidelines](skills/AGENTS.md), [Content Credentials](docs/content-credentials.md)                    |

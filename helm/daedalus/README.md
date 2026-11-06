@@ -283,6 +283,7 @@ or deployment.
 | `exploration.*`           | Exploration API endpoint/namespace, grant Secret and backend network access                                                                     |
 | `contextServices.espnMcp` | ESPN MCP namespace and port for backend egress (defaults: `daedalus`, `8000`); limited to pods labeled `app.kubernetes.io/name=espn-mcp-server` |
 | `nginx.*`                 | nginx deployment, direct backend routing, TLS, restricted mode                                                                                  |
+| `compatibilityApi.*`      | Opt-in OpenAI/Anthropic compatible routes, link origin, per-IP rate and timeouts; requires restricted mode                                      |
 | `redis.*`                 | Redis Stack deployment and persistence                                                                                                          |
 | `autonomousAgent.*`       | Background research worker schedule and config                                                                                                  |
 | `ingress.*`               | External hostnames, ingress class, annotations, and TLS                                                                                         |
@@ -351,6 +352,12 @@ nginx can also proxy backend paths directly:
 Those routes use the path and `X-Backend-Type` header for backend selection.
 They retain backend authentication requirements. Set
 `nginx.config.restrictedMode=true` to disable these direct backend routes.
+
+With `compatibilityApi.enabled=true` (restricted mode only), nginx sends exactly
+`POST /v1/chat/completions`, `POST /v1/messages` and `GET /v1/models` to the
+frontend, which authenticates per-user API keys and runs the normal chat
+pipeline. Other `/v1` paths remain blocked. Disabling the value removes the
+routes and the handlers. See [compatibility API](../../docs/compatibility-api.md).
 
 ## Operational Notes
 

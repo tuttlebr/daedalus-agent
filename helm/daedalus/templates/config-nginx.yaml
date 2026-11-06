@@ -49,6 +49,9 @@ limit_req_zone $binary_remote_addr zone=uploads_per_ip:10m rate={{ .Values.nginx
 limit_req_zone $chat_rate_limit_key zone=chat_starts_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.chatStartRate }};
 limit_req_zone $binary_remote_addr zone=websockets_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.websocketRate }};
 limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.apiRate }};
+{{- if .Values.compatibilityApi.enabled }}
+limit_req_zone $binary_remote_addr zone=compat_api_per_ip:10m rate={{ .Values.compatibilityApi.rate }};
+{{- end }}
 
 # Main server block
 server {
@@ -217,6 +220,47 @@ server {
     location ~ ^/(v1|generate|chat|upload|tools|health|auth)(/|$) {
         return 403 "Direct API access is forbidden. Please use the application interface.";
     }
+    {{- end }}
+
+    {{- if .Values.compatibilityApi.enabled }}
+    {{- if not .Values.nginx.config.restrictedMode }}
+    {{- fail "compatibilityApi.enabled requires nginx.config.restrictedMode: unrestricted mode already sends /v1/ to the backend" }}
+    {{- end }}
+    # OpenAI/Anthropic compatible agent API (docs/compatibility-api.md). Exact
+    # paths take precedence over the restricted-mode /v1 block above; every
+    # other /v1 path stays blocked. The frontend authenticates user API keys
+    # and runs the shared chat pipeline. Caller attempts at backend identity,
+    # scope, approval or internal credentials are dropped here as well.
+    {{- range $path := list "/v1/chat/completions" "/v1/messages" "/v1/models" }}
+    location = {{ $path }} {
+        limit_req zone=compat_api_per_ip burst={{ $.Values.compatibilityApi.burst }} nodelay;
+        limit_conn executions_total {{ $.Values.nginx.config.resourceLimits.executionsTotal }};
+        client_max_body_size {{ $.Values.compatibilityApi.clientMaxBodySize }};
+        proxy_pass {{ $._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Daedalus-Internal-Token "";
+        proxy_set_header X-User-Id "";
+        proxy_set_header X-Daedalus-Execution-Scope "";
+        proxy_set_header X-Daedalus-Approval-Token "";
+        proxy_set_header X-Daedalus-Request-Id "";
+        proxy_set_header X-Conversation-Id "";
+        # Streams must reach the client as written.
+        proxy_set_header Accept-Encoding "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        # Above the frontend's 40-minute run wait (a 30-minute run deadline
+        # plus queueing); streams also send keepalives every 15 seconds.
+        proxy_connect_timeout {{ $.Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
+        proxy_read_timeout {{ $.Values.compatibilityApi.readTimeout }};
+    }
+    {{- end }}
     {{- end }}
 
     # Document bytes are streamed through Next.js into object storage. Keep the

@@ -40,6 +40,11 @@ transition reports execution progress; it does not imply the first answer
 token has arrived. Backend selection runs at most three health probes at a
 time per submission and cancels the remaining probes when a healthy pod responds.
 
+Applications that speak the OpenAI Chat Completions or Anthropic Messages API
+enter the same path through opt-in, API-key-authenticated `/v1` routes on the
+frontend. They share step 1's submission service, limits and queue; see the
+[compatibility API](compatibility-api.md).
+
 The diagram includes optional integrations. The local configuration needs only
 the browser, frontend, Redis, worker, backend, and model endpoint; Compose also
 starts object storage. See [capability requirements](#capability-requirements)
@@ -153,18 +158,19 @@ must expose them. Runtime skills provide instructions, not new permissions.
 See [research workflows](research-workflows.md) for recoverable article output
 and configuration-aware evaluation, including promotion criteria.
 
-| Behavior                                                                 | Entry points                                                                                       |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                        |
-| Configuration, model profiles, native tool ownership and inbound history | `builder/runtime/src/config.rs`, `preparation.rs`                                                  |
-| Public API ownership and run deadlines                                   | `builder/runtime/src/main.rs` and its route modules                                                |
-| MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                       |
-| Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                             |
-| Remaining Python leaf tools and fallback preparation                     | `builder/daedalus_runtime/tools.py`, `service.py` and each tool package                            |
-| Chat submission, admission, queue leases and recovery                    | `frontend/pages/api/chat/async.ts`, `frontend/server/chat/streamQueue.ts`, `streamWorker.ts`       |
-| SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                        |
-| Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                     |
-| Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh` |
+| Behavior                                                                 | Entry points                                                                                                                     |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                                                      |
+| Configuration, model profiles, native tool ownership and inbound history | `builder/runtime/src/config.rs`, `preparation.rs`                                                                                |
+| Public API ownership and run deadlines                                   | `builder/runtime/src/main.rs` and its route modules                                                                              |
+| MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                                                     |
+| Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                                                           |
+| Remaining Python leaf tools and fallback preparation                     | `builder/daedalus_runtime/tools.py`, `service.py` and each tool package                                                          |
+| Chat submission, admission, queue leases and recovery                    | `frontend/server/chat/submission.ts`, `cancellation.ts`, `frontend/pages/api/chat/async.ts`, `streamQueue.ts`, `streamWorker.ts` |
+| OpenAI/Anthropic compatible API and API keys                             | `frontend/server/compat/`, `frontend/pages/api/v1/`, `frontend/server/apiKeys.ts`                                                |
+| SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                                                      |
+| Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                                                   |
+| Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh`                               |
 
 Add native Rust tools in preparation and dispatch, with shared schemas and
 service/built-image contracts. Remaining Python tools use the explicit factory

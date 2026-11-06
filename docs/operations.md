@@ -297,6 +297,16 @@ Clear `initial_tools` and set `defer_discovery: false` to restore eager exposure
 Measure Hue workflows as well as unrelated tasks: first use of a deferred
 operation adds a model round trip for discovery.
 
+## Compatibility API
+
+The OpenAI/Anthropic compatible API is off by default. Enable it with
+`compatibilityApi.enabled` in the chart, which requires restricted mode, and
+roll it back by disabling the same value. Users create keys under
+**Connections → API access**. Each finished API run logs a content-free
+`compat_run_finished` event with its run ID, outcome and timings. See the
+[compatibility API guide](compatibility-api.md) for the contract, LAN
+verification and limits.
+
 ## Validate a runtime change
 
 Validate a built backend against local scripted model/MCP peers:

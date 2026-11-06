@@ -103,6 +103,13 @@ spec:
                   fieldPath: metadata.namespace
             - name: BACKEND_API_PATH
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/v1/chat/completions" | quote }}
+            # Same switch as the nginx routes, so disabling it is one rollback.
+            - name: DAEDALUS_COMPAT_API_ENABLED
+              value: {{ ternary "true" "false" (.Values.compatibilityApi.enabled | default false) | quote }}
+            {{- with .Values.compatibilityApi.publicUrl }}
+            - name: DAEDALUS_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.documentObjectStorage.enabled }}
             - name: DOCUMENT_OBJECT_ENDPOINT
               value: {{ required "documentObjectStorage.endpoint is required when enabled" .Values.documentObjectStorage.endpoint | quote }}

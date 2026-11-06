@@ -405,6 +405,26 @@ nginx:
     type: ClusterIP
     exposeHttp: true
 
+# OpenAI Chat Completions and Anthropic Messages compatible agent API
+# (docs/compatibility-api.md). Opt-in. When enabled, nginx routes exactly
+# POST /v1/chat/completions, POST /v1/messages and GET /v1/models to the
+# frontend, which authenticates per-user API keys and runs the same agent,
+# queue and limits as the web application. Requires nginx restricted mode.
+# Setting enabled: false removes the routes and disables the handlers.
+compatibilityApi:
+  enabled: false
+  # Browser origin used in API responses for approval, connection and
+  # generated-file links, e.g. https://daedalus.example. Empty derives it from
+  # the request's forwarded host.
+  publicUrl: ''
+  # Per-IP request starts at nginx; per-user chat limits still apply.
+  rate: 30r/m
+  burst: 10
+  # Above the 8 MiB JSON body limit enforced by the frontend.
+  clientMaxBodySize: 9M
+  # Above the frontend's 40-minute wait for one run.
+  readTimeout: 2700s
+
 redis:
   enabled: true
   nodePlacement:
