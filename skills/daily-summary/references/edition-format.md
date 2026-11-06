@@ -71,6 +71,10 @@ line cite the whole piece: every claim in its headline, dek, and body must be
 supported by that linked source. Naming other documents in the label or detail
 does not cite them. Put facts from other documents in separately sourced
 supporting stories or `briefs` items, each with its own `source`.
+The run must have fetched and read that page's supporting body; a linked URL
+or search snippet alone is insufficient. Apply the verification and pre-render
+consistency gates in [research-and-sourcing.md](research-and-sourcing.md) before
+submission. A structurally valid source object does not prove a claim was checked.
 
 ## Validation and fallback
 

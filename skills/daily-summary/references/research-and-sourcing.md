@@ -32,9 +32,13 @@ families or treat skill loading as a way to widen the catalog. The final
 synthesis phase retains only `briefing_renderer_tool`.
 
 Date-stamp queries about current health, today, tonight, this week, latest
-results, releases, or schedules. A search snippet is discovery evidence, not
-support for a precise or volatile final claim. Prefer a small number of strong,
-primary sources over broad link collection.
+results, releases, or schedules. Search snippets are discovery only and must
+never support a published story, including qualitative claims. Every public
+story or brief must cite a page fetched during this run whose body was read
+and supports the reporting. A URL, search summary, fetch error, paywall or login
+shell is not a fetched article. If the supporting body cannot be fetched, drop
+the story; mark the desk unavailable when no sufficient evidence remains.
+Prefer a small number of strong, primary sources over broad link collection.
 
 When a candidate is selected, fetch its source page in the next eligible parallel
 round with independent operational reads or image checks. Do not wait for an
@@ -44,7 +48,10 @@ continue only for a material unresolved claim, source gap, or new anomaly.
 
 Always check Weather and Email & Calendar. Give Technology, Business, Health
 and in-season Sports first research attention; use quick signals to select
-material stories across the other desks. The policy’s conditional desks need
+material stories across the other desks. Every `daily-signal-check` desk,
+including World, requires at least one dated discovery query before `quiet`;
+batch queries and retain the query/result-to-desk mapping internally. A failed
+or skipped check is `unavailable`. The policy’s conditional desks need
 a timely trigger. Hindsight supplies private personalization, never verification
 of a current quote, injury, shortage, treatment guideline or incident.
 
@@ -126,7 +133,13 @@ forecast query.
 ### Gmail
 
 Use `gmail_mcp_server.search_threads` with a recent, bounded Gmail query. Read a
-thread or message only when needed to judge importance. Surface a small number
+candidate's full message body with `get_thread(threadId=...)` or the exposed
+message-read operation before making it an action item. Search previews and
+subject lines are not sufficient evidence. Recover truncated body content;
+if the full body is unavailable, omit the action. Preserve exact dates, times,
+durations and stated impact. Distinguish an outage's duration from its maintenance
+window; never turn a short interruption somewhere within a window into downtime
+for that entire window. Surface a small number
 of actionable items with sender, subject, and why each matters. Do not list
 routine newsletters, expose unnecessary message content, create a draft, or
 make another write.
@@ -134,8 +147,11 @@ make another write.
 ### Calendar
 
 Use `calendar_mcp_server.list_events` for a bounded interval covering the
-current local day and the next three calendar days. Use `get_event` or
-`search_events` only when needed for context. Separate today's agenda from the
+current local day and the next three calendar days. Before an event becomes an
+action item, read its full event description/body and start/end/timezone fields;
+use `get_event(eventId=...)` when the list result omits or truncates any of them.
+A preview or title is not sufficient. Preserve source times, duration and impact;
+do not invent preparation or travel requirements. Separate today's agenda from the
 look-ahead and preserve necessary travel or preparation context without
 publishing irrelevant attendee data. `list_calendars` is inventory, not a
 substitute for events. Never call `suggest_time` during a summary.
@@ -196,6 +212,29 @@ league rules; a familiar player name is not evidence of waiver availability.
 Treat user-supplied records, injuries and Week 4 alternatives as dated leads to
 verify. State corrections when final numbers replace live estimates.
 
+For each league entry, include:
+
+- **Overall record:** use the team's overall wins/losses/ties for the verified
+  league, team and season. When raw ESPN fields are returned, use
+  `record.overall.wins`, `record.overall.losses` and `record.overall.ties`;
+  otherwise use only fields explicitly identified as overall. Never substitute
+  home, away or division splits or infer a record from one matchup. Omit zero
+  ties in W-L display; preserve nonzero ties as W-L-T.
+- **Lineup verdict:** `Swap` or `Hold`, naming the relevant starter and eligible,
+  unlocked alternative with their same-week, league-scored projections and
+  projection as-of time. A hold needs comparison evidence too; missing
+  projections are unknown, not zero. If evidence is missing, report the lineup
+  verdict as unavailable instead of inventing a swap/hold recommendation.
+- **Waiver priority:** the team's returned `waiverRank` (or explicitly labeled
+  equivalent) and its as-of context;
+  if the league uses FAAB, report verified remaining budget and applicable
+  priority/tiebreaker. Say unavailable when the tool does not provide it.
+
+These are reporting fields within existing story text or tables, not new schema
+keys. Verify private league records, projections and waiver state against ESPN,
+never through public-web claim verification. Public projection/news claims still
+follow the public verification gate below.
+
 Use official league, team, conference, or broadcaster pages for scores,
 standings, and schedules. Cover the Yankees, Steelers, Michigan State men's
 football, and Michigan State men's basketball only to their current seasonal
@@ -255,11 +294,24 @@ shared idea with Alicia only when it is genuinely specific and useful.
 
 ## Claims, deduplication, and citations
 
-- Verify precise scores, schedules, warnings, forecasts, releases, and other
-  consequential volatile claims against the selected source. Use
+- Before publication, use
   `source_verifier_tool(operation=verify_claim, claim=..., source_url=...)`
-  for public-source claims when support is not already exact. Private and live
-  operational claims use their authenticated source tools, not a public fetch.
+  on the lead story's central public claim and every precise number from a public
+  source, even when the page already appears to support it exactly. This includes
+  figures in headlines, deks, captions, tables, weather and briefs, plus precise
+  dates, times, scores, prices, percentages and projections. Check the exact final
+  claim with its units, period and comparison basis; one claim may contain related
+  figures, but unrelated claims need separate checks. Reuse a successful result
+  for identical repetitions; batch independent checks. A verification response
+  without fetched supporting page content does not replace the required read.
+  Remove or correct unsupported claims; an inconclusive or failed check is not
+  permission to publish. Run these checks before the renderer-only phase.
+- Never send private mail, calendar, memory, fantasy-league data or live
+  operational claims to public-web verification, even if one becomes the lead.
+  Verify those against the full authenticated source result. Public facts
+  delivered through a tool still require public verification; transport alone
+  does not make them private. Do not send surrounding private context with a
+  public claim.
 - Date every numeric claim at its observation date or reporting period, not
   merely the edition date. Retain exact decimals, units, denominators, currency,
   timezone and comparison basis in plain text or semantic tables. Use Decimal
@@ -268,7 +320,9 @@ shared idea with Alicia only when it is genuinely specific and useful.
 - Correct superseded live estimates in the story itself and add a dated
   correction identifying the old value, final replacement and source. Never
   silently mix live/final periods or carry stale user examples into a new issue.
-- Distinguish reported facts from the editor's synthesis.
+- Attribute a quoted or paraphrased analyst view to that analyst, not to the
+  publication or the editor as established fact. Label editorial interpretation
+  `Synthesis:` and ground it in the story's verified facts.
 - Link every public-web story or brief to its HTTPS source page. For live tool
   or private-tool evidence, retain the tool reference in the reporting's
   structured source object without exposing credentials, opaque identifiers,
@@ -278,6 +332,35 @@ shared idea with Alicia only when it is genuinely specific and useful.
   of repeating forecast, cluster, schedule, or release copy across desks.
 - If authoritative sources disagree, state the disagreement or omit the claim.
 - If a cadence-appropriate check has no material result, mark the desk `quiet`.
+
+## Pre-render consistency check
+
+Perform one reconciliation pass before rendering or delivering a text fallback:
+
+- Compare every repeated figure in headlines, deks, body text, captions, alt text,
+  tables and personal modules with the same verified source value, unit, period
+  and status. Recalculate derived values from those inputs. Resolve mismatches
+  from evidence; omit a conflicting caption or figure rather than silently
+  rewriting a source quotation or propagating its error into the body.
+- Convert timestamped instants to the policy's `America/Detroit` timezone using
+  the offset applicable on that date, including daylight-saving transitions and
+  date rollover. Do not relabel UTC as local or use today's offset for another
+  date. Keep date-only/all-day events as dates. Preserve the original timezone
+  when it is needed to interpret a market session or deadline.
+- Compare source publication/update/observation timestamps and their fetch times
+  as UTC instants, retaining the tool's fetch timestamp in the internal evidence
+  record. No source timestamp may be later than its fetch time. Resolve
+  an apparent conflict from explicit offsets or a corrected source; otherwise
+  omit the affected claim/source. Do not invent precision for date-only stamps
+  or relabel a future stamp. Future event/forecast target times are distinct from
+  source timestamps and may legitimately follow the fetch.
+- Recheck personal actions against full bodies, keeping maintenance window,
+  interruption duration and impact distinct. Recheck each fantasy entry's
+  overall record, projection-supported verdict and waiver priority.
+- Confirm every daily-signal desk has a discovery result before `quiet`, every
+  public story has a fetched supporting page, and required claim checks passed.
+  Keep this working evidence and timing record internal; do not add schema keys,
+  visible audit notes or caveat lists.
 
 ## Article photos and source descriptions
 

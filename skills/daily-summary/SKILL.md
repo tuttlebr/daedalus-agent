@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 5.1.0
+  version: 5.2.0
   tags:
     - daily-briefing
     - html
@@ -45,7 +45,13 @@ deks, body copy, and any text fallback. Keep the newspaper
 design; let evidence, rather than dramatic phrasing, establish significance.
 
 Before publishing HTML or a text fallback, check each public story's headline,
-dek and body against its own linked source. Split findings from other documents
+dek and body against its own linked page fetched during this run. Search snippets
+never support published reporting. Run `source_verifier_tool(operation=verify_claim)`
+on the public lead's central claim and every precise public-source number,
+even when the fetched page appears exact. Verify private claims only through
+their authenticated tools; read full mail bodies and calendar details before
+turning them into actions. Apply the sourcing reference's verification and
+pre-render consistency gates. Split findings from other documents
 into separately sourced stories or briefs. Keep coverage ledgers and privacy
 checks internal; do not repeat restricted values, identifying fragments or
 revealing aliases merely to say they were omitted.
@@ -114,6 +120,18 @@ artifact.
 
 ## Workflow
 
+Target under 90 seconds from initial skill load through delivery, including
+verification and rendering. Track elapsed time; aim to finish discovery and
+reads by 45 seconds, verification by 65, and consistency checks and composition
+by 75, reserving the rest for rendering. These are scheduling targets, never
+permission to skip evidence gates. Batch independent calls and verify selected
+claims as soon as their pages arrive. Stop optional discovery as soon as required
+desks are settled. If time is short, cut optional stories and unsupported claims;
+do not publish snippets or unchecked numbers. Retry a blocked source at most
+once, only for a transient failure and while time permits. Required OAuth waits
+remain mandatory; record any pause separately and do not claim an under-budget
+run without measured end-to-end timing.
+
 ### 1. Establish time and policy
 
 1. Establish the current date and time first from the bundled
@@ -179,7 +197,7 @@ Keep the desk inventory internal. The renderer derives its validation manifest
 from the compact `coverage` statuses; do not compose a separate manifest.
 
 If personalized memory is unavailable, continue with the standing edition
-policy and disclose that personalization could not be refreshed. The policy is
+policy; disclose the gap only when it changes a reader decision. The policy is
 sufficient to produce this reader's edition; do not fall back to a generic
 briefing.
 
@@ -208,8 +226,11 @@ image or operational follow-ups. Stop optional discovery when desk coverage and
 the selected claims have sufficient evidence.
 Preserve follow-up calls when a result reveals an anomaly or a real evidence gap.
 
-Follow the policy's cadence: always check
-daily desks, but research conditional desks only when a quick trusted signal or
+Follow the policy's cadence: every `daily-signal-check` desk, including World,
+must receive at least one dated discovery query before it can be `quiet`.
+Batch these queries in the baseline round and retain their desk mapping internally.
+A skipped, blocked or failed daily check is `unavailable`, not `quiet`.
+Research conditional desks only when a quick trusted signal or
 the calendar makes them timely. Use primary or official pages when available,
 and the specific personal and operational tools for private or live state.
 Never make a write, send, acknowledge, delete, or configuration call during a
@@ -294,10 +315,18 @@ without reconstructing the research. Target a focused five-to-ten-minute
 read, but prefer a shorter accurate edition over padding.
 Supply unescaped plain text in edition fields; the renderer escapes it when
 producing HTML. Pre-escaping fields would display entity syntax to the reader.
+Attribute analyst views to the named analyst and label editorial interpretation
+as `Synthesis:`. Allow at most one caveat per story, only when it changes the
+reader's decision; omit repeated “this is not evidence of…” disclaimers.
 
 ### 6. Render and validate
 
 Validation is mandatory for a full edition.
+
+Before submitting, apply the sourcing reference's consistency check across all
+text, captions, tables and personal actions. Resolve discrepancies from the
+fetched evidence or omit the affected claim. The renderer checks structure and
+provenance; it cannot establish factual agreement or correct timezone conversion.
 
 Submit `briefing_renderer_tool(edition=...)` with the edition as a nested object,
 not a JSON string. Follow the tool's nested field schema, including each block's

@@ -79,6 +79,8 @@ Lead with the supported conclusion and what changes for compute supply, cost,
 competition, work, health, a lineup or a trip. Explain the mechanism. Keep
 observations, published reports, forecasts, analyst speculation and editorial
 inference distinguishable. Attribute projections to their named originators.
+Attribute quoted or paraphrased analyst views to the analyst. Label the editor's
+interpretation `Synthesis:`; do not present it as an observed fact.
 Vendor claims require workload, configuration, baseline, date and limitations;
 a claimed speedup is not production evidence or proof of cheaper inference.
 
@@ -95,6 +97,13 @@ When later final numbers supersede earlier live estimates, replace the old
 claim in the story and add a dated correction naming both values and the
 source. Never present both as current. An archived edition should make the
 correction understandable without access to an earlier conversation.
+
+Allow at most one caveat per story, and only when it changes the reader's
+decision. Combine material uncertainty into that one concise qualification;
+omit boilerplate and repeated “this is not evidence of…” sentences. Preserve
+measurement conditions and factual attribution without padding them with
+disclaimers. If a claim needs more qualification than the story can explain
+clearly, narrow or omit it rather than hide a material limitation.
 
 Opinion is labeled at both desk and story level. Name the writer, state the
 argument and show its evidence chain, uncertainty and material counterevidence.
