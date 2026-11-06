@@ -129,6 +129,20 @@ jobs:
           cache-from: type=gha,scope=redis
           cache-to: type=gha,mode=max,scope=redis
 
+      - name: Build and push nginx-helm
+        id: nginx_helm
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: vendor-images/nginx-unprivileged
+          file: vendor-images/nginx-unprivileged/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.base }}:nginx-helm-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=nginx-helm
+          cache-to: type=gha,mode=max,scope=nginx-helm
+
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -155,6 +169,14 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
 
+      - name: Scan nginx-helm image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.images.outputs.base }}@${{ steps.nginx_helm.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
       - name: Scan every shipped upstream image
         run: python3 scripts/check_image_inventory.py --scan-upstream
 
@@ -167,10 +189,12 @@ jobs:
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
           REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+          NGINX_HELM_DIGEST: ${{ steps.nginx_helm.outputs.digest }}
         run: |
           cosign sign --yes "$BASE_IMAGE@$BACKEND_DIGEST"
           cosign sign --yes "$BASE_IMAGE@$FRONTEND_DIGEST"
           cosign sign --yes "$BASE_IMAGE@$REDIS_DIGEST"
+          cosign sign --yes "$BASE_IMAGE@$NGINX_HELM_DIGEST"
 
       - name: Attest backend provenance
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
@@ -193,12 +217,20 @@ jobs:
           subject-digest: ${{ steps.redis.outputs.digest }}
           push-to-registry: true
 
+      - name: Attest nginx-helm provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ steps.images.outputs.base }}
+          subject-digest: ${{ steps.nginx_helm.outputs.digest }}
+          push-to-registry: true
+
       - name: Render release chart
         env:
           BASE_IMAGE: ${{ steps.images.outputs.base }}
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
           REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+          NGINX_HELM_DIGEST: ${{ steps.nginx_helm.outputs.digest }}
         run: |
           helm lint helm/daedalus
           helm template daedalus helm/daedalus \
@@ -208,8 +240,11 @@ jobs:
             --set-string "images.frontend.digest=$FRONTEND_DIGEST" \
             --set-string "images.redis.repository=$BASE_IMAGE" \
             --set-string "images.redis.digest=$REDIS_DIGEST" \
+            --set-string "images.nginx.repository=$BASE_IMAGE" \
+            --set-string "images.nginx.digest=$NGINX_HELM_DIGEST" \
             >release-manifest.yaml
-          test "$(grep -c "$BASE_IMAGE@sha256:" release-manifest.yaml)" -ge 3
+          test "$(grep -c "$BASE_IMAGE@sha256:" release-manifest.yaml)" -ge 4
+          grep -q "$BASE_IMAGE@$NGINX_HELM_DIGEST" release-manifest.yaml
 
       - name: Record commit-to-digest evidence
         env:
@@ -217,6 +252,7 @@ jobs:
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
           REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+          NGINX_HELM_DIGEST: ${{ steps.nginx_helm.outputs.digest }}
           CI_RUN_ID: ${{ needs.verify-ci.outputs.run-id }}
           CI_RUN_URL: ${{ needs.verify-ci.outputs.run-url }}
         run: |
@@ -231,16 +267,17 @@ jobs:
             --arg backend "$BASE_IMAGE@$BACKEND_DIGEST" \
             --arg frontend "$BASE_IMAGE@$FRONTEND_DIGEST" \
             --arg redis "$BASE_IMAGE@$REDIS_DIGEST" \
+            --arg nginx_helm "$BASE_IMAGE@$NGINX_HELM_DIGEST" \
             '{
               schemaVersion:$schema_version,
               commit:$commit,
               source:{repository:$source_repository,ref:$source_ref},
               workflowRun:$workflow_run,
               ci:{workflow:"ci.yml",runId:$ci_run_id,runUrl:$ci_run_url,headSha:$commit,event:"push",branch:"main",conclusion:"success"},
-              images:{backend:$backend,frontend:$frontend,redis:$redis},
-              security:{scans:{backend:"passed",frontend:"passed",redis:"passed"}},
-              signatures:{backend:"signed",frontend:"signed",redis:"signed"},
-              attestations:{backend:"published",frontend:"published",redis:"published"}
+              images:{backend:$backend,frontend:$frontend,redis:$redis,"nginx-helm":$nginx_helm},
+              security:{scans:{backend:"passed",frontend:"passed",redis:"passed","nginx-helm":"passed"}},
+              signatures:{backend:"signed",frontend:"signed",redis:"signed","nginx-helm":"signed"},
+              attestations:{backend:"published",frontend:"published",redis:"published","nginx-helm":"published"}
             }' \
             >release-metadata.json
 

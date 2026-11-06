@@ -48,6 +48,10 @@ def render_compose(source):
             output(
                 "docker",
                 "compose",
+                # Profiled services, such as release-only builds, must not
+                # hide from the inventory.
+                "--profile",
+                "*",
                 "--env-file",
                 ".env.template",
                 "-f",
@@ -86,6 +90,10 @@ def validate(inventory):
     for item in upstream:
         if not re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", item["image"]):
             raise ValueError(f"Upstream image must be digest pinned: {item['id']}")
+    built = inventory["builtServices"]
+    helm_images = [item["helmImage"] for item in built.values()]
+    if len(set(helm_images)) != len(helm_images):
+        raise ValueError("Built services must map to distinct Helm images")
 
     def declared(mode):
         return {item["image"] for item in upstream if mode in item["modes"]}
@@ -127,22 +135,31 @@ def validate(inventory):
                 and value["build"].get("target") != "base"
                 and name not in derived_services
             }
-            check_refs("built services", actual_built, set(inventory["builtServices"]))
+            check_refs("built services", actual_built, set(built))
+            for name, item in built.items():
+                if "context" not in item:
+                    continue
+                build = services[name]["build"]
+                context = (ROOT / Path(source).parent / build["context"]).resolve()
+                if (
+                    context != (ROOT / item["context"]).resolve()
+                    or build.get("dockerfile", "Dockerfile") != "Dockerfile"
+                ):
+                    raise ValueError(f"Built service context mismatch: {name}")
         actual = {value["image"] for value in services.values()} - built_refs
         check_refs(mode, actual, declared(mode))
 
-    built_refs = {
-        f"inventory.invalid/daedalus:{name}" for name in inventory["builtServices"]
-    }
+    built_refs = {f"inventory.invalid/daedalus:{name}" for name in built}
     for mode, values in (
         ("helm-default", []),
         ("helm-custom", ["-f", "custom-values.yaml"]),
     ):
         overrides = []
-        for name in inventory["builtServices"]:
+        for name, item in built.items():
+            key = f"images.{item['helmImage']}"
             overrides += [
                 "--set-string",
-                f"images.{name}.repository=inventory.invalid/daedalus,images.{name}.tag={name},images.{name}.digest=",
+                f"{key}.repository=inventory.invalid/daedalus,{key}.tag={name},{key}.digest=",
             ]
         rendered = output(
             "helm", "template", "inventory", "helm/daedalus", *values, *overrides
@@ -191,13 +208,17 @@ def build_derived_image(item, platform):
     return metadata["Id"]
 
 
+def load_inventory():
+    return json.loads((ROOT / "deployment-images.json").read_text())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scan-upstream", action="store_true")
     parser.add_argument("--trivy", default=os.environ.get("TRIVY", "trivy"))
     parser.add_argument("--platform", choices=("linux/amd64", "linux/arm64"))
     args = parser.parse_args()
-    inventory = json.loads((ROOT / "deployment-images.json").read_text())
+    inventory = load_inventory()
     validate(inventory)
     failures = []
     if args.scan_upstream:
@@ -208,8 +229,21 @@ def main():
             )
         trivy = str(Path(trivy).resolve())
         platforms = [args.platform] if args.platform else inventory["platforms"]
+        # Built services with a declared context are small vendor rebuilds;
+        # scan every inventory platform like the Compose-only rebuilds, in
+        # addition to the release gates that scan the published image.
+        built_rebuilds = [
+            {
+                "id": name,
+                "image": f"inventory.invalid/daedalus:{name}",
+                "context": item["context"],
+            }
+            for name, item in inventory["builtServices"].items()
+            if "context" in item
+        ]
         for item, platform in itertools.product(
-            inventory["upstream"] + inventory.get("derived", []), platforms
+            inventory["upstream"] + inventory.get("derived", []) + built_rebuilds,
+            platforms,
         ):
             image = (
                 build_derived_image(item, platform)

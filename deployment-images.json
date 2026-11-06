@@ -1,13 +1,15 @@
 {
   "version": 1,
-  "builtServices": ["backend", "frontend", "redis"],
-  "upstream": [
-    {
-      "id": "nginx-helm",
-      "image": "mirror.gcr.io/nginxinc/nginx-unprivileged:1.31.6-alpine-slim@sha256:1517d8c358e2e093957ebee087afa9eb19a32f5d7ecb711b7429e369cb998224",
-      "modes": ["helm-default", "helm-custom"]
+  "builtServices": {
+    "backend": { "helmImage": "backend" },
+    "frontend": { "helmImage": "frontend" },
+    "redis": { "helmImage": "redis" },
+    "nginx-helm": {
+      "helmImage": "nginx",
+      "context": "vendor-images/nginx-unprivileged"
     }
-  ],
+  },
+  "upstream": [],
   "platforms": ["linux/amd64", "linux/arm64"],
   "derived": [
     {

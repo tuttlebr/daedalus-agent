@@ -35,7 +35,7 @@ if tool == "uv":
     raise SystemExit(subprocess.call([sys.executable, *args[1:]]))
 if tool == "docker":
     if "config" in args:
-        print(json.dumps({"services": {service: {"image": "example/" + service + ":test"} for service in ("backend", "frontend", "redis")}}))
+        print(json.dumps({"services": {service: {"image": "example/" + service + ":test"} for service in ("backend", "frontend", "redis", "nginx-helm")}}))
     elif "imagetools" in args:
         print("sha256:" + "a" * 64)
 elif tool == "helm":
@@ -75,7 +75,7 @@ def deploy_fixture(tmp_path):
     assert helm, "the requires_helm gate must run before this fixture"
     commands = tmp_path / "bin"
     commands.mkdir()
-    for tool in ("uv", "docker", "helm", "kubectl", "trivy"):
+    for tool in ("uv", "docker", "helm", "kubectl", "trivy", "cosign", "gh"):
         path = commands / tool
         path.write_text(f"#!{sys.executable}\n" + FAKE_TOOL)
         path.chmod(0o700)
@@ -113,11 +113,11 @@ def deploy_fixture(tmp_path):
         str(values),
     ]
 
-    def run(*extra, fail=""):
+    def run(*extra, fail="", omit=(), extra_env=None):
         log.write_text("")
         result = subprocess.run(
-            command + list(extra),
-            env={**env, "DEPLOY_TEST_FAIL": fail},
+            [arg for arg in command if arg not in omit] + list(extra),
+            env={**env, "DEPLOY_TEST_FAIL": fail, **(extra_env or {})},
             text=True,
             capture_output=True,
             timeout=30,
@@ -243,3 +243,125 @@ def test_failed_credential_preparation_or_install_stops_deployment(
     )
     if failure == "credentials":
         assert {item["tool"] for item in records} == {"uv"}
+
+
+RELEASE_IMAGES = {
+    "backend": "backend",
+    "frontend": "frontend",
+    "redis": "redis",
+    "nginx-helm": "nginx",
+}
+
+
+def _helm_upgrade(records):
+    return next(
+        item
+        for item in records
+        if item["tool"] == "helm" and item["args"][0] == "upgrade"
+    )
+
+
+def test_local_build_publishes_scans_and_deploys_every_release_image(
+    deploy_fixture, tmp_path
+):
+    run, _, _ = deploy_fixture
+    result, records = run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    docker = [item["args"] for item in records if item["tool"] == "docker"]
+    for verb in ("build", "push"):
+        command = next(args for args in docker if verb in args)
+        assert command[:3] == ["compose", "--profile", "release"]
+        assert command[-4:] == list(RELEASE_IMAGES)
+    digest = "sha256:" + "a" * 64
+    scanned = [item["args"][-1] for item in records if item["tool"] == "trivy"]
+    assert scanned == [f"example/{name}@{digest}" for name in RELEASE_IMAGES]
+    upgrade = _helm_upgrade(records)["args"]
+    for name, key in RELEASE_IMAGES.items():
+        assert f"images.{key}.repository=example/{name}" in upgrade
+        assert f"images.{key}.digest={digest}" in upgrade
+    evidence = json.loads((tmp_path / "release.json").read_text())
+    assert evidence["images"] == {
+        name: f"example/{name}@{digest}" for name in RELEASE_IMAGES
+    }
+
+
+def _release_metadata(tmp_path, images):
+    commit = subprocess.check_output(
+        ["git", "-C", str(REPOSITORY), "rev-parse", "HEAD"], text=True
+    ).strip()
+    roles = list(images)
+    metadata = {
+        "schemaVersion": 1,
+        "commit": commit,
+        "source": {"repository": "owner/daedalus", "ref": "refs/heads/main"},
+        "ci": {
+            "headSha": commit,
+            "event": "push",
+            "branch": "main",
+            "conclusion": "success",
+        },
+        "images": images,
+        "security": {"scans": dict.fromkeys(roles, "passed")},
+        "signatures": dict.fromkeys(roles, "signed"),
+        "attestations": dict.fromkeys(roles, "published"),
+    }
+    path = tmp_path / "release-metadata.json"
+    path.write_text(json.dumps(metadata))
+    (tmp_path / "release-metadata.json.sig").write_text("fixture signature")
+    return path
+
+
+def _prebuilt(run, metadata):
+    return run(
+        "--skip-build",
+        "--release-metadata",
+        str(metadata),
+        omit=("--allow-unsigned-images",),
+        extra_env={
+            "RELEASE_METADATA_PUBLIC_KEY": "fixture.pub",
+            "COSIGN_PUBLIC_KEY": "fixture.pub",
+        },
+    )
+
+
+def test_prebuilt_release_deploys_the_signed_helm_nginx_image(deploy_fixture, tmp_path):
+    run, _, _ = deploy_fixture
+    digest = "sha256:" + "a" * 64
+    images = {name: f"ghcr.io/owner/daedalus@{digest}" for name in RELEASE_IMAGES}
+    result, records = _prebuilt(run, _release_metadata(tmp_path, images))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(
+        "build" in item["args"] or "push" in item["args"]
+        for item in records
+        if item["tool"] == "docker"
+    )
+    verified = [
+        item["args"][-1]
+        for item in records
+        if item["tool"] == "cosign" and item["args"][0] == "verify"
+    ]
+    assert verified == list(images.values())
+    attested = [item["args"][2] for item in records if item["tool"] == "gh"]
+    assert attested == ["oci://" + ref for ref in images.values()]
+    upgrade = _helm_upgrade(records)["args"]
+    assert "images.nginx.repository=ghcr.io/owner/daedalus" in upgrade
+    assert f"images.nginx.digest={digest}" in upgrade
+
+
+def test_prebuilt_release_without_helm_nginx_fails_before_deploying(
+    deploy_fixture, tmp_path
+):
+    run, _, _ = deploy_fixture
+    digest = "sha256:" + "a" * 64
+    images = {
+        name: f"ghcr.io/owner/daedalus@{digest}"
+        for name in ("backend", "frontend", "redis")
+    }
+    result, records = _prebuilt(run, _release_metadata(tmp_path, images))
+    assert result.returncode != 0
+    assert "release metadata lacks the nginx-helm image" in result.stderr
+    assert "Rerun the release workflow for this commit" in result.stderr
+    assert not any(item["tool"] in {"kubectl", "gh"} for item in records)
+    assert not any(
+        item["tool"] == "helm" and item["args"][0] == "upgrade" for item in records
+    )

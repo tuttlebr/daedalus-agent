@@ -106,6 +106,15 @@ services:
       frontend:
         condition: service_started
 
+  nginx-helm:
+    # Release-only build of the Helm chart's unprivileged nginx (images.nginx).
+    # The profile keeps `docker compose up` from starting it; release paths
+    # name the service explicitly to build, push and resolve its digest.
+    profiles: ['release']
+    build:
+      context: ./vendor-images/nginx-unprivileged
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:nginx-helm-${DAEDALUS_VERSION:-0.1.0}
+
   frontend:
     build:
       context: frontend

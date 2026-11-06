@@ -537,13 +537,17 @@ def test_trivy_image_secret_exception_is_limited_to_oci_sdk_example_files():
         set(release_steps["Scan backend image"]["with"]["skip-files"].split(","))
         == expected
     )
-    for name in ("Scan backend image", "Scan frontend image", "Scan Redis image"):
+    for name in (
+        "Scan backend image",
+        "Scan frontend image",
+        "Scan Redis image",
+        "Scan nginx-helm image",
+    ):
         assert release_steps[name]["with"]["severity"] == "CRITICAL,HIGH"
         assert str(release_steps[name]["with"]["exit-code"]) == "1"
-    for name in ("Scan frontend image", "Scan Redis image"):
+    for name in ("Scan frontend image", "Scan Redis image", "Scan nginx-helm image"):
         assert "skip-files" not in release_steps[name]["with"]
-    assert "skip-files" not in trivy_steps["Scan frontend image"]["with"]
-    assert "skip-files" not in trivy_steps["Scan Redis image"]["with"]
+        assert "skip-files" not in trivy_steps[name]["with"]
 
     makefile = _MAKEFILE.read_text()
     for path in expected:
@@ -594,6 +598,7 @@ def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():
         "backend-digest",
         "frontend-digest",
         "redis-digest",
+        "nginx-helm-digest",
     }
 
     attest = ci["jobs"]["docker-attest"]
@@ -613,7 +618,7 @@ def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():
                 if str(step.get("uses", "")).startswith("actions/attest@")
             ]
         )
-        == 3
+        == 4
     )
 
 

@@ -32,9 +32,11 @@ images:
     digest: 'sha256:3d25a07e5d144fc91c5993a12d524f3d9ae24be0cf4d15b7becdb84b5966e6db'
     pullPolicy: Always
   nginx:
-    repository: mirror.gcr.io/nginxinc/nginx-unprivileged
-    tag: 1.31.6-alpine-slim
-    digest: 'sha256:1517d8c358e2e093957ebee087afa9eb19a32f5d7ecb711b7429e369cb998224'
+    # Repository-owned rebuild of the upstream unprivileged nginx slim image
+    # with patched Alpine packages; make deploy builds and resolves it.
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: nginx-helm-0.1.0
+    digest: ''
     pullPolicy: Always
   redis:
     # Repository-owned, security-updated Redis Stack 7.4.0-v8 image. Keep

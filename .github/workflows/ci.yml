@@ -297,6 +297,7 @@ jobs:
       backend-digest: ${{ steps.image_digests.outputs.backend }}
       frontend-digest: ${{ steps.image_digests.outputs.frontend }}
       redis-digest: ${{ steps.image_digests.outputs.redis }}
+      nginx-helm-digest: ${{ steps.image_digests.outputs.nginx-helm }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -324,7 +325,7 @@ jobs:
         run: >-
           docker buildx bake --load
           --metadata-file "${RUNNER_TEMP}/bake-metadata.json"
-          -f docker-compose.yaml backend frontend redis
+          -f docker-compose.yaml backend frontend redis nginx-helm
 
       - name: Exercise backend runtime and exact approvals over HTTP
         run: |
@@ -343,7 +344,7 @@ jobs:
         env:
           BAKE_METADATA_FILE: ${{ runner.temp }}/bake-metadata.json
         run: |
-          for target in backend frontend redis; do
+          for target in backend frontend redis nginx-helm; do
             digest="$(
               jq -er --arg target "$target" \
                 '.[$target]["containerimage.digest"] |
@@ -376,6 +377,14 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: docker.io/your-user/daedalus:redis-0.1.0
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Scan nginx-helm image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: docker.io/your-user/daedalus:nginx-helm-0.1.0
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
@@ -413,6 +422,12 @@ jobs:
         with:
           subject-name: docker.io/your-user/daedalus
           subject-digest: ${{ needs.docker.outputs.redis-digest }}
+
+      - name: Attest nginx-helm image
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: docker.io/your-user/daedalus
+          subject-digest: ${{ needs.docker.outputs.nginx-helm-digest }}
 
   security:
     name: Security Scans

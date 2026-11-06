@@ -194,11 +194,11 @@ docker: ## validate all shipped image references, build and scan runtime images
 		fi; \
 		trap 'if [ "$$created_env" = 1 ]; then rm -f .env; fi' EXIT; \
 		docker compose config --quiet; \
-		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
+		docker compose build --provenance=mode=max --sbom=true backend frontend redis nginx-helm; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)"; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)" --preparation python; \
-		for service in backend frontend redis; do \
-			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
+		for service in backend frontend redis nginx-helm; do \
+			image=$$(docker compose --profile release config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \
 				--skip-files "$(TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES)" "$$image"; \
 		done; \

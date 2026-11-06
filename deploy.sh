@@ -120,13 +120,19 @@ if [[ "$BACKEND_CONFIG" != /* ]]; then
   BACKEND_CONFIG="$SCRIPT_DIR/$BACKEND_CONFIG"
 fi
 
-COMPOSE_CMD=(docker compose -f "$SCRIPT_DIR/docker-compose.yaml")
+# Repository-built release images: Compose service names and, at the same
+# index, the chart's images.<key>. Keep in sync with deployment-images.json.
+# The release-only nginx-helm service sits behind the Compose release profile.
+RELEASE_SERVICES=(backend frontend redis nginx-helm)
+RELEASE_HELM_IMAGES=(backend frontend redis nginx)
+
+COMPOSE_CMD=(docker compose --profile release -f "$SCRIPT_DIR/docker-compose.yaml")
 MCP_PREFLIGHT_ENV_ARGS=()
 if [[ -f "$ENV_FILE" ]]; then
   ENV_FILE="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
   # Interpolation and the services' env_file entries read the same file.
   export DAEDALUS_COMPOSE_ENV_FILE="$ENV_FILE"
-  COMPOSE_CMD=(docker compose --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yaml")
+  COMPOSE_CMD=(docker compose --profile release --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yaml")
   MCP_PREFLIGHT_ENV_ARGS=(--env-file "$ENV_FILE")
 fi
 
@@ -186,7 +192,6 @@ fi
 
 if [[ "$SKIP_BUILD" == false ]]; then
   log "Building images with provenance and SBOM attestations, then pushing"
-  RELEASE_SERVICES=(backend frontend redis)
   run "${COMPOSE_CMD[@]}" build --provenance=mode=max --sbom=true "${RELEASE_SERVICES[@]}"
   # Limit pushes to repository-owned images. Compose also contains pinned
   # upstream runtime services that must never be republished under their names.
@@ -198,6 +203,9 @@ fi
 # only when its signed metadata proves the exact commit, CI result, scan result,
 # image mapping, signatures, and build provenance attestations.
 IMAGE_DIGEST_ARGS=()
+RELEASE_IMMUTABLE_REFS=()
+RELEASE_IMAGE_REPOSITORIES=()
+RELEASE_IMAGE_DIGESTS=()
 if [[ "$DRY_RUN" == false ]]; then
   compose_image_ref() {
     local service="$1"
@@ -237,7 +245,7 @@ PY
   }
 
   metadata_value() {
-    python3 - "$RELEASE_METADATA_FILE" "$1" "$2" <<'PY'
+    python3 - "$RELEASE_METADATA_FILE" "$@" <<'PY'
 import json
 import sys
 
@@ -293,7 +301,7 @@ PY
         "$RELEASE_METADATA_FILE" >/dev/null
     fi
 
-    python3 - "$RELEASE_METADATA_FILE" "$(git -C "$SCRIPT_DIR" rev-parse HEAD)" <<'PY'
+    python3 - "$RELEASE_METADATA_FILE" "$(git -C "$SCRIPT_DIR" rev-parse HEAD)" "${RELEASE_SERVICES[@]}" <<'PY'
 import json
 import re
 import sys
@@ -302,6 +310,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     metadata = json.load(handle)
 
 commit = sys.argv[2]
+roles = sys.argv[3:]
 if metadata.get("schemaVersion") != 1:
     raise SystemExit("release metadata has an unsupported schemaVersion")
 if metadata.get("commit") != commit:
@@ -323,7 +332,16 @@ if (
     raise SystemExit("release metadata does not prove successful CI for this commit")
 
 digest_ref = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
-for role in ("backend", "frontend", "redis"):
+missing = [role for role in roles if role not in metadata.get("images", {})]
+if missing:
+    # Never substitute a placeholder or the chart's fallback tag for an image
+    # the signed release did not build, scan, sign and attest.
+    raise SystemExit(
+        f"release metadata lacks the {', '.join(missing)} image required by this "
+        "source; it was produced by an older release workflow. Rerun the "
+        "release workflow for this commit, or deploy without --skip-build."
+    )
+for role in roles:
     image = metadata.get("images", {}).get(role, "")
     if not isinstance(image, str) or not digest_ref.fullmatch(image):
         raise SystemExit(f"release metadata has an invalid {role} image reference")
@@ -373,20 +391,14 @@ PY
     RELEASE_SOURCE_COMMIT="$(metadata_value commit)"
     RELEASE_SOURCE_REPOSITORY="$(metadata_value source repository)"
     RELEASE_SOURCE_REF="$(metadata_value source ref)"
-    BACKEND_IMMUTABLE_REF="$(metadata_image_ref backend)"
-    FRONTEND_IMMUTABLE_REF="$(metadata_image_ref frontend)"
-    REDIS_IMMUTABLE_REF="$(metadata_image_ref redis)"
-    BACKEND_IMAGE_REPOSITORY="$(image_repository "$BACKEND_IMMUTABLE_REF")"
-    FRONTEND_IMAGE_REPOSITORY="$(image_repository "$FRONTEND_IMMUTABLE_REF")"
-    REDIS_IMAGE_REPOSITORY="$(image_repository "$REDIS_IMMUTABLE_REF")"
-    BACKEND_IMAGE_DIGEST="${BACKEND_IMMUTABLE_REF##*@}"
-    FRONTEND_IMAGE_DIGEST="${FRONTEND_IMMUTABLE_REF##*@}"
-    REDIS_IMAGE_DIGEST="${REDIS_IMMUTABLE_REF##*@}"
+    for index in "${!RELEASE_SERVICES[@]}"; do
+      image_ref="$(metadata_image_ref "${RELEASE_SERVICES[$index]}")"
+      RELEASE_IMMUTABLE_REFS[$index]="$image_ref"
+      RELEASE_IMAGE_REPOSITORIES[$index]="$(image_repository "$image_ref")"
+      RELEASE_IMAGE_DIGESTS[$index]="${image_ref##*@}"
+    done
 
-    for image_ref in \
-      "$BACKEND_IMMUTABLE_REF" \
-      "$FRONTEND_IMMUTABLE_REF" \
-      "$REDIS_IMMUTABLE_REF"; do
+    for image_ref in "${RELEASE_IMMUTABLE_REFS[@]}"; do
       [[ "$(registry_digest "$image_ref")" == "${image_ref##*@}" ]] || {
         echo "ERROR: Registry digest does not match signed release metadata: $image_ref" >&2
         exit 1
@@ -395,27 +407,18 @@ PY
       verify_build_attestation "$image_ref"
     done
   else
-    BACKEND_IMAGE_REF="$(compose_image_ref backend)"
-    FRONTEND_IMAGE_REF="$(compose_image_ref frontend)"
-    REDIS_IMAGE_REF="$(compose_image_ref redis)"
-    BACKEND_IMAGE_DIGEST="$(registry_digest "$BACKEND_IMAGE_REF")"
-    FRONTEND_IMAGE_DIGEST="$(registry_digest "$FRONTEND_IMAGE_REF")"
-    REDIS_IMAGE_DIGEST="$(registry_digest "$REDIS_IMAGE_REF")"
-    BACKEND_IMAGE_REPOSITORY="$(image_repository "$BACKEND_IMAGE_REF")"
-    FRONTEND_IMAGE_REPOSITORY="$(image_repository "$FRONTEND_IMAGE_REF")"
-    REDIS_IMAGE_REPOSITORY="$(image_repository "$REDIS_IMAGE_REF")"
-    BACKEND_IMMUTABLE_REF="$BACKEND_IMAGE_REPOSITORY@$BACKEND_IMAGE_DIGEST"
-    FRONTEND_IMMUTABLE_REF="$FRONTEND_IMAGE_REPOSITORY@$FRONTEND_IMAGE_DIGEST"
-    REDIS_IMMUTABLE_REF="$REDIS_IMAGE_REPOSITORY@$REDIS_IMAGE_DIGEST"
+    for index in "${!RELEASE_SERVICES[@]}"; do
+      image_ref="$(compose_image_ref "${RELEASE_SERVICES[$index]}")"
+      RELEASE_IMAGE_DIGESTS[$index]="$(registry_digest "$image_ref")"
+      RELEASE_IMAGE_REPOSITORIES[$index]="$(image_repository "$image_ref")"
+      RELEASE_IMMUTABLE_REFS[$index]="${RELEASE_IMAGE_REPOSITORIES[$index]}@${RELEASE_IMAGE_DIGESTS[$index]}"
+    done
 
     command -v trivy >/dev/null 2>&1 || {
       echo "ERROR: trivy is required to scan locally built release images" >&2
       exit 1
     }
-    for image_ref in \
-      "$BACKEND_IMMUTABLE_REF" \
-      "$FRONTEND_IMMUTABLE_REF" \
-      "$REDIS_IMMUTABLE_REF"; do
+    for image_ref in "${RELEASE_IMMUTABLE_REFS[@]}"; do
       trivy image --scanners vuln --severity CRITICAL,HIGH --exit-code 1 "$image_ref"
     done
 
@@ -427,13 +430,13 @@ PY
         exit 1
       }
       if [[ -n "${COSIGN_KEY:-}" ]]; then
-        cosign sign --yes --key "$COSIGN_KEY" "$BACKEND_IMMUTABLE_REF"
-        cosign sign --yes --key "$COSIGN_KEY" "$FRONTEND_IMMUTABLE_REF"
-        cosign sign --yes --key "$COSIGN_KEY" "$REDIS_IMMUTABLE_REF"
+        for image_ref in "${RELEASE_IMMUTABLE_REFS[@]}"; do
+          cosign sign --yes --key "$COSIGN_KEY" "$image_ref"
+        done
       elif [[ "$COSIGN_KEYLESS" == true ]]; then
-        cosign sign --yes "$BACKEND_IMMUTABLE_REF"
-        cosign sign --yes "$FRONTEND_IMMUTABLE_REF"
-        cosign sign --yes "$REDIS_IMMUTABLE_REF"
+        for image_ref in "${RELEASE_IMMUTABLE_REFS[@]}"; do
+          cosign sign --yes "$image_ref"
+        done
       else
         echo "ERROR: Set COSIGN_KEY or COSIGN_KEYLESS=true, or explicitly pass" >&2
         echo "       --allow-unsigned-images for a development-only local build." >&2
@@ -442,17 +445,19 @@ PY
     fi
   fi
 
-  IMAGE_DIGEST_ARGS+=(
-    --set-string "images.backend.repository=$BACKEND_IMAGE_REPOSITORY"
-    --set-string "images.backend.digest=$BACKEND_IMAGE_DIGEST"
-    --set-string "images.frontend.repository=$FRONTEND_IMAGE_REPOSITORY"
-    --set-string "images.frontend.digest=$FRONTEND_IMAGE_DIGEST"
-    --set-string "images.redis.repository=$REDIS_IMAGE_REPOSITORY"
-    --set-string "images.redis.digest=$REDIS_IMAGE_DIGEST"
-  )
-  log "Resolved backend image to $BACKEND_IMAGE_DIGEST"
-  log "Resolved frontend image to $FRONTEND_IMAGE_DIGEST"
-  log "Resolved Redis image to $REDIS_IMAGE_DIGEST"
+  for index in "${!RELEASE_SERVICES[@]}"; do
+    IMAGE_DIGEST_ARGS+=(
+      --set-string "images.${RELEASE_HELM_IMAGES[$index]}.repository=${RELEASE_IMAGE_REPOSITORIES[$index]}"
+      --set-string "images.${RELEASE_HELM_IMAGES[$index]}.digest=${RELEASE_IMAGE_DIGESTS[$index]}"
+    )
+    log "Resolved ${RELEASE_SERVICES[$index]} image to ${RELEASE_IMAGE_DIGESTS[$index]}"
+  done
+  # The RAG preflight runs the exact backend image Helm will deploy.
+  for index in "${!RELEASE_SERVICES[@]}"; do
+    if [[ "${RELEASE_SERVICES[$index]}" == backend ]]; then
+      BACKEND_IMMUTABLE_REF="${RELEASE_IMMUTABLE_REFS[$index]}"
+    fi
+  done
 fi
 
 # -------------------------------------------------------------------
@@ -1002,11 +1007,15 @@ kubectl -n "$NAMESPACE" get deployment \
     kubectl -n "$NAMESPACE" rollout status "$deployment" --timeout=5m
   done
 
-if [[ -n "${BACKEND_IMMUTABLE_REF:-}" && -n "${FRONTEND_IMMUTABLE_REF:-}" && -n "${REDIS_IMMUTABLE_REF:-}" ]]; then
+if [[ ${#RELEASE_IMMUTABLE_REFS[@]} -eq ${#RELEASE_SERVICES[@]} ]]; then
   GIT_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
   HELM_REVISION="$(helm status "$RELEASE" -n "$NAMESPACE" -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
-  export GIT_COMMIT HELM_REVISION BACKEND_IMMUTABLE_REF FRONTEND_IMMUTABLE_REF REDIS_IMMUTABLE_REF NAMESPACE RELEASE
-  python3 - "$RELEASE_EVIDENCE_FILE" <<'PY'
+  export GIT_COMMIT HELM_REVISION NAMESPACE RELEASE
+  RELEASE_EVIDENCE_IMAGES=()
+  for index in "${!RELEASE_SERVICES[@]}"; do
+    RELEASE_EVIDENCE_IMAGES+=("${RELEASE_SERVICES[$index]}=${RELEASE_IMMUTABLE_REFS[$index]}")
+  done
+  python3 - "$RELEASE_EVIDENCE_FILE" "${RELEASE_EVIDENCE_IMAGES[@]}" <<'PY'
 import json
 import os
 import sys
@@ -1020,11 +1029,7 @@ evidence = {
         "release": os.environ["RELEASE"],
         "revision": int(os.environ["HELM_REVISION"]),
     },
-    "images": {
-        "backend": os.environ["BACKEND_IMMUTABLE_REF"],
-        "frontend": os.environ["FRONTEND_IMMUTABLE_REF"],
-        "redis": os.environ["REDIS_IMMUTABLE_REF"],
-    },
+    "images": dict(item.split("=", 1) for item in sys.argv[2:]),
 }
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     json.dump(evidence, handle, indent=2, sort_keys=True)

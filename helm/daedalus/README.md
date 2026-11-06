@@ -10,8 +10,8 @@ supported build, preflight, and rollout commands. For local text chat, use the
 
 - Helm 3 (CI pins v3.22.1; Helm 4 is untested) and a Kubernetes cluster with
   registry access and suitable storage.
-- Application and repository-owned Redis images, built and published through
-  `make deploy` or the signed release workflow.
+- Application images and the repository-owned Redis and nginx images, built
+  and published through `make deploy` or the signed release workflow.
 - Separate backend, frontend, and stream-worker Secrets and any configured
   integration services; see [Secrets](#secrets).
 - Values adapted for your hostnames, TLS, storage, and network policies. The
@@ -22,7 +22,9 @@ supported build, preflight, and rollout commands. For local text chat, use the
 
 Depending on values, the chart can deploy:
 
-- nginx and ingress for external traffic entry
+- nginx and ingress for external traffic entry; nginx uses the repository-owned
+  rebuild of the unprivileged nginx slim image
+  ([vendor-images/README.md](../../vendor-images/README.md))
 - the Next.js frontend and dedicated stream worker
 - the backend deployment
 - Redis Stack using the repository-owned, security-updated runtime image
@@ -242,9 +244,9 @@ through `kubectl port-forward` when interactive Redis inspection is required.
 
 The immutable-image workflow won't publish application images until the exact
 source commit has a completed successful `CI` workflow run. It scans backend,
-frontend, and Redis images for HIGH and CRITICAL vulnerabilities, signs each
-digest, publishes SLSA build provenance, records the exact commit-to-digest
-mapping, and signs `release-metadata.json`.
+frontend, Redis, and Helm nginx (`nginx-helm`) images for HIGH and CRITICAL
+vulnerabilities, signs each digest, publishes SLSA build provenance, records
+the exact commit-to-digest mapping, and signs `release-metadata.json`.
 
 For a prebuilt deployment, download all three metadata artifacts and provide
 the JSON file through `make deploy`:
@@ -260,6 +262,9 @@ file, or select them with `RELEASE_METADATA_SIGNATURE_FILE` and
 `RELEASE_METADATA_CERTIFICATE_FILE`. The deploy gate verifies the signed
 metadata, successful CI and scan states, exact checked-out commit, registry
 digests, image signatures, and GitHub SLSA provenance before Helm can run.
+Metadata without an image that the checked-out source releases, such as
+`nginx-helm`, is rejected; rerun the release workflow for that commit or deploy
+with a local build.
 Prebuilt releases can't use the unsigned development opt-out. A local build
 also requires Trivy and must pass HIGH and CRITICAL image scans before signing
 or deployment.

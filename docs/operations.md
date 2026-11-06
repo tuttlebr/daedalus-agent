@@ -124,10 +124,11 @@ Deploy the reviewed, committed source:
 make deploy
 ```
 
-This builds and publishes application and Redis images, scans them, resolves
-immutable references, prepares [Content Credentials](content-credentials.md),
-synchronizes scoped Secrets, checks configured service access, and upgrades the
-release with `--wait --atomic`. It verifies deployments and then follows backend
+This builds and publishes the application, Redis and Helm nginx images, scans
+them, resolves immutable references, prepares
+[Content Credentials](content-credentials.md), synchronizes scoped Secrets,
+checks configured service access, and upgrades the release with
+`--wait --atomic`. It verifies deployments and then follows backend
 logs; stop log following with Ctrl+C after the rollout finishes.
 
 The command rejects uncommitted source. The development override is

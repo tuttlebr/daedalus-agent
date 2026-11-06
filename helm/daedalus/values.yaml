@@ -29,9 +29,12 @@ images:
     digest: ''
     pullPolicy: Always
   nginx:
-    repository: mirror.gcr.io/nginxinc/nginx-unprivileged
-    tag: 1.31.6-alpine-slim
-    digest: 'sha256:1517d8c358e2e093957ebee087afa9eb19a32f5d7ecb711b7429e369cb998224'
+    # Repository-owned rebuild of nginxinc/nginx-unprivileged 1.31.6-alpine-slim
+    # (vendor-images/nginx-unprivileged) with patched Alpine packages. It keeps
+    # the upstream user 101, entrypoint, ports and configuration paths.
+    repository: YOUR_REGISTRY/daedalus
+    tag: nginx-helm-0.1.0
+    digest: ''
     pullPolicy: Always
   redis:
     # This repository-owned image preserves Redis Stack 7.4.0-v8 data and
