@@ -32,6 +32,11 @@ using them; historical reviews are evidence to revisit, not current findings.
   track every configured hook separately. Track all five review areas for each
   applicable subsystem. Sampling alone cannot support an all-tests or
   whole-codebase completion claim.
+- When the audit is split across parallel reviewers, review read-only first,
+  then assign remediation by disjoint file ownership, naming any shared file and
+  the sites each may edit. Route a cross-boundary finding to the owner of the
+  defective layer. Workers sharing a checkout must avoid tree-wide state changes
+  such as `git stash`, dependency reinstalls or shared build outputs.
 - For each finding record location, triggering conditions, expected behavior,
   evidence, root cause, impact/priority, chosen remedy, and verification status.
   Separate confirmed defects from hypotheses and unmeasured opportunities.

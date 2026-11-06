@@ -14,22 +14,25 @@ Start with `docs/architecture.md` and `CONTRIBUTING.md`. Consult
 `docs/research-workflows.md` describes recoverable article output and evaluation.
 Keep review evidence outside these current-behavior guides.
 
-| Surface                    | Entry points and contract questions                                                                                                                                                                                                                                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser                    | `frontend/hooks/useAsyncChat.ts`, `frontend/hooks/useWebSocket.ts`, `frontend/state/`, `frontend/components/chat/`, `frontend/utils/app/streamingBuffer.ts`, `frontend/utils/app/conversation.ts`: optimistic state, render/update batching, completion, reconnect, deduplication and selected-conversation isolation.                      |
-| Admission and transport    | `frontend/pages/api/chat/async.ts`, `frontend/server/jobSubmission.ts`, `frontend/server/chat/streamQueue.ts`, `frontend/server/chat/jobState.ts`, `frontend/server/chat/userJobGuard.ts`, `frontend/server/chat/conversationJobGuard.ts`, `frontend/ws-server.ts`: admission limits, owner checks, queue latency and cancellation.         |
-| Stream processing          | `frontend/stream-worker.ts`, `frontend/server/chat/streamWorker.ts`, `frontend/server/chat/streamReader.ts`, `frontend/server/chat/streamState.ts`, `frontend/server/chat/finalization.ts`, `frontend/server/session/`: lease ownership, SSE parsing, persistence, event publication and recovery.                                          |
-| Rust runtime               | `builder/runtime/src/main.rs`, `builder/runtime/src/agent.rs`, `builder/runtime/src/preparation.rs`, `builder/runtime/src/provider.rs`, `builder/runtime/src/control.rs`, `builder/runtime/src/authorization.rs`, `builder/runtime/src/mcp.rs`: route ownership, model/tool ordering, deadlines, steering, retries and approval boundaries. |
-| Python and autonomous work | `builder/daedalus_runtime/service.py`, `builder/daedalus_runtime/tools.py`, individual tool packages and `builder/autonomous_agent/`: remaining leaf-tool ownership, explicit factory registration, adapters, background lifecycle and fallback preparation.                                                                                |
-| Shared contracts           | `protocol/`, `scripts/generate_protocol_types.py`, `builder/runtime/src/protocol.rs`, generated frontend/Python types: schema source, generated outputs, runtime validation and persisted compatibility.                                                                                                                                    |
-| Configuration and delivery | `backend/local-chat-config.yaml`, `backend/tool-calling-config.yaml`, `builder/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yaml`, `helm/daedalus/`, `scripts/`: actual enabled entry points, packaging, service wiring and limits.                                                                                                  |
-| Runtime skills             | `skills/AGENTS.md`, `builder/agent_skills/`, `builder/runtime/src/agent_skills.rs`: loader/dispatcher contracts, resources and links. Apply the local instructions if editing these.                                                                                                                                                        |
+| Surface                    | Entry points and contract questions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser                    | `frontend/hooks/useAsyncChat.ts`, `frontend/hooks/useWebSocket.ts`, `frontend/services/websocket.ts`, `frontend/pages/index.tsx`, `frontend/state/`, `frontend/components/chat/`, `frontend/utils/app/streamingBuffer.ts`, `frontend/utils/app/streamingContent.ts`, `frontend/utils/app/conversation.ts`, `frontend/utils/app/conversationRevision.ts`, `frontend/public/sw.js`, `frontend/utils/app/pwa.ts`: optimistic state, render/update batching, stop/completion races, reconnect and subscription rejection, history refresh, deduplication, selected-conversation isolation and offline caching. `frontend/utils/app/asyncStepParser.ts`, `frontend/utils/sync/` and `frontend/utils/server/` are server-only despite their location. |
+| Admission and transport    | `frontend/pages/api/chat/async.ts`, `frontend/server/jobSubmission.ts`, `frontend/server/chat/streamQueue.ts`, `frontend/server/chat/jobState.ts`, `frontend/server/chat/userJobGuard.ts`, `frontend/server/chat/conversationJobGuard.ts`, `frontend/ws-server.ts`: admission limits, owner checks, queue latency and cancellation.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Stream processing          | `frontend/stream-worker.ts`, `frontend/server/chat/streamWorker.ts`, `frontend/server/chat/streamReader.ts`, `frontend/server/chat/streamState.ts`, `frontend/server/chat/finalization.ts`, `frontend/server/chat/memoryRetention.ts`, `frontend/server/chat/steering.ts`, `frontend/server/chat/backendSelection.ts`, `frontend/server/chat/documentIngest.ts`, `frontend/server/session/`: lease ownership, SSE parsing, persistence, event publication, drain and recovery.                                                                                                                                                                                                                                                                  |
+| Rust runtime               | `builder/runtime/src/main.rs`, `builder/runtime/src/agent.rs`, `builder/runtime/src/preparation.rs`, `builder/runtime/src/provider.rs`, `builder/runtime/src/control.rs`, `builder/runtime/src/authorization.rs`, `builder/runtime/src/mcp.rs`: route ownership, model/tool ordering, deadlines, steering, retries and approval boundaries.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Python and autonomous work | `builder/daedalus_runtime/service.py`, `builder/daedalus_runtime/tools.py`, individual tool packages and `builder/autonomous_agent/`: remaining leaf-tool ownership, explicit factory registration, adapters, background lifecycle and fallback preparation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Shared contracts           | `protocol/`, `scripts/generate_protocol_types.py`, `builder/runtime/src/protocol.rs`, generated frontend/Python types: schema source, generated outputs, runtime validation and persisted compatibility.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Configuration and delivery | `backend/local-chat-config.yaml`, `backend/tool-calling-config.yaml`, `builder/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yaml`, `helm/daedalus/`, `scripts/`: actual enabled entry points, packaging, service wiring and limits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Runtime skills             | `skills/AGENTS.md`, `builder/agent_skills/`, `builder/runtime/src/agent_skills.rs`: loader/dispatcher contracts, resources and links. Apply the local instructions if editing these.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Important review boundaries to confirm in source:
 
 - Rust owns the agent loop and many public/native-tool APIs; Python still owns
   selected leaf tools, image APIs, autonomous work and supported fallback paths.
-  Similar Rust/Python code may serve differential tests or compatibility.
+  The production briefing renderer still calls the Python `llm_sandbox` adapter.
+  Similar Rust/Python code may serve differential tests or compatibility, but
+  rollback paths (`DAEDALUS_PREPARATION`/`DAEDALUS_AUTHORIZATION=python`) are
+  live and must keep Rust's security contracts, such as approval consumption.
 - Existing `nat_helpers`, `natBaseUrl` and Redis key names can be compatibility
   identifiers. Their names alone do not prove a retired dependency is active or
   a path is dead. Follow actual registration and consumers.
@@ -53,17 +56,25 @@ Read `.github/workflows/ci.yml`, `Makefile`, `.pre-commit-config.yaml`,
 `frontend/vitest.config.ts`, `frontend/playwright.config.ts`, and
 `frontend/e2e/README.md` for their relevant surfaces.
 
-Inventory `builder/tests/`, package-local tests, Rust inline/test modules and
-`builder/runtime/tests/`, `builder/migration/`, `frontend/__tests__/`,
-`frontend/e2e/`, and executable checks under `scripts/`. Compare test discovery
-to tracked files so misplaced or excluded tests do not disappear from the audit.
+Inventory `builder/tests/` (pytest `testpaths`; there are no package-local
+Python tests), the Rust inline `#[cfg(test)]` modules (`builder/runtime/tests/`
+holds only frozen fixtures they include), `builder/migration/`,
+`frontend/__tests__/`, `frontend/scripts/*.test.mjs`, `frontend/e2e/`, and
+executable checks under `scripts/`. Compare test discovery to tracked files so
+misplaced or excluded tests do not disappear from the audit. Ignored Rust tests
+are opt-in acceptance runners invoked by `make migration` scripts.
 Inspect builder stubs and frontend setup/mocks before interpreting green runs.
+Unit fakes that emulate Redis Lua by matching script text (`builder/tests/test_autonomous_store.py`,
+`frontend/__tests__/pages/api/chat/async.test.ts` and similar `eval` doubles)
+cannot detect a script regression; confirm a real-Redis suite under
+`make test-integration` covers each script. Those suites do not feed the
+coverage gates, so unit coverage for persistence code understates what runs.
 Migration baselines and frozen fixtures need independent behavioral expectations;
 do not regenerate them just to accept candidate regressions.
 
 The current hooks include secrets/syntax checks, Python lint/format/import/upgrade
-checks, Bandit, Prettier, Bash syntax, skill links, maintenance skill references
-and Helm. Their precise selection and behavior live in the configuration. In particular:
+checks, Bandit, Prettier, Bash syntax, skill links, maintenance skill references,
+agent skill links and Helm. Their precise selection and behavior live in the configuration. In particular:
 
 - Python hook environments are built with the interpreter that runs pre-commit,
   which changes check-ast, pyupgrade, isort and Bandit results. CI, `make hooks`
@@ -103,8 +114,15 @@ and Helm. Their precise selection and behavior live in the configuration. In par
   is missing. `make helm` also checks rendered pod security, provisioning
   PyYAML through `uv run` as CI pins it.
 - `scripts/validate_auth_env.py` supplies the environment parser reused by
-  `deploy.sh` for workload Secrets and memory-mode settings. Keep validation and
-  deployment interpretation consistent, including quoted whitespace.
+  `deploy.sh` for workload Secrets, memory-mode settings and `DOCUMENT_OBJECT_*`
+  Secrets, and by `scripts/check_mcp_servers.py` for the MCP preflight, where
+  env-file values win over the operator's shell. `deploy.sh` exports
+  `DAEDALUS_COMPOSE_ENV_FILE` so Compose services read the same file as
+  interpolation. Keep validation and deployment interpretation consistent,
+  including quoted whitespace and comments after a closing quote.
+- `scripts/sync_agent_skills.py --check` (the `agent-skill-links` hook) passes
+  without checking anything when `.claude/skills` is absent, as in CI; it prunes
+  only links that resolve into `.agents/skills`.
 - Check hook filters at nested package paths and with multiple filenames; inspect
   handling of spaces, excluded generated files and nonzero child-process exits.
 
@@ -144,16 +162,19 @@ separately when reviewing migration or compatibility behavior.
 | Migration/compatibility                 | `make migration` covers differential/full/minimal image and service contracts. `make migration-benchmark` uses frozen synthetic workloads after migration setup; it does not establish live task latency.                                                                                                                                                                                                                                      |
 | Deployment/configuration                | `make helm`, and applicable `make redis-upgrade`, `make docker`, `make security` jobs. Inspect required tools and disposable infrastructure before execution. `builder/tests/test_redis_acl_helm.py` checks the rendered backend Redis ACL against the backend's key families; `builder/tests/test_deploy_helm_secret_allowlists.py` keeps `deploy.sh` and chart Secret allowlists aligned.                                                    |
 | Hooks                                   | `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the same pinned release on all files.                                                                                                                                                                                                                                                                |
-| Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                                                                                                                                                                                          |
+| Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. It has no counterpart for CodeQL, the pull-request skill admission step, or image attestation, and CI builds images with `docker buildx bake` rather than `docker compose build`. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                        |
 
 `npm run build` runs `frontend/scripts/inject-precache.js`, which writes the
 service worker's ignored precache manifest under `frontend/public/`; name only
 tracked paths here, because the reference check runs on clean checkouts. The
 build must not rewrite tracked sources, so a dirty tree
-after `make frontend` or `make frontend-e2e` is a finding. Frozen Rust fixtures
-under `builder/runtime/tests/fixtures/` come from `builder/migration/export_*.py`
-against the baseline image (see `docs/rust-migration.md`); change them only for
-a deliberate contract change.
+after `make frontend` or `make frontend-e2e` is a finding. Most frozen Rust
+fixtures under `builder/runtime/tests/fixtures/` come from
+`builder/migration/export_*.py` against the baseline image (see
+`docs/rust-migration.md`); the native catalog comes from
+`builder/tool_catalog_contract_check.py --output`, and a few fixtures record no
+baseline revision. Change them only for a deliberate contract change, which
+needs the user's decision when it alters a public result.
 
 Containerized Rust checks of several source trees mounted at the same path
 must not share a `CARGO_TARGET_DIR`: cargo's mtime fingerprints can reuse a test
