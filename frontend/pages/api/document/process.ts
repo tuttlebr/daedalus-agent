@@ -8,6 +8,7 @@ import {
 } from '@/utils/server/backendAuth';
 import { postToBackend } from '@/utils/server/httpProxy';
 
+import { publicBackendErrorMessage } from '@/server/publicBackendError';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getStorageSessionId,
@@ -138,13 +139,16 @@ export default async function handler(
     }
 
     if (extractResponse.statusCode < 200 || extractResponse.statusCode >= 300) {
-      const detail =
-        typeof extractPayload.detail === 'string'
-          ? extractPayload.detail
-          : extractBodyText || 'Document extraction failed';
+      // The runtime's JSON `detail` is written for users; any other body is
+      // logged and replaced, since it can name internal hosts.
       return res.status(extractResponse.statusCode).json({
         error: 'Document extraction failed',
-        details: detail,
+        details: publicBackendErrorMessage(
+          'document/process',
+          extractResponse.statusCode,
+          extractBodyText,
+          'Document extraction failed',
+        ),
       });
     }
 

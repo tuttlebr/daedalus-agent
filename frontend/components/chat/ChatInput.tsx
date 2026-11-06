@@ -19,6 +19,7 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAppVisualViewport } from '@/hooks/useVisualViewportKeyboard';
 
 import { uploadDocument } from '@/utils/app/documentHandler';
+import { readFileAsBase64 } from '@/utils/app/fileBase64';
 import { uploadImage } from '@/utils/app/imageHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
 import { admitUploadBatch } from '@/utils/app/uploadBatch';
@@ -106,15 +107,6 @@ function classifyFile(file: File): 'image' | 'document' | 'video' {
   if (imageMimeType(file)) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   return 'document';
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export const ChatInput = memo(
@@ -228,7 +220,7 @@ export const ChatInput = memo(
           );
 
           if (type === 'image') {
-            const base64 = await fileToBase64(file);
+            const base64 = await readFileAsBase64(file);
             if (controller.signal.aborted) {
               throw new DOMException('Upload aborted', 'AbortError');
             }
@@ -278,7 +270,7 @@ export const ChatInput = memo(
             };
             setAttachments((prev) => [...prev, attachment]);
           } else if (type === 'video') {
-            const base64 = await fileToBase64(file);
+            const base64 = await readFileAsBase64(file);
             if (controller.signal.aborted) {
               throw new DOMException('Upload aborted', 'AbortError');
             }

@@ -1065,6 +1065,269 @@ describe('useAsyncChat streaming callbacks', () => {
     act(() => probe.root.unmount());
   });
 
+  it('does not admit a retry when Stop is pressed during the busy wait', async () => {
+    const busy = {
+      ...response(
+        { error: 'busy', reason: 'conversation_job_active' },
+        { ok: false, status: 409 },
+      ),
+      headers: new Headers({ 'Retry-After': '2' }),
+    };
+    busy.clone = () => busy;
+    mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
+      url === '/api/chat/async' &&
+      mocks.fetchWithTimeoutMock.mock.calls.length === 1
+        ? busy
+        : response({ jobId: 'job-2', status: 'pending' }),
+    );
+    let confirmStop!: () => void;
+    const stop = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          confirmStop = () =>
+            resolve(response({ success: true, canceled: true }));
+        }),
+    );
+    vi.stubGlobal('fetch', stop);
+    const probe = renderProbe({ userId: 'alice' });
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'fixture');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_990);
+    });
+    let stopped!: Promise<unknown>;
+    await act(async () => {
+      stopped = probe.api.cancelJob('conv-1');
+    });
+    // The busy wait elapses while the Stop request is still in flight.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    await act(async () => {
+      confirmStop();
+      await stopped;
+      await pending;
+    });
+    const posts = mocks.fetchWithTimeoutMock.mock.calls.filter(
+      ([url]) => url === '/api/chat/async',
+    );
+    // The stopped turn is never admitted, so no unstoppable job can run.
+    expect(posts).toHaveLength(1);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(mocks.manager.subscribeToJob).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('asyncJobs_alice') ?? '[]')).toEqual(
+      [],
+    );
+    act(() => probe.root.unmount());
+  });
+
+  it('cancels the current submission when the retry was already sent', async () => {
+    const busy = {
+      ...response(
+        { error: 'busy', reason: 'conversation_job_active' },
+        { ok: false, status: 409 },
+      ),
+      headers: new Headers({ 'Retry-After': '2' }),
+    };
+    busy.clone = () => busy;
+    let admit!: () => void;
+    mocks.fetchWithTimeoutMock.mockImplementation((url: string) => {
+      if (url !== '/api/chat/async')
+        return Promise.resolve(
+          response({
+            jobId: 'job-2',
+            status: 'pending',
+            conversationId: 'conv-1',
+            createdAt: 1,
+            updatedAt: 1,
+          }),
+        );
+      if (mocks.fetchWithTimeoutMock.mock.calls.length === 1)
+        return Promise.resolve(busy);
+      return new Promise((resolve) => {
+        admit = () => resolve(response({ jobId: 'job-2', status: 'pending' }));
+      });
+    });
+    const stop = vi
+      .fn()
+      .mockResolvedValue(response({ success: true, canceled: true }));
+    vi.stubGlobal('fetch', stop);
+    const probe = renderProbe({ userId: 'alice' });
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'fixture');
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    const posts = mocks.fetchWithTimeoutMock.mock.calls.filter(
+      ([url]) => url === '/api/chat/async',
+    );
+    expect(posts).toHaveLength(2);
+    const retryId = JSON.parse(posts[1][1].body).submissionId;
+    await act(async () => {
+      await probe.api.cancelJob('conv-1');
+      admit();
+      await pending;
+    });
+    expect(stop.mock.calls.map(([url]) => url)).toContain(
+      `/api/chat/async?submissionId=${retryId}`,
+    );
+    expect(mocks.manager.subscribeToJob).not.toHaveBeenCalled();
+    act(() => probe.root.unmount());
+  });
+
+  it('applies a completion that wins the race with Stop', async () => {
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onComplete, onError });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(response({ success: true, canceled: false })),
+    );
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        status: 'completed',
+        conversationId: 'conv-1',
+        fullResponse: 'The whole answer.',
+        finalizedAt: 5,
+        createdAt: 1,
+        updatedAt: 5,
+      }),
+    );
+    let outcome: any;
+    await act(async () => {
+      outcome = await api.cancelJob('conv-1');
+    });
+    expect(outcome).toEqual({ stopped: [], finished: ['job-1'] });
+    expect(onComplete).toHaveBeenCalledExactlyOnceWith(
+      'The whole answer.',
+      undefined,
+      5,
+      'conv-1',
+      expect.objectContaining({ jobId: 'job-1', persisted: true }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    expect(localStorage.getItem('asyncJobs_alice')).toBe('[]');
+    act(() => root.unmount());
+  });
+
+  it('falls back to prompt polling when the server rejects a live subscription', async () => {
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const reads = () =>
+      mocks.fetchWithTimeoutMock.mock.calls.filter(
+        ([url]) => url === '/api/chat/async?jobId=job-1',
+      ).length;
+    const before = reads();
+    await act(async () => {
+      // Another job's rejection says nothing about this one.
+      emit('error', {
+        type: 'error',
+        message: 'Unauthorized job subscription',
+        subscription: { type: 'job', jobId: 'job-other' },
+      });
+      await vi.advanceTimersByTimeAsync(9_000);
+    });
+    expect(reads()).toBe(before);
+    await act(async () => {
+      emit('error', {
+        type: 'error',
+        message: 'Unauthorized job subscription',
+        subscription: { type: 'job', jobId: 'job-1' },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // One immediate read, then the ordinary polling cadence.
+    expect(reads()).toBe(before + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_000);
+    });
+    expect(reads()).toBe(before + 4);
+    act(() => root.unmount());
+  });
+
+  it('treats a rejected chat subscription for the job conversation the same way', async () => {
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const reads = () =>
+      mocks.fetchWithTimeoutMock.mock.calls.filter(
+        ([url]) => url === '/api/chat/async?jobId=job-1',
+      ).length;
+    const before = reads();
+    await act(async () => {
+      emit('error', {
+        type: 'error',
+        message: 'Unauthorized chat subscription',
+        subscription: { type: 'chat', conversationId: 'conv-1' },
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(reads()).toBe(before + 2);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ['an empty finalized answer', { fullResponse: '' }],
+    ['a finalized answer', { fullResponse: 'Done while away.' }],
+  ])(
+    'reads every tracked job when the app becomes visible and completes %s',
+    async (_label, result) => {
+      const onComplete = vi.fn();
+      const { root, api } = renderProbe({ userId: 'alice', onComplete });
+      await act(async () => {
+        await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+      });
+      // A young job (well under any orphan age) whose completion was missed.
+      mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+        response({
+          jobId: 'job-1',
+          status: 'completed',
+          conversationId: 'conv-1',
+          finalizedAt: 4,
+          createdAt: 1,
+          updatedAt: 4,
+          ...result,
+        }),
+      );
+      const before = mocks.fetchWithTimeoutMock.mock.calls.length;
+      const visible = vi
+        .spyOn(document, 'visibilityState', 'get')
+        .mockReturnValue('visible');
+      try {
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+      } finally {
+        visible.mockRestore();
+      }
+      expect(mocks.fetchWithTimeoutMock.mock.calls.length).toBe(before + 1);
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith(
+        result.fullResponse,
+        undefined,
+        4,
+        'conv-1',
+        expect.objectContaining({ jobId: 'job-1', persisted: true }),
+      );
+      act(() => root.unmount());
+    },
+  );
+
   it('reports a conversation that stays busy after bounded waits', async () => {
     const busy = {
       ...response(

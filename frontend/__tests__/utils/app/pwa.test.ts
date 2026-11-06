@@ -11,24 +11,27 @@ vi.mock('@/utils/app/visibilityAwareTimer', () => ({
 }));
 
 function serviceWorkerRegistration(controller: object | null) {
-  let state = 'installing';
-  const worker = new EventTarget();
-  Object.defineProperty(worker, 'state', { get: () => state });
-
+  const serviceWorker = { controller, register: vi.fn() };
+  let installing: EventTarget | null = null;
   const registration = new EventTarget();
-  Object.defineProperty(registration, 'installing', { get: () => worker });
-  const register = vi.fn().mockResolvedValue(registration);
-  vi.stubGlobal('navigator', {
-    serviceWorker: { controller, register },
-  });
+  Object.defineProperty(registration, 'installing', { get: () => installing });
+  serviceWorker.register.mockResolvedValue(registration);
+  vi.stubGlobal('navigator', { serviceWorker });
 
   return {
+    /** Find, install and activate one worker, which then controls the page. */
     activate() {
+      let state = 'installing';
+      const worker = new EventTarget();
+      Object.defineProperty(worker, 'state', { get: () => state });
+      installing = worker;
       registration.dispatchEvent(new Event('updatefound'));
+      installing = null;
       state = 'activated';
+      serviceWorker.controller = worker;
       worker.dispatchEvent(new Event('statechange'));
     },
-    register,
+    register: serviceWorker.register,
   };
 }
 
@@ -61,6 +64,20 @@ describe('registerServiceWorker', () => {
     await registerServiceWorker();
     registration.activate();
 
+    expect(onUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('reports a later update in a session that loaded without a worker', async () => {
+    const onUpdate = vi.fn();
+    const registration = serviceWorkerRegistration(null);
+    setOnUpdateAvailable(onUpdate);
+
+    await registerServiceWorker();
+    registration.activate();
+    expect(onUpdate).not.toHaveBeenCalled();
+
+    // A periodic registration.update() finds the next deployment.
+    registration.activate();
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 });

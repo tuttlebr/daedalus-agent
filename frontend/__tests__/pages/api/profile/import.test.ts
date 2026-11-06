@@ -147,4 +147,34 @@ describe('profile import API handler', () => {
         'Profile import is still running or timed out. Check Memory before retrying.',
     });
   });
+  it('replaces a non-JSON backend body with a fixed message', async () => {
+    vi.mocked(fetchWithTimeout).mockResolvedValue({
+      status: 502,
+      text: vi
+        .fn()
+        .mockResolvedValue(
+          '<html>502 Bad Gateway upstream 10.42.0.17:8000</html>',
+        ),
+    } as unknown as Response);
+    const { req, res } = createMockReqRes('POST', { profile: {} });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Profile import failed.' });
+  });
+
+  it('forwards the field errors the runtime writes for users', async () => {
+    const detail = [{ loc: ['body', 'facts', 0], msg: 'Field required' }];
+    vi.mocked(fetchWithTimeout).mockResolvedValue({
+      status: 422,
+      text: vi.fn().mockResolvedValue(JSON.stringify({ detail })),
+    } as unknown as Response);
+    const { req, res } = createMockReqRes('POST', { profile: {} });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.json).toHaveBeenCalledWith({ detail });
+  });
 });

@@ -340,11 +340,13 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       {
         name: 'image-panel-settings',
         storage: createJSONStorage(() => localStorage),
-        // Persist only user preferences — never transient job/gallery state.
+        // Persist only device preferences — never transient job/gallery
+        // state or text the user typed. This bucket is shared by everyone
+        // who signs in on the browser and is not cleared on logout; the
+        // preserve list, like the prompt, is per-user content.
         partialize: (state) => ({
           model: state.model,
           params: state.params,
-          preserveList: state.preserveList,
           guidance: state.guidance,
         }),
         merge: (persisted, current) => {
@@ -355,7 +357,6 @@ export const useImagePanelStore = create<ImagePanelStore>()(
           return {
             ...current,
             model,
-            preserveList: saved.preserveList ?? current.preserveList,
             guidance: saved.guidance === 'exact' ? 'exact' : 'auto',
             // Re-validate saved params against the (possibly updated)
             // model capabilities instead of trusting stale localStorage.

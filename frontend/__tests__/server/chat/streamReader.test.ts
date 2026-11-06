@@ -281,6 +281,54 @@ describe('backend stream reader persistence', () => {
     expect(mocks.finalizeError).not.toHaveBeenCalled();
   });
 
+  it('writes due steps and response text concurrently, not one after the other', async () => {
+    const body = controlledBody();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => body.response),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    body.push(
+      'event: message\ndata: {"choices":[{"delta":{"content":"First."}}]}\n\n',
+    );
+    // Inside the throttle window: buffered until the next due flush.
+    body.push(
+      'event: message\ndata: {"choices":[{"delta":{"content":" Second."}}]}\n\n',
+    );
+    await settle();
+    expect(mocks.appendStreamResponseDelta).toHaveBeenCalledOnce();
+
+    let releaseSteps!: () => void;
+    const appendSteps = mocks.appendStreamSteps.getMockImplementation()!;
+    mocks.appendStreamSteps.mockImplementationOnce(async (...args: any[]) => {
+      await new Promise<void>((resolve) => {
+        releaseSteps = resolve;
+      });
+      return (appendSteps as any)(...args);
+    });
+    vi.setSystemTime(1_001_000);
+    body.push(step('call-1', 'Start'));
+    await settle();
+    // The step write is still in flight; the due response text did not wait.
+    expect(mocks.appendStreamSteps).toHaveBeenCalledOnce();
+    expect(mocks.appendStreamResponseDelta).toHaveBeenCalledTimes(2);
+    expect(mocks.response).toBe('First. Second.');
+
+    releaseSteps();
+    body.push(
+      'event: message\ndata: {"choices":[{"delta":{},"finish_reason":"stop","daedalus_terminal":true}]}\n\n',
+    );
+    await reading;
+    expect(mocks.steps).toHaveLength(1);
+    expect(mocks.finalizeSuccess).toHaveBeenCalledOnce();
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+  });
+
   it('does not write state for keepalive comments when nothing is buffered', async () => {
     const body = controlledBody();
     vi.stubGlobal(

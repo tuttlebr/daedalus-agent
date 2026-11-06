@@ -225,6 +225,28 @@ interface UseAsyncChatOptions {
   userId?: string; // Add userId for localStorage key scoping
 }
 
+/**
+ * What a Stop achieved. `stopped` lists submissions and jobs the server
+ * confirmed as cancelled; `finished` lists jobs that reached their own
+ * terminal outcome first. Those outcomes were delivered through onComplete or
+ * onError like any other completion, so they are not stopped answers.
+ */
+export interface CancelJobOutcome {
+  stopped: string[];
+  finished: string[];
+}
+
+/** A subscription the WebSocket server refused (ws-server rejectSubscription). */
+interface SubscriptionRejection {
+  type?: string;
+  message?: string;
+  subscription?: {
+    type?: 'job' | 'chat';
+    jobId?: string;
+    conversationId?: string;
+  };
+}
+
 interface UseAsyncChatReturn {
   startAsyncJob: (
     messages: any[],
@@ -238,7 +260,7 @@ interface UseAsyncChatReturn {
     onAccepted?: (jobId: string) => void,
   ) => Promise<string>;
   jobStatusByConversationId: Record<string, AsyncJobStatus>;
-  cancelJob: (conversationId?: string) => Promise<void>;
+  cancelJob: (conversationId?: string) => Promise<CancelJobOutcome>;
   steerJob: (conversationId: string, instruction: string) => Promise<void>;
 }
 
@@ -325,6 +347,8 @@ export const useAsyncChat = (
         conversationId: string;
         cancelled: boolean;
         jobId?: string;
+        /** Settles with whether an in-flight Stop for it succeeded. */
+        stopping?: Promise<boolean>;
       }
     >
   >({});
@@ -384,6 +408,9 @@ export const useAsyncChat = (
   const gapRepairAttemptsRef = useRef<Record<string, number>>({});
   const repairGapRef = useRef<((jobId: string) => Promise<void>) | null>(null);
   const missingJobChecksRef = useRef(new Set<string>());
+  // Jobs whose live subscription the server refused. They are read over HTTP
+  // at the ordinary polling cadence until the socket resubscribes them.
+  const rejectedSubscriptionsRef = useRef(new Set<string>());
 
   const removeActiveJob = useCallback(
     (jobId: string, conversationId?: string, clearStatus: boolean = true) => {
@@ -423,6 +450,7 @@ export const useAsyncChat = (
       delete lastWsEventByJobRef.current[jobId];
       delete tokenStatePublishedAtRef.current[jobId];
       completedJobsRef.current.delete(jobId);
+      rejectedSubscriptionsRef.current.delete(jobId);
 
       if (clearStatus && trackedConversationId) {
         setJobStatusByConversationId((prev) => {
@@ -822,6 +850,8 @@ export const useAsyncChat = (
       // Live delivery is back, so the poller returns to its safety-net pace.
       unsubs.push(
         wsManager.on('connected', () => {
+          // The manager resends every subscription after `connected`.
+          rejectedSubscriptionsRef.current.delete(jobId);
           if (
             activeJobsRef.current[jobId] &&
             !completedJobsRef.current.has(jobId)
@@ -834,6 +864,35 @@ export const useAsyncChat = (
               );
             }
           }
+        }),
+      );
+
+      // A refused job or chat subscription delivers nothing for this job, and
+      // its other channel can keep the safety-net poll quiet. Read the status
+      // now and then poll at the ordinary cadence until a reconnect
+      // resubscribes it.
+      unsubs.push(
+        wsManager.on('error', (data: SubscriptionRejection) => {
+          const rejected = data?.subscription;
+          if (
+            !rejected ||
+            !activeJobsRef.current[jobId] ||
+            completedJobsRef.current.has(jobId) ||
+            !(
+              (rejected.type === 'job' && rejected.jobId === jobId) ||
+              (rejected.type === 'chat' &&
+                !!conversationId &&
+                rejected.conversationId === conversationId)
+            )
+          ) {
+            return;
+          }
+          logger.warn(`Job ${jobId}: live subscription rejected`, {
+            message: data?.message,
+          });
+          rejectedSubscriptionsRef.current.add(jobId);
+          void refreshJobStatusRef.current?.(jobId);
+          startWsFallbackPollingRef.current?.(jobId, pollingInterval);
         }),
       );
 
@@ -1134,6 +1193,7 @@ export const useAsyncChat = (
         const wsIsHealthy =
           wsManager.isConnected &&
           wsActiveJobsRef.current.has(jobId) &&
+          !rejectedSubscriptionsRef.current.has(jobId) &&
           Date.now() - lastEvent < WS_FALLBACK_POLL_INTERVAL * 2;
         if (wsIsHealthy) {
           return;
@@ -1175,7 +1235,10 @@ export const useAsyncChat = (
   );
 
   const cancelJob = useCallback(
-    async (conversationId?: string, exceptSubmissionId?: string) => {
+    async (
+      conversationId?: string,
+      exceptSubmissionId?: string,
+    ): Promise<CancelJobOutcome> => {
       const jobsToCancel = conversationId
         ? Object.values(activeJobsRef.current).filter(
             (job) => job.conversationId === conversationId,
@@ -1187,20 +1250,42 @@ export const useAsyncChat = (
           submission.submissionId !== exceptSubmissionId &&
           (!conversationId || submission.conversationId === conversationId),
       );
+      const outcome: CancelJobOutcome = { stopped: [], finished: [] };
       try {
         await Promise.all([
           ...submissions.map(async (submission) => {
-            const outcome = await cancelSubmissionRequest(
-              submission.submissionId,
-            );
-            if (!submissionStopped(outcome)) {
-              throw new Error('Could not stop the response. Please try again.');
+            // Record the intent before the request: a conversation-busy
+            // retry must not submit the turn again while this Stop is
+            // pending (startAsyncJob waits for it).
+            let settle!: (stopped: boolean) => void;
+            const stopping = new Promise<boolean>((resolve) => {
+              settle = resolve;
+            });
+            submission.stopping = stopping;
+            let stopped = false;
+            try {
+              // A retry already sent under a newer ID needs its own stop.
+              let cancelledId: string | undefined;
+              while (cancelledId !== submission.submissionId) {
+                cancelledId = submission.submissionId;
+                const result = await cancelSubmissionRequest(cancelledId);
+                if (!submissionStopped(result)) {
+                  throw new Error(
+                    'Could not stop the response. Please try again.',
+                  );
+                }
+              }
+              stopped = true;
+              submission.cancelled = true;
+              submission.controller.abort();
+              if (submission.jobId)
+                removeActiveJob(submission.jobId, submission.conversationId);
+              clearPersistedJobs(userId, submission.conversationId);
+              outcome.stopped.push(submission.jobId ?? submission.submissionId);
+            } finally {
+              if (submission.stopping === stopping) delete submission.stopping;
+              settle(stopped);
             }
-            submission.cancelled = true;
-            submission.controller.abort();
-            if (submission.jobId)
-              removeActiveJob(submission.jobId, submission.conversationId);
-            clearPersistedJobs(userId, submission.conversationId);
           }),
           ...jobsToCancel.map(async (job) => {
             // Delete job on server
@@ -1214,34 +1299,51 @@ export const useAsyncChat = (
                 `Could not stop the response (HTTP ${response.status}). Please try again.`,
               );
             }
-            const outcome = await response.json();
-            if (outcome.canceled !== true) {
+            const result = await response.json();
+            if (result.canceled !== true) {
               // A terminal job can legitimately win the cancellation race.
-              // Confirm that state before discarding our recovery markers.
+              // Confirm that state, then deliver it like any completion: the
+              // answer finished and was saved, so it is not a stopped one.
               const statusResponse = await fetchWithTimeout(
                 `/api/chat/async?jobId=${job.jobId}`,
                 { credentials: 'include' },
                 STATUS_FETCH_TIMEOUT_MS,
               );
-              let status: any = null;
+              let status: AsyncJobStatus | null = null;
               if (statusResponse.ok) status = await statusResponse.json();
               else await statusResponse.body?.cancel();
-              if (!status || !['completed', 'error'].includes(status.status)) {
+              if (
+                !status ||
+                !['completed', 'error'].includes(status.status) ||
+                (status.jobId && status.jobId !== job.jobId)
+              ) {
                 throw new Error(
                   'Cancellation was not confirmed. The response may still be running; please try again.',
                 );
               }
+              outcome.finished.push(job.jobId);
+              if (activeJobsRef.current[job.jobId])
+                handleWsJobStatus({ ...status, jobId: job.jobId });
+              // A terminal record without a finalization stamp is not
+              // delivered as a completion; stop tracking it either way.
+              if (activeJobsRef.current[job.jobId]) {
+                clearPersistedJobs(userId, job.conversationId);
+                removeActiveJob(job.jobId, job.conversationId);
+              }
+              return;
             }
             clearPersistedJobs(userId, job.conversationId);
             removeActiveJob(job.jobId, job.conversationId);
+            outcome.stopped.push(job.jobId);
           }),
         ]);
+        return outcome;
       } catch (error) {
         logger.error('Error canceling job', error);
         throw error;
       }
     },
-    [userId, removeActiveJob],
+    [userId, removeActiveJob, handleWsJobStatus],
   );
 
   // Start async job
@@ -1262,6 +1364,7 @@ export const useAsyncChat = (
         conversationId,
         cancelled: false,
         jobId: undefined as string | undefined,
+        stopping: undefined as Promise<boolean> | undefined,
       };
       pendingSubmissionsRef.current[submission.submissionId] = submission;
       try {
@@ -1304,6 +1407,9 @@ export const useAsyncChat = (
             // asks. The rejected attempt registered its ID, so the next
             // attempt needs a fresh one; Stop during the wait still reaches it.
             await waitUnlessAborted(retryAfterMs, submission.controller.signal);
+            // Stop pressed during the wait: never admit the turn while the
+            // stop is pending. A failed stop leaves the retry as it was.
+            while (submission.stopping) await submission.stopping;
             if (submission.cancelled) return submission.jobId ?? '';
             delete pendingSubmissionsRef.current[submission.submissionId];
             submission.submissionId = uuidv4();
@@ -1441,27 +1547,23 @@ export const useAsyncChat = (
   }, []);
 
   // Resume polling (or WebSocket subscription) for persisted job
-  const resumePollingIfNeeded = useCallback(async () => {
-    const persistedJobs = getPersistedJobs(userId);
-
-    if (persistedJobs.length === 0) {
-      return; // No persisted jobs to resume
-    }
-
-    const jobsToResume = persistedJobs.filter(
+  // Resume tracking persisted jobs this view does not track yet. Returns the
+  // IDs it resumed; each has just had its status read.
+  const resumePollingIfNeeded = useCallback(async (): Promise<Set<string>> => {
+    const resumed = new Set<string>();
+    const jobsToResume = getPersistedJobs(userId).filter(
       (job) => !activeJobsRef.current[job.jobId],
     );
-    if (jobsToResume.length === 0) {
-      return;
-    }
 
     for (const job of jobsToResume) {
-      if (!isComponentMountedRef.current) return;
+      if (!isComponentMountedRef.current) return resumed;
       logger.info('Resuming job tracking', job.jobId);
       activeJobsRef.current[job.jobId] = job;
+      resumed.add(job.jobId);
       subscribeJobToWs(job.jobId, job.conversationId);
       await trackJobStatus(job.jobId);
     }
+    return resumed;
   }, [userId, subscribeJobToWs, trackJobStatus]);
 
   // On mount: resume any persisted job
@@ -1472,125 +1574,29 @@ export const useAsyncChat = (
     }
   }, [resumePollingIfNeeded]);
 
-  // Check for orphaned jobs (jobs older than 10 minutes that may have been missed)
-  const checkOrphanedJobs = useCallback(async () => {
-    const persistedJobs = getPersistedJobs(userId);
-    const now = Date.now();
-    const orphanThreshold = 10 * 60 * 1000; // 10 minutes
-
-    // Every completion path clears the persisted record, so a record that has
-    // disappeared during an await was resolved by live delivery meanwhile.
-    const unresolved = (jobId: string) =>
-      isComponentMountedRef.current &&
-      getPersistedJobs(userId).some((persisted) => persisted.jobId === jobId);
-
-    for (const job of persistedJobs) {
-      if (!isComponentMountedRef.current) return;
-      if (now - job.timestamp > orphanThreshold) {
-        logger.warn(`Found potential orphaned job: ${job.jobId}`);
-
-        // Try to get the full job status so we can fire onComplete with the response
-        try {
-          const statusResponse = await fetchWithTimeout(
-            `/api/chat/async?jobId=${job.jobId}`,
-            { credentials: 'include' },
-            STATUS_FETCH_TIMEOUT_MS,
-          );
-          if (statusResponse.ok) {
-            const status: AsyncJobStatus = await statusResponse.json();
-            if (!unresolved(job.jobId)) continue;
-            if (status.status === 'completed' && status.fullResponse) {
-              completedJobsRef.current.add(job.jobId);
-              if (onComplete) {
-                onComplete(
-                  status.fullResponse,
-                  status.intermediateSteps,
-                  status.finalizedAt,
-                  job.conversationId,
-                  {
-                    turnId: status.turnId || job.turnId,
-                    assistantMessageId:
-                      status.assistantMessageId || job.assistantMessageId,
-                    jobId: job.jobId,
-                    generationDurationMs: status.generationDurationMs,
-                    persisted: Boolean(status.finalizedAt),
-                  },
-                );
-              }
-              clearPersistedJobs(userId, job.conversationId);
-              removeActiveJob(job.jobId, job.conversationId);
-              logger.info(
-                `Recovered orphaned job ${job.jobId} - fired onComplete with response`,
-              );
-              continue;
-            }
-            if (status.status === 'error') {
-              completedJobsRef.current.add(job.jobId);
-              onError?.(status.error || 'The job failed before completion.', {
-                partialResponse: status.partialResponse,
-                intermediateSteps: status.intermediateSteps,
-                jobId: job.jobId,
-                conversationId: job.conversationId,
-                turnId: status.turnId || job.turnId,
-                assistantMessageId:
-                  status.assistantMessageId || job.assistantMessageId,
-                generationDurationMs: status.generationDurationMs,
-                persisted: Boolean(status.finalizedAt),
-              });
-              clearPersistedJobs(userId, job.conversationId);
-              removeActiveJob(job.jobId, job.conversationId);
-              continue;
-            }
-
-            // The server still owns a pending or streaming job. Conversation
-            // fallback would only find an older turn, so leave it tracked.
-            continue;
-          }
-        } catch (e) {
-          logger.error(
-            `Failed to fetch status for orphaned job ${job.jobId}`,
-            e,
-          );
-        }
-
-        // Fallback: the worker saves the owned answer in the conversation.
-        if (!isComponentMountedRef.current) return;
-        const saved = await findSavedResponse(job);
-        if (saved && unresolved(job.jobId)) {
-          completeFromSavedResponse(job, saved);
-          logger.info(
-            `Recovered orphaned job ${job.jobId} via conversation data`,
-          );
-          clearPersistedJobs(userId, job.conversationId);
-          removeActiveJob(job.jobId, job.conversationId);
-        }
-      }
-    }
-  }, [
-    userId,
-    onComplete,
-    onError,
-    removeActiveJob,
-    findSavedResponse,
-    completeFromSavedResponse,
-  ]);
-
-  // Immediately refetch when app becomes visible (user returns from background)
+  // Returning to the app: a completion may have been published while the
+  // page was hidden (timers throttled, socket possibly suspended). Read every
+  // tracked job's status once, through the same guarded path as the poller.
   useEffect(() => {
     const handleVisibilityResume = async () => {
-      if (document.visibilityState === 'visible') {
-        logger.info('App became visible - resuming polling if needed');
-        await resumePollingIfNeeded();
-
-        // Check for orphaned jobs that may have completed while away
-        await checkOrphanedJobs();
-      }
+      if (document.visibilityState !== 'visible') return;
+      logger.info('App became visible - reconciling tracked jobs');
+      const resumed = await resumePollingIfNeeded();
+      if (!isComponentMountedRef.current) return;
+      await Promise.all(
+        Object.keys(activeJobsRef.current)
+          .filter(
+            (jobId) =>
+              !resumed.has(jobId) && !completedJobsRef.current.has(jobId),
+          )
+          .map((jobId) => refreshJobStatus(jobId)),
+      );
     };
 
     document.addEventListener('visibilitychange', handleVisibilityResume);
     return () =>
       document.removeEventListener('visibilitychange', handleVisibilityResume);
-  }, [resumePollingIfNeeded, checkOrphanedJobs]);
+  }, [resumePollingIfNeeded, refreshJobStatus]);
 
   return {
     startAsyncJob,

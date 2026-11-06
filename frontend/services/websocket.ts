@@ -89,7 +89,14 @@ export type ServerMessage =
       intermediateSteps?: any[];
     }
   | { type: 'job_status'; data: any }
-  | { type: 'error'; message: string };
+  | {
+      // A refused subscription; `subscription` names it (ws-server.ts).
+      type: 'error';
+      message: string;
+      subscription?:
+        | { type: 'job'; jobId: string }
+        | { type: 'chat'; conversationId: string };
+    };
 
 type MessageHandler = (data: any) => void;
 
@@ -139,6 +146,11 @@ export class WebSocketManager {
 
   get isConnected(): boolean {
     return this._isConnected;
+  }
+
+  /** A socket exists but the server has not yet sent `connected`. */
+  get isConnecting(): boolean {
+    return this.ws !== null && !this._isConnected;
   }
 
   connect(): void {
@@ -398,10 +410,23 @@ export class WebSocketManager {
     // Later pings must not extend the deadline for an unanswered ping.
     if (this.pongTimer) return;
     this.pongTimer = setTimeout(() => {
+      this.pongTimer = null;
+      const socket = this.ws;
+      if (!socket) return;
       logger.warn('Pong timeout - reconnecting');
-      if (this.ws) {
-        this.ws.close(4003, 'Pong timeout');
+      // On a half-open link the browser reports the close only after its own
+      // closing handshake times out. Abandon the socket now: its late events
+      // are ignored (`this.ws !== socket`), and delivery falls back at once.
+      this.ws = null;
+      this._isConnected = false;
+      this.stopPing();
+      try {
+        socket.close(4003, 'Pong timeout');
+      } catch (err) {
+        logger.warn('Failed to close a timed-out WebSocket', err);
       }
+      this.scheduleReconnect();
+      this.emit('disconnected', undefined);
     }, PONG_TIMEOUT);
   }
 

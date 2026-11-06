@@ -24,7 +24,7 @@ export function assertDocumentFileSize(
   if (file.size > maxBytes) {
     throw new Error(
       `File "${file.name}" exceeds the server upload limit (${formatFileSize(
-        UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES,
+        maxBytes,
       )}).`,
     );
   }

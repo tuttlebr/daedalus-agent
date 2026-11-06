@@ -28,6 +28,7 @@ import {
   jsonSetWithExpiry,
 } from '@/server/session/redis';
 import { ownsUpload } from '@/server/uploadOwnership';
+import { acquireUploadSlot, releaseUploadSlot } from '@/server/uploadSlots';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 
@@ -47,20 +48,6 @@ const DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER = positiveIntegerFromEnv(
   2,
 );
 const DOCUMENT_UPLOAD_SLOT_TTL_SECONDS = 15 * 60;
-
-const ACQUIRE_UPLOAD_SLOT_LUA = [
-  "local count = tonumber(redis.call('GET', KEYS[1]) or '0')",
-  'if count >= tonumber(ARGV[1]) then return 0 end',
-  "count = redis.call('INCR', KEYS[1])",
-  "redis.call('EXPIRE', KEYS[1], ARGV[2])",
-  'return count',
-].join('\n');
-
-const RELEASE_UPLOAD_SLOT_LUA = [
-  "local count = tonumber(redis.call('GET', KEYS[1]) or '0')",
-  "if count <= 1 then return redis.call('DEL', KEYS[1]) end",
-  "return redis.call('DECR', KEYS[1])",
-].join('\n');
 
 export interface StoredDocument {
   id: string;
@@ -83,28 +70,16 @@ function generateDocumentId(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// A sorted set of per-upload reservations (server/uploadSlots.ts). Its name
+// differs from the earlier `document-upload` counter, whose leftover string
+// keys expire on their own TTL.
 function uploadSlotKey(userId: string): string {
   const ownerHash = crypto
     .createHash('sha256')
     .update(userId)
     .digest('hex')
     .slice(0, 32);
-  return sessionKey(['document-upload', ownerHash]);
-}
-
-async function acquireUploadSlot(userId: string): Promise<boolean> {
-  const result = await getRedis().eval(
-    ACQUIRE_UPLOAD_SLOT_LUA,
-    1,
-    uploadSlotKey(userId),
-    DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER,
-    DOCUMENT_UPLOAD_SLOT_TTL_SECONDS,
-  );
-  return Number(result) > 0;
-}
-
-async function releaseUploadSlot(userId: string): Promise<void> {
-  await getRedis().eval(RELEASE_UPLOAD_SLOT_LUA, 1, uploadSlotKey(userId));
+  return sessionKey(['document-upload-slots', ownerHash]);
 }
 
 async function storeDocumentMetadata(document: StoredDocument): Promise<void> {
@@ -248,12 +223,19 @@ async function handlePost(
 ) {
   if (!(await enforceRateLimit(res, DOC_UPLOAD_RATE_LIMIT, userId))) return;
   let slotAcquired = false;
+  const slotId = crypto.randomUUID();
   // Set once bytes may have reached object storage. A PUT can be committed
   // even when its response is lost, so any later failure removes the object.
   let pendingObjectKey: string | undefined;
   let metadataStored = false;
   try {
-    slotAcquired = await acquireUploadSlot(userId);
+    slotAcquired = await acquireUploadSlot(
+      getRedis(),
+      uploadSlotKey(userId),
+      slotId,
+      DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER,
+      DOCUMENT_UPLOAD_SLOT_TTL_SECONDS,
+    );
     if (!slotAcquired) {
       res.setHeader('Retry-After', '5');
       return res.status(429).json({
@@ -329,7 +311,7 @@ async function handlePost(
   } finally {
     if (slotAcquired) {
       try {
-        await releaseUploadSlot(userId);
+        await releaseUploadSlot(getRedis(), uploadSlotKey(userId), slotId);
       } catch (error) {
         console.error('Error releasing document upload slot:', error);
       }

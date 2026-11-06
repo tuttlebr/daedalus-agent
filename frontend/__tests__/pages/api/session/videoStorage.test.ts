@@ -63,6 +63,37 @@ describe('/api/session/videoStorage uploads', () => {
   });
 
   it.each([
+    'data:video/vnd.dlna.mpeg-tts;base64,',
+    'data:video/MP4;base64,',
+    'data:application/octet-stream;base64,',
+  ])('stores the bytes of a %s data URL', async (prefix) => {
+    const mp4 = Buffer.from('000000186674797069736f6d00000000', 'hex');
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(
+      {
+        method: 'POST',
+        query: {},
+        body: {
+          base64Data: `${prefix}${mp4.toString('base64')}`,
+          filename: 'clip.mp4',
+          mimeType: 'video/mp4',
+        },
+      } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const [, record] = mocks.jsonSetWithExpiry.mock.calls[0];
+    expect(Buffer.from(record.data, 'base64')).toEqual(mp4);
+    expect(record.size).toBe(mp4.length);
+  });
+
+  it.each([
     ['a non-string filename', { filename: 42 }],
     ['a lone-surrogate filename', { filename: '\ud800clip.mp4' }],
     ['a control character in the filename', { filename: 'clip\r\n.mp4' }],

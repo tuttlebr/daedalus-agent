@@ -3,6 +3,7 @@
 import { IconPaperclip, IconX } from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useState } from 'react';
 
+import { readFileAsBase64 } from '@/utils/app/fileBase64';
 import { uploadImage } from '@/utils/app/imageHandler';
 
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
@@ -20,18 +21,6 @@ interface LocalImageMetadata {
   width?: number;
   height?: number;
   hasAlpha?: boolean;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1] ?? result);
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 async function readImageFileMetadata(file: File): Promise<LocalImageMetadata> {
@@ -92,7 +81,7 @@ async function ingest(
   file: File,
   metadata: LocalImageMetadata = {},
 ): Promise<ImageRef> {
-  const base64 = await fileToBase64(file);
+  const base64 = await readFileAsBase64(file);
   const r = await uploadImage(base64, file.type || 'image/png');
   return {
     imageId: r.imageId,

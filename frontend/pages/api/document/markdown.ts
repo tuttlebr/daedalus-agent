@@ -8,6 +8,7 @@ import {
 } from '@/utils/server/backendAuth';
 import { postToBackend } from '@/utils/server/httpProxy';
 
+import { publicBackendErrorMessage } from '@/server/publicBackendError';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getStorageSessionId,
@@ -94,18 +95,16 @@ export default async function handler(
     );
 
     if (backendResponse.statusCode < 200 || backendResponse.statusCode >= 300) {
-      let detail = backendResponse.body.toString('utf-8');
-      try {
-        const parsed = JSON.parse(detail);
-        if (parsed && typeof parsed.detail === 'string') {
-          detail = parsed.detail;
-        }
-      } catch {
-        // Non-JSON error body; surface as-is.
-      }
+      // The runtime's JSON `detail` is written for users; any other body is
+      // logged and replaced, since it can name internal hosts.
       return res.status(backendResponse.statusCode).json({
         error: 'Document conversion failed',
-        details: detail || 'Document conversion failed',
+        details: publicBackendErrorMessage(
+          'document/markdown',
+          backendResponse.statusCode,
+          backendResponse.body.toString('utf-8'),
+          'Document conversion failed',
+        ),
       });
     }
 

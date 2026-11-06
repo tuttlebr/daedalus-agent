@@ -182,6 +182,9 @@ export default async function handler(
 
     const lockoutSeconds = await reserveLoginAttempt(normalizedUsername, ip);
     if (lockoutSeconds > 0) {
+      // The standard header, as rateLimit.ts sets for its 429s; the body
+      // field remains for existing clients.
+      res.setHeader('Retry-After', String(Math.ceil(lockoutSeconds)));
       return res.status(429).json({
         error: 'Too many failed login attempts. Please try again later.',
         retryAfterSeconds: lockoutSeconds,

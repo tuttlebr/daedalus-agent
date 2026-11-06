@@ -372,6 +372,47 @@ describe('durable memory retention polling', () => {
       );
     });
 
+    it('never splits an emoji at the length bound into a lone surrogate', () => {
+      // 5,499 characters, then an emoji whose two UTF-16 units straddle the
+      // 5,500-character bound. A lone \ud83d escape is invalid JSON for the
+      // runtime (422, never retried), so the turn would not be retained.
+      const atBound = `${'a'.repeat(5_499)}😀 tail`;
+      const submission = buildMemoryRetentionSubmission({
+        ...turn,
+        messages: [{ role: 'user', content: atBound }],
+        content: `${'b'.repeat(5_499)}😀 tail`,
+        createdAt: 1,
+      })!;
+
+      expect(submission.value).not.toMatch(/\\ud[89ab][0-9a-f]{2}/i);
+      const parsed = JSON.parse(submission.value);
+      for (const text of [parsed.userContent, parsed.assistantContent]) {
+        expect(text.isWellFormed()).toBe(true);
+        expect(text).toHaveLength(5_499);
+      }
+      // A pair inside the bound is kept whole.
+      const kept = buildMemoryRetentionSubmission({
+        ...turn,
+        messages: [{ role: 'user', content: `${'a'.repeat(5_498)}😀` }],
+        createdAt: 1,
+      })!;
+      expect(JSON.parse(kept.value).userContent).toBe(`${'a'.repeat(5_498)}😀`);
+    });
+
+    it('replaces lone surrogates already in the turn text', () => {
+      const submission = buildMemoryRetentionSubmission({
+        ...turn,
+        messages: [{ role: 'user', content: 'broken \ud83d pair' }],
+        content: 'answer \ude00 here',
+        createdAt: 1,
+      })!;
+
+      expect(submission.value).not.toMatch(/\\ud[89a-f][0-9a-f]{2}/i);
+      const parsed = JSON.parse(submission.value);
+      expect(parsed.userContent).toBe('broken \uFFFD pair');
+      expect(parsed.assistantContent).toBe('answer \uFFFD here');
+    });
+
     it('queues nothing for an approval prompt or a turn without user text', () => {
       expect(
         buildMemoryRetentionSubmission({

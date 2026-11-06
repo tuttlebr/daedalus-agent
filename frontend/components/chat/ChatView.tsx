@@ -1304,8 +1304,10 @@ export const ChatView = memo(() => {
       flushPendingStreamingUpdates(selectedConversationId);
       const stoppedJob = jobStatusRef.current[selectedConversationId];
       const stoppedMessageId = stoppedJob?.assistantMessageId;
+      let finishedFirst = false;
       try {
-        await cancelJob(selectedConversationId);
+        const outcome = await cancelJob(selectedConversationId);
+        finishedFirst = Boolean(outcome?.finished.length);
       } catch (error) {
         const message =
           error instanceof Error
@@ -1315,6 +1317,10 @@ export const ChatView = memo(() => {
         setStreamAnnouncement(selectedConversationId, message);
         return;
       }
+      // The response reached its own outcome before the stop. useAsyncChat
+      // delivered it through onComplete/onError, which finished and saved
+      // the turn; it is not a stopped answer.
+      if (finishedFirst) return;
       // Text delivered while cancellation was confirmed belongs to the
       // stopped answer that is saved below.
       flushPendingStreamingUpdates(selectedConversationId);

@@ -745,6 +745,7 @@ describe('/api/images/jobs', () => {
 
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '15');
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         error: expect.stringContaining('two image jobs'),
@@ -804,6 +805,11 @@ describe('/api/images/jobs', () => {
         (res) => res.status.mock.calls[0][0],
       );
       expect(statuses.sort()).toEqual([202, 429]);
+      const rejected = [first.res, second.res].find(
+        (res) => res.status.mock.calls[0][0] === 429,
+      )!;
+      // The limit found inside the atomic index update carries the same hint.
+      expect(rejected.setHeader).toHaveBeenCalledWith('Retry-After', '15');
       const index = mocks.store.get('user:alice:imageJobs') as string[];
       expect(index).toHaveLength(2);
       // The rejected submission leaves no orphaned job record behind.
@@ -815,5 +821,162 @@ describe('/api/images/jobs', () => {
       vi.mocked(jsonGet).mockImplementation(read);
       vi.mocked(updateJsonAtomically).mockImplementation(update);
     }
+  });
+  async function failedJobError(response: Response): Promise<string> {
+    mocks.fetch.mockResolvedValueOnce(response);
+    const { req, res } = createMockReqRes('POST', {
+      mode: 'generate',
+      prompt: 'a cat',
+      model: 'gpt-image-2.6-sunburst',
+    });
+    await handler(req, res);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    await drainUntil(
+      () => mocks.store.get(`image-job:${jobId}`)?.status === 'error',
+    );
+    return mocks.store.get(`image-job:${jobId}`).error;
+  }
+
+  it.each([
+    [
+      'a proxy error page',
+      new Response('<html>502 Bad Gateway upstream 10.42.0.17:8000</html>', {
+        status: 502,
+        headers: { 'content-type': 'text/html' },
+      }),
+      'Backend unavailable',
+    ],
+    [
+      'a plain-text error',
+      new Response('Traceback: KeyError at /srv/app/image_api.py', {
+        status: 500,
+      }),
+      'Image generation failed. Please try again.',
+    ],
+    [
+      'an unreadable success body',
+      new Response('<html>internal proxy page secret-host.internal</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+      'The image service returned an unreadable response.',
+    ],
+  ])(
+    'saves a fixed message instead of %s',
+    async (_label, response, expected) => {
+      const error = await failedJobError(response);
+      expect(error).toBe(expected);
+      expect(error).not.toMatch(
+        /10\.42|secret-host|Traceback|Unexpected token/,
+      );
+    },
+  );
+
+  it('keeps the detail the image API writes for users', async () => {
+    const error = await failedJobError(
+      new Response(
+        JSON.stringify({ detail: 'image 1: unsupported image format' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    expect(error).toBe('image 1: unsupported image format');
+  });
+
+  it('saves a fixed message for an internal failure', async () => {
+    mocks.fetch.mockRejectedValueOnce(
+      new Error('connect ECONNREFUSED 10.42.0.17:8000'),
+    );
+    const { req, res } = createMockReqRes('POST', {
+      mode: 'generate',
+      prompt: 'a cat',
+      model: 'gpt-image-2.6-sunburst',
+    });
+    await handler(req, res);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    await drainUntil(
+      () => mocks.store.get(`image-job:${jobId}`)?.status === 'error',
+    );
+    expect(mocks.store.get(`image-job:${jobId}`).error).toBe(
+      'Image generation failed. Please try again.',
+    );
+  });
+
+  it.each([
+    [
+      'more input images than the image API accepts',
+      {
+        imageRefs: Array.from({ length: 17 }, (_, index) => ({
+          imageId: `input-${index}`,
+        })),
+      },
+      'Use at most 16 input images.',
+    ],
+    [
+      'an input reference without an image ID',
+      { imageRefs: [{ sessionId: 'session-1' }] },
+      'Invalid input image reference.',
+    ],
+    [
+      'an input reference with an unsafe image ID',
+      { imageRefs: [{ imageId: '../../etc/passwd' }] },
+      'Invalid input image reference.',
+    ],
+    [
+      'an input reference with a mistyped field',
+      { imageRefs: [{ imageId: 'input-1', sessionId: 7 }] },
+      'Invalid input image reference.',
+    ],
+    [
+      'a malformed mask',
+      { imageRefs: [{ imageId: 'input-1' }], maskRef: 'mask-1' },
+      'Invalid mask reference.',
+    ],
+  ])(
+    'rejects an edit with %s before creating a job',
+    async (_label, refs, error) => {
+      const { req, res } = createMockReqRes('POST', {
+        mode: 'edit',
+        prompt: 'change the label color',
+        model: 'gpt-image-2.6-sunburst',
+        ...refs,
+      });
+
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(mocks.store.size).toBe(0);
+    },
+  );
+
+  it('sends the image API only the known fields of each reference', async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ imageIds: ['edited-1'] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const { req, res } = createMockReqRes('POST', {
+      mode: 'edit',
+      prompt: 'change the label color',
+      model: 'gpt-image-2.6-sunburst',
+      imageRefs: [
+        {
+          imageId: 'input-1',
+          sessionId: 'session-1',
+          width: 512,
+          internalPath: '/srv/images/input-1.png',
+        },
+      ],
+    });
+
+    await handler(req, res);
+    await drainUntil(() => mocks.fetch.mock.calls.length === 1);
+
+    const sent = JSON.parse(mocks.fetch.mock.calls[0][1].body);
+    expect(sent.imageRefs).toEqual([
+      { imageId: 'input-1', sessionId: 'session-1', width: 512 },
+    ]);
   });
 });

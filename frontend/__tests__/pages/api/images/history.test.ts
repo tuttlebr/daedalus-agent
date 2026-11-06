@@ -143,6 +143,53 @@ describe('/api/images/history', () => {
     });
   });
 
+  it.each([
+    [
+      'more outputs than one image job can return',
+      {
+        outputImageIds: Array.from(
+          { length: 50_000 },
+          (_, index) => `abc-${index}`,
+        ),
+      },
+    ],
+    [
+      'more inputs than the image API accepts',
+      {
+        inputImages: Array.from({ length: 17 }, (_, index) => ({
+          imageId: `input-${index}`,
+          sessionId: 'session-1',
+        })),
+      },
+    ],
+  ])(
+    'rejects an entry with %s before any ownership read',
+    async (_l, extra) => {
+      const { req, res } = createMockReqRes('POST', {
+        entry: { ...entry(), ...extra },
+      });
+
+      await handler(req, res);
+
+      expect(mocks.redisEval).not.toHaveBeenCalled();
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+    },
+  );
+
+  it('accepts an entry with the most outputs one job returns', async () => {
+    const { req, res } = createMockReqRes('POST', {
+      entry: entry(
+        'eight',
+        Array.from({ length: 8 }, (_, index) => `abc-${index}`),
+      ),
+    });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it('rejects history entries that reference another user image', async () => {
     mocks.redisEval.mockResolvedValueOnce(
       ownerReply({ userId: 'other-user', sessionId: 'other-session' }),

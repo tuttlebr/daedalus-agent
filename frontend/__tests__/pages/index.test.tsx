@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { WebSocketManager } from '@/services/websocket';
+
 import Home from '@/pages/index';
 
 import { useConversationStore } from '@/state';
@@ -474,6 +476,25 @@ describe('Home', () => {
     act(() => root.unmount());
   });
 
+  it('opens the most recently updated conversation after a remote deletion', async () => {
+    mocks.history = [
+      conversation('conv-new', { updatedAt: 30 }),
+      conversation('conv-mid', { updatedAt: 20 }),
+      conversation('conv-old', { updatedAt: 1 }),
+    ];
+    mocks.selection = { id: 'conv-new' };
+    const root = await renderHome();
+
+    await act(async () => {
+      mocks.webSocketOptions.onConversationDeleted('conv-new');
+    });
+
+    expect(useConversationStore.getState().selectedConversationId).toBe(
+      'conv-mid',
+    );
+    act(() => root.unmount());
+  });
+
   it.each(['updated', 'deleted'] as const)(
     'discards a delayed sync read after the conversation is %s again',
     async (event) => {
@@ -552,6 +573,131 @@ describe('Home', () => {
       act(() => root.unmount());
     },
   );
+
+  describe('history reads around socket connections', () => {
+    const historyReads = () =>
+      mocks.apiGet.mock.calls.filter(
+        ([path]) => path === '/api/session/conversationHistory',
+      ).length;
+    let connecting = false;
+    let connected = false;
+    beforeEach(() => {
+      connecting = false;
+      connected = false;
+      vi.spyOn(
+        WebSocketManager.prototype,
+        'isConnecting',
+        'get',
+      ).mockImplementation(() => connecting);
+      vi.spyOn(
+        WebSocketManager.prototype,
+        'isConnected',
+        'get',
+      ).mockImplementation(() => connected);
+    });
+    const roots: Array<{ unmount: () => void }> = [];
+    const render = async () => {
+      const root = await renderHome();
+      roots.push(root);
+      return root;
+    };
+    afterEach(() => {
+      for (const root of roots.splice(0)) act(() => root.unmount());
+      vi.restoreAllMocks();
+    });
+
+    it('reads history once at startup, after the socket subscribes', async () => {
+      mocks.history = [conversation('conv-a')];
+      mocks.selection = { id: 'conv-a' };
+      connecting = true;
+      await render();
+      // The first connection's own refresh is the startup read.
+      expect(historyReads()).toBe(0);
+      await act(async () => {
+        connecting = false;
+        connected = true;
+        mocks.webSocketOptions.onConnected();
+      });
+      await act(async () => {});
+      expect(historyReads()).toBe(1);
+      expect(useConversationStore.getState().selectedConversationId).toBe(
+        'conv-a',
+      );
+    });
+
+    it('does not wait for a socket that fails to connect', async () => {
+      mocks.history = [conversation('conv-a')];
+      connecting = true;
+      await render();
+      await act(async () => {
+        connecting = false;
+        mocks.webSocketOptions.onDisconnected();
+      });
+      await act(async () => {});
+      expect(historyReads()).toBe(1);
+    });
+
+    it('stops waiting for a slow socket after a bounded delay', async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.history = [conversation('conv-a')];
+        connecting = true;
+        await render();
+        expect(historyReads()).toBe(0);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+        expect(historyReads()).toBe(1);
+        // A connection after the read began still refreshes once.
+        await act(async () => {
+          connecting = false;
+          connected = true;
+          mocks.webSocketOptions.onConnected();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(historyReads()).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ['reconnecting', { connecting: true, connected: false }, 0],
+      ['connected', { connecting: false, connected: true }, 1],
+      [
+        'down without a reconnect attempt',
+        { connecting: false, connected: false },
+        1,
+      ],
+    ] as const)(
+      'refreshes history once on return to the app while %s',
+      async (_label, socket, visibilityReads) => {
+        mocks.history = [conversation('conv-a')];
+        await render();
+        const before = historyReads();
+        connecting = socket.connecting;
+        connected = socket.connected;
+        const visible = vi
+          .spyOn(document, 'visibilityState', 'get')
+          .mockReturnValue('visible');
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        visible.mockRestore();
+        expect(historyReads() - before).toBe(visibilityReads);
+        if (socket.connecting) {
+          // The reconnect's own refresh reads after resubscription.
+          await act(async () => {
+            connecting = false;
+            connected = true;
+            mocks.webSocketOptions.onConnected();
+          });
+          expect(historyReads() - before).toBe(1);
+        }
+      },
+    );
+  });
 
   it('keeps a long-running job tracked when the page loads', async () => {
     // The job status outlives its last update by an hour, so a running job

@@ -29,6 +29,7 @@ import {
   redisErrorMessage,
   resolveRedisUrl,
   sessionKey,
+  streamingStateKey,
   type StreamingState,
 } from './server/session/redisShared';
 
@@ -388,15 +389,7 @@ export async function readStreamingStates(
   ) {
     const keys = conversationIds
       .slice(offset, offset + STREAMING_STATE_READ_BATCH)
-      .map((conversationId) =>
-        sessionKey([
-          'streaming',
-          'user',
-          userId,
-          'conversation',
-          conversationId,
-        ]),
-      );
+      .map((conversationId) => streamingStateKey(userId, conversationId));
     const values = (await redis.eval(
       READ_STREAMING_STATES_LUA,
       keys.length,
@@ -516,7 +509,7 @@ function removeConnection(conn: ClientConnection): void {
   // Clean up job subscriptions
   for (const jobId of conn.subscribedJobs) {
     void conn
-      .releaseChannel(`job:${jobId}:status`)
+      .releaseChannel(channels.jobStatus(jobId))
       .catch((error) => logRedisErrorThrottled('subscriber-release', error));
   }
   conn.subscribedJobs.clear();
@@ -524,7 +517,7 @@ function removeConnection(conn: ClientConnection): void {
   // Clean up chat subscriptions
   for (const convId of conn.subscribedChats) {
     void conn
-      .releaseChannel(`user:${conn.userId}:chat:${convId}:tokens`)
+      .releaseChannel(channels.chatTokens(conn.userId, convId))
       .catch((error) => logRedisErrorThrottled('subscriber-release', error));
   }
   conn.subscribedChats.clear();
@@ -570,10 +563,20 @@ function isSafeJobId(value: string): boolean {
   return JOB_ID_PATTERN.test(value);
 }
 
-function rejectSubscription(conn: ClientConnection, message: string): void {
+/** The subscription a rejection refers to, so the client can recover it. */
+type RejectedSubscription =
+  | { type: 'job'; jobId: string }
+  | { type: 'chat'; conversationId: string };
+
+function rejectSubscription(
+  conn: ClientConnection,
+  message: string,
+  subscription: RejectedSubscription,
+): void {
   sendToConnection(conn, {
     type: 'error',
     message,
+    subscription,
   });
 }
 
@@ -582,13 +585,7 @@ async function canSubscribeToChat(
   conversationId: string,
 ): Promise<boolean> {
   const redis = getRedis();
-  const streamingKey = sessionKey([
-    'streaming',
-    'user',
-    userId,
-    'conversation',
-    conversationId,
-  ]);
+  const streamingKey = streamingStateKey(userId, conversationId);
 
   try {
     // Membership and the record's owner binding in one round trip, reading
@@ -635,7 +632,10 @@ async function subscribeToJob(
   dependencies: ConnectionInitializationDependencies,
 ): Promise<void> {
   if (!isSafeJobId(jobId)) {
-    rejectSubscription(conn, 'Invalid job subscription');
+    rejectSubscription(conn, 'Invalid job subscription', {
+      type: 'job',
+      jobId,
+    });
     return;
   }
 
@@ -644,11 +644,14 @@ async function subscribeToJob(
   }
 
   if (conn.subscribedJobs.size >= MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION) {
-    rejectSubscription(conn, 'Too many job subscriptions');
+    rejectSubscription(conn, 'Too many job subscriptions', {
+      type: 'job',
+      jobId,
+    });
     return;
   }
 
-  const channel = `job:${jobId}:status`;
+  const channel = channels.jobStatus(jobId);
   const request = beginSubscription(conn, channel);
   const jobRequest = await dependencies.getJobRequest(jobId).catch((err) => {
     console.error(`[WS] Error validating job subscription for ${jobId}:`, err);
@@ -661,7 +664,10 @@ async function subscribeToJob(
     console.warn(
       `[WS] Rejected unauthorized job subscription for ${conn.userId}: ${jobId}`,
     );
-    rejectSubscription(conn, 'Unauthorized job subscription');
+    rejectSubscription(conn, 'Unauthorized job subscription', {
+      type: 'job',
+      jobId,
+    });
     return;
   }
 
@@ -670,7 +676,10 @@ async function subscribeToJob(
   // identical request may have completed validation while this one waited.
   if (conn.closed || conn.subscribedJobs.has(jobId)) return;
   if (conn.subscribedJobs.size >= MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION) {
-    rejectSubscription(conn, 'Too many job subscriptions');
+    rejectSubscription(conn, 'Too many job subscriptions', {
+      type: 'job',
+      jobId,
+    });
     return;
   }
 
@@ -716,7 +725,10 @@ async function subscribeToChat(
   // The same rule admits a conversation at chat submission, so every
   // conversation that can run a job can also receive its live events.
   if (!isValidConversationId(conversationId)) {
-    rejectSubscription(conn, 'Invalid chat subscription');
+    rejectSubscription(conn, 'Invalid chat subscription', {
+      type: 'chat',
+      conversationId,
+    });
     return;
   }
 
@@ -725,11 +737,14 @@ async function subscribeToChat(
   }
 
   if (conn.subscribedChats.size >= MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION) {
-    rejectSubscription(conn, 'Too many chat subscriptions');
+    rejectSubscription(conn, 'Too many chat subscriptions', {
+      type: 'chat',
+      conversationId,
+    });
     return;
   }
 
-  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
+  const channelKey = channels.chatTokens(userId, conversationId);
   const request = beginSubscription(conn, channelKey);
   const allowed = await dependencies
     .canSubscribeToChat(userId, conversationId)
@@ -747,13 +762,19 @@ async function subscribeToChat(
     console.warn(
       `[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`,
     );
-    rejectSubscription(conn, 'Unauthorized chat subscription');
+    rejectSubscription(conn, 'Unauthorized chat subscription', {
+      type: 'chat',
+      conversationId,
+    });
     return;
   }
 
   if (conn.closed || conn.subscribedChats.has(conversationId)) return;
   if (conn.subscribedChats.size >= MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION) {
-    rejectSubscription(conn, 'Too many chat subscriptions');
+    rejectSubscription(conn, 'Too many chat subscriptions', {
+      type: 'chat',
+      conversationId,
+    });
     return;
   }
 
@@ -987,7 +1008,13 @@ export async function initializeAuthenticatedConnection(
           if (
             conn.subscriptionChecksInFlight >= MAX_PENDING_SUBSCRIPTION_CHECKS
           ) {
-            rejectSubscription(conn, 'Too many pending subscription checks');
+            rejectSubscription(
+              conn,
+              'Too many pending subscription checks',
+              isJob
+                ? { type: 'job', jobId: id }
+                : { type: 'chat', conversationId: id },
+            );
             break;
           }
           conn.subscriptionChecksInFlight += 1;
@@ -1005,7 +1032,7 @@ export async function initializeAuthenticatedConnection(
 
         case 'unsubscribe_job':
           if (msg.jobId && typeof msg.jobId === 'string') {
-            const channel = `job:${msg.jobId}:status`;
+            const channel = channels.jobStatus(msg.jobId);
             conn.pendingSubscriptions.delete(channel);
             if (conn.subscribedJobs.delete(msg.jobId)) {
               await conn.releaseChannel(channel);
@@ -1015,7 +1042,7 @@ export async function initializeAuthenticatedConnection(
 
         case 'unsubscribe_chat':
           if (msg.conversationId && typeof msg.conversationId === 'string') {
-            const channel = `user:${userId}:chat:${msg.conversationId}:tokens`;
+            const channel = channels.chatTokens(userId, msg.conversationId);
             conn.pendingSubscriptions.delete(channel);
             if (conn.subscribedChats.delete(msg.conversationId)) {
               await conn.releaseChannel(channel);

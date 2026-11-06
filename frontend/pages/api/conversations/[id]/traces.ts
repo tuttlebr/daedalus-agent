@@ -2,8 +2,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { getSession } from '@/utils/auth/session';
 
-import { conversationJobGuardKey } from '@/server/chat/conversationJobGuard';
-import { isTerminalJobStatus } from '@/server/chat/jobState';
+import {
+  conversationJobGuardKey,
+  parseConversationJobGuard,
+} from '@/server/chat/conversationJobGuard';
+import { isTerminalStatusRecord } from '@/server/chat/jobState';
 import { getStreamSteps } from '@/server/chat/streamState';
 import type { AsyncJobRequest, AsyncJobStatus } from '@/server/chat/types';
 import {
@@ -11,6 +14,7 @@ import {
   readConversationForUser,
 } from '@/server/session/conversationStore';
 import { getRedis, jsonGet, sessionKey } from '@/server/session/redis';
+import { readJsonFields } from '@/server/session/redisShared';
 
 type TraceLine = Record<string, unknown>;
 
@@ -96,35 +100,34 @@ async function activeConversationJob(
   username: string,
   conversationId: string,
 ): Promise<{ jobId: string; status: AsyncJobStatus | null } | null> {
-  const raw = await getRedis().get(
-    conversationJobGuardKey(username, conversationId),
+  const guard = parseConversationJobGuard(
+    await getRedis().get(conversationJobGuardKey(username, conversationId)),
   );
-  if (!raw) return null;
-  let guard: any;
-  try {
-    guard = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const jobId = guard?.jobId;
   if (
-    guard?.userId !== username ||
-    guard?.conversationId !== conversationId ||
-    typeof jobId !== 'string' ||
-    !jobId
+    !guard ||
+    guard.userId !== username ||
+    guard.conversationId !== conversationId
   ) {
     return null;
   }
+  const { jobId } = guard;
 
-  const [request, status] = (await Promise.all([
-    jsonGet(sessionKey(['async-job-request', jobId])),
-    jsonGet(sessionKey(['async-job-status', jobId])),
-  ])) as [AsyncJobRequest | null, AsyncJobStatus | null];
+  // Ownership needs two fields of the request, which also carries the
+  // conversation history.
+  const [request, status] = await Promise.all([
+    readJsonFields<AsyncJobRequest>(
+      getRedis(),
+      sessionKey(['async-job-request', jobId]),
+      ['userId', 'conversationId'],
+    ),
+    jsonGet(
+      sessionKey(['async-job-status', jobId]),
+    ) as Promise<AsyncJobStatus | null>,
+  ]);
   if (
     request?.userId !== username ||
     request?.conversationId !== conversationId ||
-    (status &&
-      (status.finalizedAt !== undefined || isTerminalJobStatus(status.status)))
+    isTerminalStatusRecord(status)
   ) {
     return null;
   }

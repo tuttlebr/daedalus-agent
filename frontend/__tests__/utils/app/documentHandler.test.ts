@@ -48,6 +48,13 @@ describe('documentHandler multipart upload', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('reports the limit it enforced', () => {
+    const file = { name: 'notes.pdf', size: 2 * 1024 * 1024 + 1 };
+    expect(() => assertDocumentFileSize(file, 2 * 1024 * 1024)).toThrow(
+      'File "notes.pdf" exceeds the server upload limit (2.0 MB).',
+    );
+  });
+
   it('rejects an empty selected document before fetch', async () => {
     const fetchMock = successfulFetch();
     vi.spyOn(console, 'error').mockImplementation(() => {});

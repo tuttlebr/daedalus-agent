@@ -212,8 +212,11 @@ describe('ChatInput inline document download', () => {
       await act(async () => {
         input.dispatchEvent(new Event('change', { bubbles: true }));
         await vi.waitFor(() =>
+          // Bare base64 of the file bytes: a typeless file reads as an
+          // application/octet-stream data URL, whose prefix must not reach
+          // the decoder.
           expect(uploadImage).toHaveBeenCalledExactlyOnceWith(
-            expect.any(String),
+            btoa('synthetic-image'),
             'image/heic',
             expect.any(AbortSignal),
           ),

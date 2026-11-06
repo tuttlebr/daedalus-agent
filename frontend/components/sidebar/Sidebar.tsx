@@ -20,6 +20,7 @@ import {
   persistSelectedConversation,
   saveConversation,
 } from '@/utils/app/conversation';
+import { mostRecentConversation } from '@/utils/app/conversationList';
 import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
 import { Conversation } from '@/types/chat';
@@ -141,9 +142,10 @@ export const Sidebar = memo(() => {
         deleteConversationFromStore(id);
         setConfirmingDeleteId(null);
         if (wasSelected) {
-          const remaining = useConversationStore.getState().conversations;
-          if (remaining.length)
-            selectConversation(remaining[remaining.length - 1].id);
+          const next = mostRecentConversation(
+            useConversationStore.getState().conversations,
+          );
+          if (next) selectConversation(next.id);
           else handleNewConversation();
         }
       } catch {
@@ -250,8 +252,10 @@ export const Sidebar = memo(() => {
       );
     else setIsConfirmingClear(false);
     if (!useConversationStore.getState().selectedConversationId) {
-      const remaining = useConversationStore.getState().conversations;
-      if (remaining.length) selectConversation(remaining[0].id);
+      const next = mostRecentConversation(
+        useConversationStore.getState().conversations,
+      );
+      if (next) selectConversation(next.id);
       else handleNewConversation();
     }
     setPending(null);

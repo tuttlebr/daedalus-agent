@@ -165,6 +165,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
               expect(socket.messages()).toContainEqual({
                 type: 'error',
                 message: 'Unauthorized chat subscription',
+                subscription: { type: 'chat', conversationId },
               }),
             );
           }
@@ -226,6 +227,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
                 expect(socket.messages()).toContainEqual({
                   type: 'error',
                   message: 'Unauthorized job subscription',
+                  subscription: { type: 'job', jobId },
                 }),
               );
             }

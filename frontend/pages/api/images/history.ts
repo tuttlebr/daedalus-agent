@@ -49,6 +49,13 @@ interface ImageHistoryEntry {
 
 class ImageHistoryAccessError extends Error {}
 
+// The image API's request limits: at most eight outputs (`n` in
+// builder/image_api.py) and sixteen inputs (MAX_IMAGE_INPUTS). A larger entry
+// cannot come from a real job; each output ID also costs a Redis read when
+// its ownership is checked.
+const MAX_OUTPUT_IMAGES = 8;
+const MAX_INPUT_IMAGES = 16;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -207,9 +214,17 @@ function parseEntry(value: unknown): ImageHistoryEntry | null {
   ) {
     return null;
   }
-  if (!value.inputImages.every(isImageRef)) return null;
+  if (
+    value.inputImages.length > MAX_INPUT_IMAGES ||
+    !value.inputImages.every(isImageRef)
+  )
+    return null;
   if (value.maskImage !== null && !isImageRef(value.maskImage)) return null;
-  if (value.outputImageIds.length === 0) return null;
+  if (
+    value.outputImageIds.length === 0 ||
+    value.outputImageIds.length > MAX_OUTPUT_IMAGES
+  )
+    return null;
 
   return {
     ...(isImageContext(value.imageContext) && {

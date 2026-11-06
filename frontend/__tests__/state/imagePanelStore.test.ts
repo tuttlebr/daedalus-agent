@@ -111,4 +111,25 @@ describe('image panel history and assets', () => {
     store.setMode('edit');
     expect(useImagePanelStore.getState().params.complexity).toBe('low');
   });
+
+  it('keeps typed preserve text out of shared browser storage', async () => {
+    useImagePanelStore.getState().setPreserveList('Keep my client logo');
+    useImagePanelStore.getState().setGuidance('exact');
+    const saved = JSON.parse(localStorage.getItem('image-panel-settings')!);
+    expect(saved.state.guidance).toBe('exact');
+    expect(saved.state).not.toHaveProperty('preserveList');
+
+    // A value saved by an earlier version is not restored for the next user.
+    localStorage.setItem(
+      'image-panel-settings',
+      JSON.stringify({
+        state: { ...saved.state, preserveList: 'Previous user text' },
+        version: 0,
+      }),
+    );
+    useImagePanelStore.setState({ preserveList: '' });
+    await useImagePanelStore.persist.rehydrate();
+    expect(useImagePanelStore.getState().preserveList).toBe('');
+    expect(useImagePanelStore.getState().guidance).toBe('exact');
+  });
 });

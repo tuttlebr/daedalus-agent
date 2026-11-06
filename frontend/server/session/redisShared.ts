@@ -80,7 +80,26 @@ export function sessionKey(parts: Array<string | undefined | null>): string {
 /** Channel names for real-time sync. Both processes must agree exactly. */
 export const channels = {
   userUpdates: (userId: string) => `user:${userId}:updates`,
+  /** Live tokens, steps and completion for one conversation's response. */
+  chatTokens: (userId: string, conversationId: string) =>
+    `user:${userId}:chat:${conversationId}:tokens`,
+  /** Status snapshots of one chat job. */
+  jobStatus: (jobId: string) => `job:${jobId}:status`,
 };
+
+/** Cross-session streaming marker key for one conversation. */
+export function streamingStateKey(
+  userId: string,
+  conversationId: string,
+): string {
+  return sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    conversationId,
+  ]);
+}
 
 /** Job IDs accepted on every job-scoped route, socket message and channel. */
 export const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;

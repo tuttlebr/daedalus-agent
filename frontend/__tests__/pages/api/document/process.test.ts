@@ -194,4 +194,40 @@ describe('/api/document/process', () => {
       expect(mocks.fetch).not.toHaveBeenCalled();
     },
   );
+  it.each([
+    [
+      'keeps the detail the runtime writes for users',
+      JSON.stringify({ detail: 'Document attachment not found.' }),
+      'Document attachment not found.',
+    ],
+    [
+      'replaces a proxy error page with a fixed explanation',
+      '<html>502 Bad Gateway upstream 10.42.0.17:8000</html>',
+      'Document extraction failed',
+    ],
+  ])('%s', async (_label, body, details) => {
+    const validatedRef = { documentId: 'doc-a', sessionId: 'current-session' };
+    mocks.validateDocumentRefsForUser.mockResolvedValueOnce([validatedRef]);
+    mocks.postToBackend.mockResolvedValueOnce({
+      statusCode: 502,
+      headers: {},
+      body: Buffer.from(body),
+    });
+    const res = makeRes();
+
+    await handler(
+      {
+        method: 'POST',
+        headers: {},
+        body: { mode: 'extract', documentRef: validatedRef },
+      } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Document extraction failed',
+      details,
+    });
+  });
 });

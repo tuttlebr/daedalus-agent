@@ -128,6 +128,85 @@ describe('Sidebar conversation selection and rename', () => {
     expect(selectionWrites()).toEqual([]);
   });
 
+  it('opens the most recently updated chat after deleting the selected one', async () => {
+    // Store order is the server's (unordered) order, not what the list shows.
+    act(() =>
+      useConversationStore.setState({
+        conversations: [
+          {
+            id: 'conv-new',
+            name: 'New',
+            folderId: null,
+            messages: [],
+            updatedAt: 30,
+          },
+          {
+            id: 'conv-mid',
+            name: 'Mid',
+            folderId: null,
+            messages: [],
+            updatedAt: 20,
+          },
+          {
+            id: 'conv-old',
+            name: 'Old',
+            folderId: null,
+            messages: [],
+            updatedAt: 1,
+          },
+        ],
+        selectedConversationId: 'conv-new',
+      }),
+    );
+    await act(async () => {
+      document
+        .getElementById('delete-conversation-conv-new')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {
+      button('Confirm delete').click();
+    });
+    expect(useConversationStore.getState().selectedConversationId).toBe(
+      'conv-mid',
+    );
+  });
+
+  it('opens a new chat rather than the read-only agent log after clearing', async () => {
+    act(() =>
+      useConversationStore.setState({
+        conversations: [
+          {
+            id: 'autonomous-agent-thoughts',
+            name: 'Agent log',
+            folderId: null,
+            messages: [],
+            updatedAt: 50,
+          },
+          {
+            id: 'conv-a',
+            name: 'A',
+            folderId: null,
+            messages: [],
+            updatedAt: 2,
+          },
+        ],
+        selectedConversationId: 'conv-a',
+      }),
+    );
+    await act(async () => {
+      button('Clear Conversations').click();
+    });
+    await act(async () => {
+      button('Confirm clear').click();
+    });
+    const { selectedConversationId, conversations } =
+      useConversationStore.getState();
+    expect(selectedConversationId).not.toBe('autonomous-agent-thoughts');
+    expect(conversations.some(({ id }) => id === selectedConversationId)).toBe(
+      true,
+    );
+  });
+
   it('offers the actions for each conversation from one menu button', () => {
     const more = document.getElementById('conversation-actions-conv-b')!;
     expect(more.getAttribute('aria-label')).toBe('Actions for Second chat');

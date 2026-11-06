@@ -6,6 +6,7 @@ import type { AsyncJobStatus, OAuthRequest } from './types';
 
 import { getRedis, sessionKey } from '@/server/session/redis';
 import { evalScript, redisScript } from '@/server/session/redisScript';
+import { channels as syncChannels } from '@/server/session/redisShared';
 import { createHash } from 'node:crypto';
 
 const logger = new Logger('AsyncJob');
@@ -406,7 +407,7 @@ async function mutateLiveJobStatus(
       snapshot,
       JSON.stringify(updated),
       JOB_EXPIRY_SECONDS,
-      publish ? `job:${jobId}:status` : '',
+      publish ? syncChannels.jobStatus(jobId) : '',
     );
     // Missing/terminal records return nil. Only a changed live snapshot retries.
     if (applied === null) return false;

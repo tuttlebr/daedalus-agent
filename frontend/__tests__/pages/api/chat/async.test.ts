@@ -158,7 +158,11 @@ async function emulateQueueScripts(
 ): Promise<any> {
   const keys = rest.slice(0, numKeys).map(String);
   const argv = rest.slice(numKeys);
+  const slot = emulateUserSlotScripts(script, numKeys, rest);
+  if (slot !== undefined) return slot;
   if (script.includes('ENQUEUE_STREAM_JOB')) {
+    if (!userSlots.get(keys[4])?.has(String(argv[2])))
+      return ['slot_released', ''];
     if (keys[3] && (await (jsonGet as any)(keys[3]))?.cancelled === true)
       await (jsonSetWithExpiry as any)(keys[2], true, Number(argv[1]));
     await (jsonSetWithExpiry as any)(
@@ -176,6 +180,50 @@ async function emulateQueueScripts(
     return value == null ? [0] : [2, JSON.stringify(value)];
   }
   return undefined;
+}
+
+// Per-user chat slots (sorted-set members with expiry scores), emulating the
+// admission scripts in server/chat/userJobGuard.ts.
+const userSlots = new Map<string, Map<string, number>>();
+
+function emulateUserSlotScripts(
+  script: string,
+  numKeys: number,
+  rest: any[],
+): unknown {
+  const key = String(rest[0]);
+  const argv = rest.slice(numKeys).map(String);
+  const slots = userSlots.get(key) ?? new Map<string, number>();
+  userSlots.set(key, slots);
+  const now = Date.now();
+  for (const [member, expiresAt] of slots) {
+    if (expiresAt <= now) slots.delete(member);
+  }
+  if (script.includes('ACQUIRE_USER_JOB_GUARD')) {
+    if (slots.has(argv[0])) return 1;
+    if (slots.size >= Number(argv[1])) return 0;
+    slots.set(argv[0], now + Number(argv[3] ?? argv[2]) * 1000);
+    return 1;
+  }
+  if (script.includes('CONFIRM_USER_JOB_GUARD')) {
+    if (!slots.has(argv[0])) return 0;
+    slots.set(argv[0], now + Number(argv[1]) * 1000);
+    return 1;
+  }
+  if (script.includes("redis.call('ZREM', KEYS[1], ARGV[1])")) {
+    return slots.delete(argv[0]) ? 1 : 0;
+  }
+  return undefined;
+}
+
+/**
+ * A script no double emulates. Answering it with a fixed success would let a
+ * regression in that script (or a newly added one) pass unnoticed.
+ */
+function unknownScript(script: string): never {
+  throw new Error(
+    `Unemulated Redis script: ${script.trim().split('\n')[0].slice(0, 80)}`,
+  );
 }
 
 vi.mock('@/utils/fetchWithTimeout', () => ({
@@ -217,6 +265,7 @@ describe('chat/async backend pinning helpers', () => {
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
     mocks.redisDel.mockResolvedValue(0);
+    userSlots.clear();
     mocks.redisEval.mockImplementation(
       async (script: string, count: number, ...args: any[]) => {
         const queued = await emulateQueueScripts(script, count, args);
@@ -253,7 +302,7 @@ describe('chat/async backend pinning helpers', () => {
           return 1;
         }
         if (script.includes('INCREMENT_EXPIRING_COUNTER')) return [1, 60];
-        return 1;
+        return unknownScript(script);
       },
     );
     mocks.redisGet.mockResolvedValue(null);
@@ -2123,6 +2172,7 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     return had ? 1 : 0;
   });
   journalEffects.length = 0;
+  userSlots.clear();
   mocks.redisEval.mockImplementation(async (...args: any[]) => {
     const script = args[0] as string;
     const queued = await emulateQueueScripts(script, args[1], args.slice(2));
@@ -2304,9 +2354,7 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       journalEffects.push({ jobId, effects });
       return 1;
     }
-    // withRedisLock unlock script
-    if (args.length < 6) return 1;
-    return 1;
+    return unknownScript(script);
   });
   return store;
 }
@@ -5047,6 +5095,121 @@ describe('chat/async submission recovery and validation', () => {
       [...store.keys()].filter((key) => key.startsWith('daedalus:async-job')),
     ).toEqual([]);
     expect(store.has(guardKey('conv-late'))).toBe(false);
+  });
+
+  // The enqueue commit can execute in Redis while its reply is lost (command
+  // timeout or dropped socket). The payload it writes shows the outcome.
+  function loseEnqueueReply(options: { checkFails?: boolean } = {}) {
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) => {
+      if (String(args[0]).includes('ENQUEUE_STREAM_JOB')) {
+        await evaluate(...args);
+        throw new Error('Command timed out');
+      }
+      return evaluate(...args);
+    });
+    if (options.checkFails) {
+      mocks.redisExists.mockRejectedValue(new Error('Connection is closed.'));
+    }
+  }
+
+  it('reports a queued job whose enqueue reply was lost as started', async () => {
+    const store = wireGuardedStore();
+    loseEnqueueReply();
+
+    const res = await submit({
+      conversationId: 'conv-lost-reply',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const { jobId } = res.json.mock.calls[0][0];
+    expect(mocks.redisXadd).toHaveBeenCalledOnce();
+    // A worker running the queued entry still has every record and guard.
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(true);
+    expect(store.get(`daedalus:async-job-status:${jobId}`).status).toBe(
+      'pending',
+    );
+    expect(store.has(`daedalus:async-stream-payload:${jobId}`)).toBe(true);
+    expect(JSON.parse(store.get(guardKey('conv-lost-reply'))).jobId).toBe(
+      jobId,
+    );
+    expect(slotReleased(jobId)).toBe(false);
+  });
+
+  it('cleans up a job whose failed enqueue left no payload', async () => {
+    const store = wireGuardedStore();
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) => {
+      if (String(args[0]).includes('ENQUEUE_STREAM_JOB'))
+        throw new Error('Command timed out');
+      return evaluate(...args);
+    });
+
+    const res = await submit({
+      conversationId: 'conv-not-queued',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(
+      [...store.keys()].filter((key) => key.startsWith('daedalus:async-job')),
+    ).toEqual([]);
+    expect(store.has(guardKey('conv-not-queued'))).toBe(false);
+  });
+
+  it('keeps every record when the enqueue outcome cannot be checked', async () => {
+    const store = wireGuardedStore();
+    loseEnqueueReply({ checkFails: true });
+
+    const res = await submit({
+      conversationId: 'conv-unknown',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'submission_unconfirmed' }),
+    );
+    const jobId = JSON.parse(store.get(guardKey('conv-unknown'))).jobId;
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(true);
+    expect(store.has(`daedalus:async-stream-payload:${jobId}`)).toBe(true);
+    expect(slotReleased(jobId)).toBe(false);
+  });
+
+  it('keeps the terminal status a concurrent Stop wrote before queueing', async () => {
+    // Stop arrived after the job's records were written but before the queue
+    // commit: DELETE finalized the job and released its slot, so the commit
+    // refuses to queue it. The rejected submission's cleanup must not delete
+    // the stopped job's terminal status.
+    const store = wireGuardedStore();
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) => {
+      if (String(args[0]).includes('ENQUEUE_STREAM_JOB')) {
+        const jobId = String(args[2 + Number(args[1]) + 2]);
+        const statusKey = `daedalus:async-job-status:${jobId}`;
+        store.set(statusKey, {
+          ...store.get(statusKey),
+          status: 'error',
+          error: 'Job canceled by user',
+          finalizedAt: Date.now(),
+        });
+        return ['slot_released', ''];
+      }
+      return evaluate(...args);
+    });
+
+    const res = await submit({
+      conversationId: 'conv-stopped',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    const statuses = [...store.entries()].filter(([key]) =>
+      key.startsWith('daedalus:async-job-status:'),
+    );
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0][1]).toMatchObject({ status: 'error' });
   });
 
   it('DELETE finishes a pending job that has no queue owner', async () => {

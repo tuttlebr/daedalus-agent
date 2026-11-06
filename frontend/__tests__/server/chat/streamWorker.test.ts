@@ -1,4 +1,5 @@
 import {
+  StreamWorkerDrainError,
   StreamWorkerRuntime,
   streamWorkerOptionsFromEnv,
   processStreamQueueEntry,
@@ -31,6 +32,14 @@ const mocks = vi.hoisted(() => ({
   finalizeError: vi.fn(),
   resumePendingFinalization: vi.fn(),
   processDueMemoryRetentions: vi.fn(),
+  clearStreamingState: vi.fn(),
+  deleteLiveJobStatus: vi.fn(),
+  publish: vi.fn(),
+}));
+
+vi.mock('@/server/chat/jobState', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/server/chat/jobState')>()),
+  deleteLiveJobStatus: mocks.deleteLiveJobStatus,
 }));
 
 vi.mock('@/server/chat/userJobGuard', () => ({
@@ -74,6 +83,9 @@ vi.mock('@/server/chat/finalization', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
+  channels: { userUpdates: (userId: string) => `user:${userId}:updates` },
+  clearStreamingState: mocks.clearStreamingState,
+  getPublisher: () => ({ publish: mocks.publish }),
   getRedis: vi.fn(() => ({ duplicate: () => mocks.readClient })),
   jsonGet: vi.fn(async (key: string) => mocks.store.get(key) ?? null),
   jsonSetWithExpiry: vi.fn(async (key: string, value: any) => {
@@ -870,10 +882,9 @@ describe('durable stream worker entry processing', () => {
     },
   );
 
-  it.each([
-    ['status', 'daedalus:async-job-status:job-1'],
-    ['request', 'daedalus:async-job-request:job-1'],
-  ])(
+  // A live status whose request expired is covered below: it is also
+  // finalized so status reads stop reporting it as running.
+  it.each([['status', 'daedalus:async-job-status:job-1']])(
     'releases the user slot and conversation guard of an owned entry whose %s expired',
     async (_record, key) => {
       mocks.store.delete(key);
@@ -905,6 +916,162 @@ describe('durable stream worker entry processing', () => {
       expect(mocks.finalizeError).not.toHaveBeenCalled();
     },
   );
+
+  it('records a terminal error for a live job whose request record is gone', async () => {
+    mocks.store.delete('daedalus:async-job-request:job-1');
+    mocks.store.set('daedalus:async-job-status:job-1', {
+      jobId: 'job-1',
+      status: 'streaming',
+      turnId: 'turn-1',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const owned = { ...entry, userId: 'testuser', conversationId: 'conv-1' };
+    const order: string[] = [];
+    mocks.finalizeError.mockImplementationOnce(async (jobId: string) => {
+      order.push('finalize');
+      const key = `daedalus:async-job-status:${jobId}`;
+      mocks.store.set(key, {
+        ...mocks.store.get(key),
+        status: 'error',
+        finalizedAt: 2,
+      });
+    });
+    mocks.releaseUserJobGuard.mockImplementation(async () => {
+      order.push('release');
+    });
+    mocks.acknowledgeStreamQueueEntry.mockImplementation(async () => {
+      order.push('ack');
+    });
+
+    await expect(
+      processStreamQueueEntry(owned, options, undefined, 'owner-no-request'),
+    ).resolves.toBe('missing');
+    // The entry is acknowledged only after the outcome and releases commit.
+    expect(order).toEqual(['finalize', 'release', 'ack']);
+
+    // Status polls now read a terminal outcome instead of a run forever live.
+    expect(mocks.store.get('daedalus:async-job-status:job-1')).toMatchObject({
+      status: 'error',
+    });
+    const [, request, message] = mocks.finalizeError.mock.calls[0];
+    // No conversation is written without its saved history.
+    expect(request).toMatchObject({ userId: 'testuser', messages: [] });
+    expect(request.conversationId).toBeUndefined();
+    expect(message).toContain('request record expired');
+    expect(mocks.releaseUserJobGuard).toHaveBeenCalledWith('testuser', 'job-1');
+    expect(mocks.releaseConversationJobGuard).toHaveBeenCalledWith(
+      'testuser',
+      'conv-1',
+      'job-1',
+    );
+    expect(mocks.clearStreamingState).toHaveBeenCalledWith(
+      'testuser',
+      'conv-1',
+      'job-1',
+    );
+    expect(mocks.publish).toHaveBeenCalledWith(
+      'user:testuser:updates',
+      expect.stringContaining('"streaming_ended"'),
+    );
+    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(owned);
+  });
+
+  it('removes the live status of an ownerless legacy entry without a request', async () => {
+    mocks.store.delete('daedalus:async-job-request:job-1');
+
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-legacy'),
+    ).resolves.toBe('missing');
+
+    expect(mocks.deleteLiveJobStatus).toHaveBeenCalledWith('job-1');
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+  });
+
+  function runUntilAborted(options: { start?: boolean } = {}) {
+    mocks.startBackgroundStreamReader.mockImplementation(
+      async (_jobId: string, ...args: any[]) => {
+        const control = args[3];
+        if (options.start !== false) await control.beforeBackendRequest();
+        await new Promise<void>((resolve) => {
+          if (control.signal.aborted) return resolve();
+          control.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        });
+        throw control.signal.reason;
+      },
+    );
+  }
+
+  async function drainDuringRun(owner: string) {
+    const controller = new AbortController();
+    const processing = processStreamQueueEntry(
+      entry,
+      options,
+      controller,
+      owner,
+    );
+    await vi.waitFor(() =>
+      expect(mocks.startBackgroundStreamReader).toHaveBeenCalled(),
+    );
+    controller.abort(new StreamWorkerDrainError());
+    return processing;
+  }
+
+  it('reports a started run interrupted by drain under its confirmed lease', async () => {
+    runUntilAborted();
+
+    await expect(drainDuringRun('owner-drain')).resolves.toBe(
+      'recovered_as_error',
+    );
+
+    expect(mocks.renewStreamLease).toHaveBeenCalledWith(
+      'job-1',
+      'owner-drain',
+      options.leaseTtlMs,
+    );
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ userId: 'testuser' }),
+      expect.stringContaining('not replayed'),
+    );
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+  });
+
+  it.each([
+    ['the renewal finds another owner', () => false],
+    [
+      'the renewal cannot reach Redis',
+      () => {
+        throw new Error('Redis down');
+      },
+    ],
+  ])('leaves a drained run to reclaim when %s', async (_label, renew) => {
+    runUntilAborted();
+    mocks.renewStreamLease.mockImplementation(async () => renew());
+
+    await expect(drainDuringRun('owner-unconfirmed')).resolves.toBe(
+      'interrupted',
+    );
+
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it('leaves a drained job that never reached the backend for reclaim to run', async () => {
+    runUntilAborted({ start: false });
+
+    await expect(drainDuringRun('owner-unstarted')).resolves.toBe(
+      'interrupted',
+    );
+
+    expect(mocks.markBackendRequestStarted).not.toHaveBeenCalled();
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+  });
 
   it('does not acknowledge a record-less owned entry when releasing its slot fails', async () => {
     mocks.store.delete('daedalus:async-job-status:job-1');

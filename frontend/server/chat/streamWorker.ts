@@ -1,4 +1,5 @@
 import { Logger } from '@/utils/logger';
+import { streamingStateEvent } from '@/utils/sync/publish';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import { JOB_EXPIRY_SECONDS, sleep } from '@/server/chat/constants';
@@ -11,7 +12,11 @@ import {
   finalizeError,
   resumePendingFinalization,
 } from '@/server/chat/finalization';
-import { abortKey, isTerminalStatusRecord } from '@/server/chat/jobState';
+import {
+  abortKey,
+  deleteLiveJobStatus,
+  isTerminalStatusRecord,
+} from '@/server/chat/jobState';
 import { processDueMemoryRetentions } from '@/server/chat/memoryRetention';
 import {
   acknowledgeDuplicateStreamEntry,
@@ -40,6 +45,9 @@ import {
 } from '@/server/chat/userJobGuard';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
+  channels,
+  clearStreamingState,
+  getPublisher,
   getRedis,
   jsonGet,
   jsonSetWithExpiry,
@@ -115,7 +123,7 @@ class StreamLeaseLostError extends Error {
   }
 }
 
-class StreamWorkerDrainError extends Error {
+export class StreamWorkerDrainError extends Error {
   constructor() {
     super('Stream worker is draining');
     this.name = 'StreamWorkerDrainError';
@@ -126,6 +134,8 @@ const STARTED_BEFORE_RECLAIM_MESSAGE =
   'The stream worker stopped after backend execution began. The request was not replayed because backend tool execution is not resumable. Please try again.';
 const WORKER_FAILURE_MESSAGE =
   'The response could not be processed because of an internal error. Please try again.';
+const REQUEST_EXPIRED_MESSAGE =
+  'This response could not continue because its request record expired. Please try again.';
 
 /**
  * Saved chats and job status reach the browser. Only errors written for users
@@ -182,6 +192,49 @@ async function releaseGuardsForExpiredJob(
   logger.warn(
     `Job ${entry.jobId}: records expired before execution; released its slot`,
   );
+}
+
+/**
+ * A live job whose request record is gone (expired or evicted) can never run
+ * or be saved: the request carries the conversation it belongs to. Record a
+ * terminal error so status reads stop reporting it as running, then release
+ * what it holds. No conversation is written; without its saved history a
+ * write would replace the conversation. Entries from earlier frontends name no
+ * owner, so their live status is removed instead.
+ */
+async function failJobWithoutRequest(
+  entry: StreamQueueEntry,
+  status: AsyncJobStatus,
+): Promise<void> {
+  if (!entry.userId) {
+    await deleteLiveJobStatus(entry.jobId);
+    return;
+  }
+  await finalizeError(
+    entry.jobId,
+    {
+      jobId: entry.jobId,
+      executionMode: 'stream',
+      natBaseUrl: '',
+      messages: [],
+      userId: entry.userId,
+      ...(status.turnId ? { turnId: status.turnId } : {}),
+      ...(status.assistantMessageId
+        ? { assistantMessageId: status.assistantMessageId }
+        : {}),
+    },
+    REQUEST_EXPIRED_MESSAGE,
+  );
+  await releaseGuardsForExpiredJob(entry);
+  if (entry.conversationId) {
+    await clearStreamingState(entry.userId, entry.conversationId, entry.jobId);
+    await getPublisher().publish(
+      channels.userUpdates(entry.userId),
+      JSON.stringify(
+        streamingStateEvent(entry.conversationId, false, entry.jobId),
+      ),
+    );
+  }
 }
 
 /**
@@ -253,6 +306,8 @@ export async function processStreamQueueEntry(
   let cancellationTimer: NodeJS.Timeout | null = null;
   let heartbeatInFlight = false;
   let cancellationCheckInFlight = false;
+  // This owner sent (or was about to send) the backend request.
+  let backendRequestStarted = false;
 
   const abortForLostLease = () => {
     if (!controller.signal.aborted) {
@@ -297,6 +352,21 @@ export async function processStreamQueueEntry(
     }
   };
 
+  // Strict form for finalizing on drain: only a renewal Redis acknowledged
+  // proves this worker still owns the job.
+  const confirmOwnedLease = async (): Promise<boolean> => {
+    try {
+      return await renewStreamLease(
+        entry.jobId,
+        ownerToken,
+        options.leaseTtlMs,
+      );
+    } catch (error) {
+      logger.warn(`Job ${entry.jobId}: lease confirmation failed`, error);
+      return false;
+    }
+  };
+
   try {
     // One round trip took the lease and read the status, request, start
     // evidence, stop signal and (for a runnable job) the model payload.
@@ -314,7 +384,7 @@ export async function processStreamQueueEntry(
 
     let jobRequest = snapshot.request;
     if (!jobRequest) {
-      await releaseGuardsForExpiredJob(entry);
+      await failJobWithoutRequest(entry, status);
       await acknowledgeStreamQueueEntry(entry);
       return 'missing';
     }
@@ -433,6 +503,7 @@ export async function processStreamQueueEntry(
         abortForLostLease();
         throw new StreamLeaseLostError(entry.jobId);
       }
+      backendRequestStarted = true;
     };
 
     if (jobRequest.executionMode === 'document_ingest') {
@@ -471,7 +542,20 @@ export async function processStreamQueueEntry(
       ? 'recovered_as_error'
       : 'finalization_pending';
   } catch (error) {
-    if (controller.signal.aborted) {
+    const drained =
+      controller.signal.aborted &&
+      controller.signal.reason instanceof StreamWorkerDrainError;
+    if (drained) {
+      // A drain aborted the backend stream, which ends that run. A job that
+      // never reached the backend is left for reclaim, which runs it. A
+      // started one cannot be replayed: report the interruption now instead
+      // of holding its conversation and slot until another worker reclaims
+      // it. That needs a renewal Redis confirmed: a lost lease, or one this
+      // worker cannot prove it still holds, belongs to reclaim.
+      if (!backendRequestStarted || !(await confirmOwnedLease())) {
+        return 'interrupted';
+      }
+    } else if (controller.signal.aborted) {
       if (!(controller.signal.reason instanceof StreamUserCancellationError)) {
         return 'interrupted';
       }
@@ -502,7 +586,9 @@ export async function processStreamQueueEntry(
       await finalizeError(
         entry.jobId,
         jobRequest,
-        publicFailureMessage(entry.jobId, error),
+        drained
+          ? STARTED_BEFORE_RECLAIM_MESSAGE
+          : publicFailureMessage(entry.jobId, error),
         ...(error instanceof StreamUserCancellationError && error.snapshot
           ? [error.snapshot]
           : []),
@@ -511,7 +597,8 @@ export async function processStreamQueueEntry(
         ? 'recovered_as_error'
         : 'finalization_pending';
     }
-    await releaseGuardsForExpiredJob(entry);
+    if (status) await failJobWithoutRequest(entry, status);
+    else await releaseGuardsForExpiredJob(entry);
     await acknowledgeStreamQueueEntry(entry);
     return 'missing';
   } finally {

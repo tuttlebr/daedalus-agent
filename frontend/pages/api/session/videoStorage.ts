@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import { base64Payload } from '@/utils/app/fileBase64';
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
@@ -53,8 +54,9 @@ export async function storeVideo(
 ): Promise<string> {
   const videoId = generateVideoId();
 
-  // Remove data URL prefix if present
-  const cleanBase64 = base64Data.replace(/^data:video\/[a-z0-9-]+;base64,/, '');
+  // Remove a data URL prefix whatever media type the browser gave the file;
+  // the bytes are identified by their magic number below.
+  const cleanBase64 = base64Payload(base64Data);
   const buffer = Buffer.from(cleanBase64, 'base64');
   const size = buffer.length;
 

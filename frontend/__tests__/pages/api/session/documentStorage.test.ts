@@ -407,6 +407,27 @@ describe('/api/session/documentStorage', () => {
     await handler(multipartRequest(Buffer.from('%PDF-test')), res);
 
     expect(mocks.eval).toHaveBeenCalledTimes(2);
+    const [acquire, release] = mocks.eval.mock.calls;
+    expect(acquire[0]).toContain('ACQUIRE_UPLOAD_SLOT');
+    expect(release[0]).toContain('RELEASE_UPLOAD_SLOT');
+    // Each upload holds and releases only its own reservation, so a late
+    // release can never free another upload's slot.
+    expect(acquire[2]).toMatch(/^document-upload-slots:[0-9a-f]{32}$/);
+    expect(release[2]).toBe(acquire[2]);
+    expect(acquire[3]).toEqual(expect.any(String));
+    expect(release[3]).toBe(acquire[3]);
+    // Default limit and per-member deadline.
+    expect(acquire.slice(4)).toEqual([2, 900]);
+  });
+
+  it('gives concurrent uploads distinct reservations', async () => {
+    await handler(multipartRequest(Buffer.from('%PDF-a')), response());
+    await handler(multipartRequest(Buffer.from('%PDF-b')), response());
+
+    const slotIds = mocks.eval.mock.calls
+      .filter(([script]) => String(script).includes('ACQUIRE_UPLOAD_SLOT'))
+      .map((call) => call[3]);
+    expect(new Set(slotIds).size).toBe(2);
   });
 
   it('streams an owner-scoped object download without buffering it', async () => {

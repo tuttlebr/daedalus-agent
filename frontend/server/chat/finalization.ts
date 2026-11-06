@@ -51,11 +51,8 @@ import {
   readConversationForUser,
   saveConversationForUser,
 } from '@/server/session/conversationStore';
-import {
-  channels,
-  jsonSetWithExpiry,
-  streamingStateKey,
-} from '@/server/session/redis';
+import { jsonSetWithExpiry, streamingStateKey } from '@/server/session/redis';
+import { channels } from '@/server/session/redisShared';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
@@ -195,7 +192,7 @@ function buildFinalizationEvents(
 
   const events: FinalizationEvent[] = [
     {
-      channel: `job:${journal.jobId}:status`,
+      channel: channels.jobStatus(journal.jobId),
       payload: JSON.stringify(journal.terminalStatus),
     },
   ];
@@ -227,7 +224,7 @@ function buildFinalizationEvents(
       }),
     },
     {
-      channel: `user:${journal.userId}:chat:${journal.conversation.id}:tokens`,
+      channel: channels.chatTokens(journal.userId, journal.conversation.id),
       payload: JSON.stringify({
         type: 'chat_complete',
         conversationId: journal.conversation.id,

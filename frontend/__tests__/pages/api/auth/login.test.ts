@@ -165,6 +165,7 @@ describe('/api/auth/login', () => {
     expect(mocks.verifyCredentials).not.toHaveBeenCalled();
     expect(confirmFailedAttempt).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '123');
     expect(res.json).toHaveBeenCalledWith({
       error: 'Too many failed login attempts. Please try again later.',
       retryAfterSeconds: 123,

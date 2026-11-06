@@ -48,3 +48,28 @@ export function dedupeConversationsById(
 
   return changed ? result : conversations;
 }
+
+/** The read-only conversation the autonomous agent writes. */
+export const AUTONOMOUS_CONVERSATION_ID = 'autonomous-agent-thoughts';
+
+/**
+ * The conversation to open when the selected one goes away: the most recently
+ * updated one, as the history list shows it first. Store order is the
+ * server's history order, which is not chronological. The read-only agent log
+ * is never chosen; callers start a new conversation when none remains.
+ */
+export function mostRecentConversation(
+  conversations: Conversation[],
+): Conversation | undefined {
+  let latest: Conversation | undefined;
+  for (const conversation of conversations) {
+    if (conversation.id === AUTONOMOUS_CONVERSATION_ID) continue;
+    if (
+      !latest ||
+      (Number(conversation.updatedAt) || 0) > (Number(latest.updatedAt) || 0)
+    ) {
+      latest = conversation;
+    }
+  }
+  return latest;
+}

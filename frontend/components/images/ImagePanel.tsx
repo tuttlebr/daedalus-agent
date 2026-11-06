@@ -69,6 +69,12 @@ interface ImageOperation {
   submissionId?: string;
   jobId?: string;
   cancelRequested: boolean;
+  /**
+   * The poll loop that currently owns this operation. A failed Stop
+   * re-attaches the operation and starts a new loop; the interrupted one must
+   * then exit instead of resuming beside it.
+   */
+  poll?: symbol;
 }
 
 interface ImagePanelProps {
@@ -383,6 +389,10 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     ) => {
       operation.jobId = jobId;
       operationRef.current = operation;
+      const poll = Symbol('image-job-poll');
+      operation.poll = poll;
+      const current = () =>
+        operationRef.current === operation && operation.poll === poll;
       rememberActiveImageJob(jobId);
       const { setError, setLoading, setGenerationStatus, setPartialGallery } =
         useImagePanelStore.getState();
@@ -393,9 +403,9 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       let status = initialStatus ?? null;
       let shouldForgetJob = false;
       try {
-        while (operationRef.current === operation) {
+        while (current()) {
           status = status ?? (await fetchImageJobWithRetry(jobId));
-          if (operationRef.current !== operation) return;
+          if (!current()) return;
           if (!status) {
             shouldForgetJob = true;
             setError(
@@ -435,14 +445,14 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           status = null;
         }
       } catch (e) {
-        if (operationRef.current !== operation) return;
+        if (!current()) return;
         console.error(e);
         setRecoverableJobId(jobId);
         setError(
           'Unable to refresh image progress. Your job is saved and will reconnect when you are online.',
         );
       } finally {
-        if (operationRef.current === operation) {
+        if (current()) {
           operationRef.current = null;
           setLoading(false);
           setGenerationStatus('idle', null);
@@ -587,7 +597,9 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       console.error(e);
       setError(e instanceof Error ? e.message : 'Request failed');
     } finally {
-      if (operationRef.current === operation) {
+      // Once polling starts, its loop owns the operation's cleanup. A poll
+      // that a failed Stop replaced returns here while its successor runs.
+      if (operationRef.current === operation && !operation.poll) {
         operationRef.current = null;
         setLoading(false);
         setGenerationStatus('idle', null);

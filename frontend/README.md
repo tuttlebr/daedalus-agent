@@ -67,10 +67,18 @@ The normal chat path is:
    the turn for memory retention in one Redis commit. The browser consumes
    WebSocket events as the primary channel and also polls
    `GET /api/chat/async?jobId=...` — once at submit for immediate status, then
-   on a slow safety-net interval in case push delivery is lost.
-4. `DELETE /api/chat/async?jobId=...` finalizes a live job and records a
-   durable cancellation flag that the worker observes even when the API and
-   worker run in different pods.
+   on a slow safety-net interval in case push delivery is lost. It polls at
+   the ordinary 3 s (5 s on phones) cadence while the socket is down or after
+   the server refuses one of the job's subscriptions, and reads every tracked
+   job once when the app returns to the foreground. A Stop that loses the
+   race to completion shows the completed answer, not a stopped one.
+4. `DELETE /api/chat/async?jobId=...` records a durable cancellation flag
+   that the worker observes even when the API and worker run in different
+   pods, and asks the backend to cancel a running job. The worker that owns a
+   queued or running job finalizes it as stopped; the route finalizes only a
+   job that no worker owns. `DELETE /api/chat/async?submissionId=...` stops a
+   submission by the ID the browser chose before `POST`, including one whose
+   job has not been queued yet.
 
 If a worker dies before backend execution starts, another worker may reclaim
 the entry. If it dies after backend execution starts, the replacement fails the
@@ -159,7 +167,10 @@ with the PNG changes in Git. Do not edit the generated map or worker branding
 block by hand. Building locally does not update the deployed image.
 
 The worker moves to a new precache when branding changes, revalidates legacy
-icon URLs, and refreshes entries in the same cache it reads. Browser pages use
+icon URLs, and refreshes entries in the same cache it reads. Content-hashed
+`/_next/static/` assets are served cache-first without revalidation; a worker
+restarted by the browser finds the installed app-shell chunks from the precache
+itself, so the offline shell keeps its scripts. Browser pages use
 the new URLs on their next load after deployment. Installed home-screen icons
 also depend on the operating system's manifest/icon refresh schedule.
 

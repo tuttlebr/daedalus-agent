@@ -85,6 +85,15 @@ export default defineConfig({
           branches: 87,
           statements: 100,
         },
+        // Chat admission, queue, worker, stream reading and finalization.
+        // Their Lua scripts run only in the Redis integration suites, which
+        // do not feed this gate; the unit floor guards the TypeScript paths.
+        'server/chat/**/*.ts': {
+          lines: 86,
+          functions: 84,
+          branches: 76,
+          statements: 84,
+        },
         'server/session/**/*.ts': {
           lines: 36,
           functions: 36,

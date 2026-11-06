@@ -24,6 +24,23 @@ class MemoryCache {
   async delete(request: CacheKey) {
     return this.entries.delete(key(request));
   }
+  async keys() {
+    return [...this.entries.keys()].map((url) => new Request(url));
+  }
+  async addAll(requests: Request[]) {
+    for (const request of requests)
+      this.entries.set(key(request), new Response(`PRECACHED ${request.url}`));
+  }
+}
+
+// Worker scripts resolve relative request URLs against their own origin.
+class WorkerRequest extends Request {
+  constructor(input: RequestInfo | URL, init?: RequestInit) {
+    super(
+      typeof input === 'string' ? new URL(input, origin).href : input,
+      init,
+    );
+  }
 }
 
 // IndexedDB is a persistence boundary. Keep its request callbacks asynchronous
@@ -58,6 +75,10 @@ function worker(
     buckets?: Map<string, MemoryCache>;
     indexedDB?: ReturnType<typeof metadataStore>['indexedDB'];
     usageRatio?: number;
+    network?: (
+      request: Request | string,
+      init?: RequestInit,
+    ) => Promise<Response>;
   } = {},
 ) {
   const buckets = options.buckets ?? new Map<string, MemoryCache>();
@@ -68,7 +89,8 @@ function worker(
   const handlers = new Map<string, ((event: any) => void)[]>();
   const timers = new Map<number, () => void>();
   const fetch = vi.fn(
-    async (_request: Request, _init?: RequestInit) => new Response('NEW'),
+    options.network ??
+      (async (_request: Request, _init?: RequestInit) => new Response('NEW')),
   );
   const caches = {
     open: async (name: string) => cache(name),
@@ -83,7 +105,7 @@ function worker(
   };
   runInNewContext(source, {
     URL,
-    Request,
+    Request: WorkerRequest,
     Response,
     caches,
     fetch,
@@ -104,6 +126,7 @@ function worker(
       ...(options.indexedDB ? { indexedDB: options.indexedDB } : {}),
       location: { origin },
       clients: { claim() {} },
+      skipWaiting() {},
       addEventListener: (type: string, handler: (event: any) => void) => {
         handlers.set(type, [...(handlers.get(type) || []), handler]);
       },
@@ -253,5 +276,57 @@ describe('service worker cache upgrades', () => {
       .put(branding.assets['/favicon.png'], new Response('BRAND'));
     await sw.dispatch('message', { data: { type: 'CLEAR_PRIVATE_CACHES' } });
     expect(await sw.caches.keys()).toEqual([precacheName]);
+  });
+
+  describe('build precache', () => {
+    const chunk = '/_next/static/chunks/main-abc123.js';
+    const network = async (request: Request | string) =>
+      key(request).endsWith('/precache-manifest.json')
+        ? new Response(JSON.stringify([chunk]))
+        : new Response('NETWORK');
+    const offline = async () => {
+      throw new Error('offline');
+    };
+
+    async function installed() {
+      const buckets = new Map<string, MemoryCache>();
+      const sw = worker({ buckets, network });
+      await sw.dispatch('install');
+      await sw.dispatch('activate');
+      expect(await sw.cache(precacheName).match(chunk)).toBeDefined();
+      return buckets;
+    }
+
+    it('serves precached chunks offline after the worker restarts without install', async () => {
+      const buckets = await installed();
+      // Browsers stop idle workers. A new lifetime starts with fetch events
+      // only, so precache membership must come from the cache itself.
+      const restarted = worker({ buckets, network: offline });
+      expect(await (await restarted.request(chunk))?.text()).toBe(
+        `PRECACHED ${origin}${chunk}`,
+      );
+      expect(await restarted.cache(runtimeName).match(chunk)).toBeUndefined();
+    });
+
+    it('serves hashed static assets cache-first without revalidating them', async () => {
+      const buckets = await installed();
+      const restarted = worker({ buckets, network });
+      expect(await (await restarted.request(chunk))?.text()).toBe(
+        `PRECACHED ${origin}${chunk}`,
+      );
+      expect(restarted.fetch).not.toHaveBeenCalled();
+    });
+
+    it('still prunes chunks of an earlier build on activation', async () => {
+      const buckets = await installed();
+      const stale = '/_next/static/chunks/main-old.js';
+      await buckets.get(precacheName)!.put(stale, new Response('OLD BUILD'));
+      const restarted = worker({ buckets, network });
+      // A fetch in this lifetime indexes the cache, including the stale entry.
+      await restarted.request(chunk);
+      await restarted.dispatch('activate');
+      expect(await restarted.cache(precacheName).match(stale)).toBeUndefined();
+      expect(await restarted.cache(precacheName).match(chunk)).toBeDefined();
+    });
   });
 });

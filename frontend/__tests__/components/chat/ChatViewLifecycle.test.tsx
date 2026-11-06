@@ -206,6 +206,48 @@ describe('ChatView with the real job lifecycle', () => {
     expect(uuids(saved.messages[1].intermediateSteps)).toEqual(['a', 'b', 'c']);
   });
 
+  it('keeps a completed answer when Stop loses the race to completion', async () => {
+    await send();
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Partial',
+        responseStart: 0,
+      });
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    // The job finished and was saved before the browser saw its completion.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(response({ success: true, canceled: false })),
+    );
+    mocks.fetchWithTimeout.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        status: 'completed',
+        conversationId: 'conv-1',
+        fullResponse: 'Partial and the rest of the answer.',
+        finalizedAt: 5,
+        createdAt: 1,
+        updatedAt: 5,
+      }),
+    );
+    mocks.apiPut.mockClear();
+    await act(async () => {
+      await mocks.input!.onStop();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const assistant = messagesOf('conv-1')[1];
+    expect(assistant.content).toBe('Partial and the rest of the answer.');
+    expect(assistant.metadata?.stopped).toBeUndefined();
+    // The worker saved this outcome; the browser does not upload it again.
+    expect(conversationPuts()).toHaveLength(0);
+    expect(useConversationStore.getState().streamingConversationIds.size).toBe(
+      0,
+    );
+  });
+
   it('saves the turn only after the chat request is accepted', async () => {
     let accept!: () => void;
     mocks.fetchWithTimeout.mockImplementation((url: string) =>

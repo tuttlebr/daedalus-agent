@@ -227,4 +227,39 @@ describe('/api/document/markdown', () => {
       details: 'Document not found',
     });
   });
+  it.each([
+    [
+      'a proxy error page',
+      '<html>502 Bad Gateway upstream 10.42.0.17:8000</html>',
+    ],
+    ['a validation array', JSON.stringify({ detail: [{ loc: ['body'] }] })],
+  ])('replaces %s with a fixed explanation', async (_label, body) => {
+    mocks.validateDocumentRefsForUser.mockResolvedValueOnce([
+      { documentId: 'doc-a', sessionId: 'current-session' },
+    ]);
+    mocks.postToBackend.mockResolvedValueOnce({
+      statusCode: 502,
+      headers: {},
+      body: Buffer.from(body),
+    });
+    const res = makeRes();
+
+    await handler(
+      {
+        method: 'POST',
+        headers: { cookie: 'sid=current-session' },
+        body: {
+          documentRef: { documentId: 'doc-a', sessionId: 'current-session' },
+          filename: 'report.pdf',
+        },
+      } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Document conversion failed',
+      details: 'Document conversion failed',
+    });
+  });
 });

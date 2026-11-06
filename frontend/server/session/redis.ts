@@ -8,13 +8,14 @@ import {
   redisErrorMessage,
   resolveRedisUrl,
   sessionKey,
+  streamingStateKey,
   type StreamingState,
 } from './redisShared';
 
 import Redis from 'ioredis';
 import dns from 'node:dns';
 
-export { channels, sessionKey };
+export { channels, sessionKey, streamingStateKey };
 
 // Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
 // records first and stall DNS resolution against Kubernetes CoreDNS.
@@ -319,19 +320,6 @@ export type { StreamingState } from './redisShared';
 // Auto-cleanup for an abandoned run; the stream worker's lease heartbeat
 // renews it while the job that owns it is still running.
 export const STREAMING_STATE_TTL_SECONDS = 600;
-
-export function streamingStateKey(
-  userId: string,
-  conversationId: string,
-): string {
-  return sessionKey([
-    'streaming',
-    'user',
-    userId,
-    'conversation',
-    conversationId,
-  ]);
-}
 
 // Set streaming state for a conversation
 export async function setStreamingState(

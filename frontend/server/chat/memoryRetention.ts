@@ -152,16 +152,34 @@ function turnUserParts(messages: unknown): {
   };
 }
 
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * Bound text without splitting a surrogate pair. JSON.stringify writes a lone
+ * surrogate as an escape such as `\ud83d`, which the runtime's strict JSON
+ * parser rejects with 422; that status is permanent, so the turn would never
+ * be retained. Lone surrogates already in the input become U+FFFD.
+ */
+export function clipRetentionText(value: string, maxChars: number): string {
+  const wellFormed = value.replace(LONE_SURROGATE, '\uFFFD');
+  if (wellFormed.length <= maxChars) return wellFormed;
+  const clipped = wellFormed.slice(0, maxChars);
+  return /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
+}
+
 function sanitizeRetentionText(value: string): string {
-  return value
-    .replace(
-      /\[(?:IDENTITY|MEMORY_CONTEXT|SOURCE_POLICY)\][\s\S]*?(?=\n\[[A-Z_]+\]|$)/gi,
-      '',
-    )
-    .replace(/data:[^\s)\]]+/gi, '[embedded data omitted]')
-    .replace(/redis(?:s)?:\/\/[^\s)\]]+/gi, '[internal reference omitted]')
-    .trim()
-    .slice(0, RETAIN_MAX_PART_CHARS);
+  return clipRetentionText(
+    value
+      .replace(
+        /\[(?:IDENTITY|MEMORY_CONTEXT|SOURCE_POLICY)\][\s\S]*?(?=\n\[[A-Z_]+\]|$)/gi,
+        '',
+      )
+      .replace(/data:[^\s)\]]+/gi, '[embedded data omitted]')
+      .replace(/redis(?:s)?:\/\/[^\s)\]]+/gi, '[internal reference omitted]')
+      .trim(),
+    RETAIN_MAX_PART_CHARS,
+  );
 }
 
 /** The submission for a successfully completed, still-owned turn, if any. */
@@ -179,15 +197,16 @@ export function buildMemoryRetentionSubmission(input: {
   const request = sanitizeRetentionText(turn.request);
   if (!request) return null;
   // Sanitize each part: identity scrubbing runs to the end of its text.
-  const userContent = [
-    request,
-    ...turn.directions
-      .map(sanitizeRetentionText)
-      .filter(Boolean)
-      .map((direction) => `Direction while answering: ${direction}`),
-  ]
-    .join('\n\n')
-    .slice(0, RETAIN_MAX_PART_CHARS);
+  const userContent = clipRetentionText(
+    [
+      request,
+      ...turn.directions
+        .map(sanitizeRetentionText)
+        .filter(Boolean)
+        .map((direction) => `Direction while answering: ${direction}`),
+    ].join('\n\n'),
+    RETAIN_MAX_PART_CHARS,
+  );
   const submission: MemoryRetentionSubmission = {
     version: 1,
     jobId: input.jobId,

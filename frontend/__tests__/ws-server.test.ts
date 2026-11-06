@@ -487,22 +487,25 @@ describe('authenticated WebSocket initialization', () => {
           .mockResolvedValue({ jobId: 'job-foreign', userId: 'mallory' }),
       },
       error: 'Unauthorized job subscription',
+      subscription: { type: 'job', jobId: 'job-foreign' },
     },
     {
       kind: 'missing job',
       message: { type: 'subscribe_job', jobId: 'job-missing' },
       overrides: { getJobRequest: vi.fn().mockResolvedValue(null) },
       error: 'Unauthorized job subscription',
+      subscription: { type: 'job', jobId: 'job-missing' },
     },
     {
       kind: 'chat',
       message: { type: 'subscribe_chat', conversationId: 'chat-foreign' },
       overrides: { canSubscribeToChat: vi.fn().mockResolvedValue(false) },
       error: 'Unauthorized chat subscription',
+      subscription: { type: 'chat', conversationId: 'chat-foreign' },
     },
   ])(
-    'rejects a $kind subscription the user does not own',
-    async ({ message, overrides, error }) => {
+    'rejects a $kind subscription the user does not own, naming it',
+    async ({ message, overrides, error, subscription }) => {
       const socket = new FakeWebSocket();
       const retainChannel = vi.fn().mockResolvedValue(undefined);
       await initializeAuthenticatedConnection(
@@ -515,9 +518,12 @@ describe('authenticated WebSocket initialization', () => {
       socket.emit('message', Buffer.from(JSON.stringify(message)));
 
       await vi.waitFor(() =>
+        // The rejection names the subscription so the client can recover
+        // that job over HTTP instead of waiting on a silent channel.
         expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
           type: 'error',
           message: error,
+          subscription,
         }),
       );
       expect(retainChannel).not.toHaveBeenCalled();
@@ -563,6 +569,7 @@ describe('authenticated WebSocket initialization', () => {
           expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
             type: 'error',
             message: 'Invalid chat subscription',
+            subscription: { type: 'chat', conversationId },
           }),
         );
         expect(canSubscribeToChat).not.toHaveBeenCalled();
@@ -645,6 +652,10 @@ describe('authenticated WebSocket initialization', () => {
         expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
           type: 'error',
           message: 'Too many pending subscription checks',
+          subscription:
+            kind === 'job'
+              ? { type: 'job', jobId: 'item-100' }
+              : { type: 'chat', conversationId: 'item-100' },
         });
         validation.resolve(null);
         await new Promise((resolve) => setTimeout(resolve, 0));

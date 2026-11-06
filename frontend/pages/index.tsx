@@ -15,6 +15,8 @@ import {
 } from '@/hooks/useVisualViewportKeyboard';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
+import { getWebSocketManager } from '@/services/websocket';
+
 import { apiGet } from '@/utils/app/api';
 import { cleanConversationHistory } from '@/utils/app/clean';
 import {
@@ -24,6 +26,7 @@ import {
   rememberSelectedConversation,
   startNewConversation,
 } from '@/utils/app/conversation';
+import { mostRecentConversation } from '@/utils/app/conversationList';
 import {
   conversationRevision,
   withConversationRevision,
@@ -51,6 +54,10 @@ import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import { useImagePanelStore } from '@/state/imagePanelStore';
+
+// The first history read waits this long for the socket that is already
+// connecting, so one read both paints history and follows the subscription.
+const INITIAL_CONNECTION_WAIT_MS = 1_000;
 
 /**
  * Replace this tab's copy with a server record. A streaming conversation is
@@ -101,6 +108,8 @@ const Home = () => {
   const historyReadGenerationRef = useRef(0);
   const successfulHistoryReadGenerationRef = useRef(0);
   const pendingHistoryRefreshRef = useRef<Promise<void> | null>(null);
+  // Set while the initial history read waits for the first connection.
+  const releaseInitialReadRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const pendingReads = pendingConversationReadsRef.current;
@@ -258,8 +267,9 @@ const Home = () => {
         pendingConversationReadsRef.current.delete(conversationId);
         deleteConversationFromStore(conversationId);
         if (selectedIdRef.current === conversationId) {
-          const remaining = useConversationStore.getState().conversations;
-          const next = remaining[remaining.length - 1];
+          const next = mostRecentConversation(
+            useConversationStore.getState().conversations,
+          );
           if (next) {
             selectConversation(next.id);
           } else {
@@ -272,17 +282,37 @@ const Home = () => {
       [deleteConversationFromStore, selectConversation, addConversation],
     ),
     onConnected: useCallback(() => {
+      // The initial read is waiting for this connection; it is this
+      // connection's refresh. Any later connection may have missed events.
+      const releaseInitialRead = releaseInitialReadRef.current;
+      if (releaseInitialRead) {
+        releaseInitialRead();
+        return;
+      }
       refreshConversationList();
     }, [refreshConversationList]),
+    onDisconnected: useCallback(() => {
+      releaseInitialReadRef.current?.();
+    }, []),
   });
 
   useEffect(() => {
+    let pending: ReturnType<typeof setTimeout> | null = null;
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshConversationList();
+      if (document.visibilityState !== 'visible' || pending) return;
+      // useWebSocket reconnects on the same event. A reconnecting socket
+      // refreshes once it has resubscribed (onConnected), which is the read
+      // that cannot miss events; a second read here would duplicate it.
+      pending = setTimeout(() => {
+        pending = null;
+        if (!getWebSocketManager().isConnecting) refreshConversationList();
+      }, 0);
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () =>
+    return () => {
+      if (pending) clearTimeout(pending);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshConversationList]);
 
   // Initial data load
@@ -296,7 +326,26 @@ const Home = () => {
       }
     }
 
+    // useWebSocket has just started connecting. Reading history before the
+    // server subscribes this tab could miss a change made in between, so the
+    // connection's refresh would read it all again: read once, after it.
+    const waitForConnection = () =>
+      new Promise<void>((resolve) => {
+        if (!getWebSocketManager().isConnecting) return resolve();
+        const release = () => {
+          clearTimeout(timer);
+          if (releaseInitialReadRef.current === release) {
+            releaseInitialReadRef.current = null;
+          }
+          resolve();
+        };
+        const timer = setTimeout(release, INITIAL_CONNECTION_WAIT_MS);
+        releaseInitialReadRef.current = release;
+      });
+
     const fetchConversations = async () => {
+      await waitForConnection();
+      if (disposed) return;
       const serverConversations = await readConversationHistory(true);
       if (disposed || serverConversations === undefined) return;
       if (Array.isArray(serverConversations)) {
@@ -364,6 +413,7 @@ const Home = () => {
       });
     return () => {
       disposed = true;
+      releaseInitialReadRef.current?.();
       unsubscribeSelection();
     };
   }, [readConversationHistory]);

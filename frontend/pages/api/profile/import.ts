@@ -22,12 +22,19 @@ export const config = {
   },
 };
 
-function parseBackendPayload(text: string): unknown {
+// The runtime answers with JSON written for the browser (a result, or a
+// `detail` message or field errors). Any other body, such as a proxy error
+// page, can name internal hosts: log it and return a fixed message.
+function parseBackendPayload(status: number, text: string): unknown {
   if (!text.trim()) return {};
   try {
     return JSON.parse(text);
   } catch {
-    return { error: text };
+    console.warn('Profile import backend returned a non-JSON body', {
+      status,
+      body: text.slice(0, 2000),
+    });
+    return { error: 'Profile import failed.' };
   }
 }
 
@@ -66,7 +73,7 @@ export default async function handler(
       },
       PROFILE_IMPORT_TIMEOUT_MS,
     );
-    const payload = parseBackendPayload(await response.text());
+    const payload = parseBackendPayload(response.status, await response.text());
     return res.status(response.status).json(payload);
   } catch (error) {
     // Transport errors name internal hosts and ports; keep them in server logs.

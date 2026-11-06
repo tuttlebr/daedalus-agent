@@ -234,4 +234,46 @@ describe('Create Stop lifecycle', () => {
       }
     },
   );
+
+  it('keeps a single status poller after a failed Stop', async () => {
+    vi.useFakeTimers();
+    try {
+      let reads = 0;
+      mocks.fetch.mockImplementation(async (url: string, options) => {
+        if (options?.method === 'POST') return response({ jobId: 'job-1' });
+        if (options?.method === 'DELETE') return response({}, false);
+        if (String(url).includes('active=1')) return response({ jobs: [] });
+        reads += 1;
+        return response(running);
+      });
+      await act(async () => {
+        void mocks.dock.onSubmit();
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(reads).toBe(1);
+      // Stop fails while the first poll waits for its next read.
+      await act(async () => {
+        await mocks.dock.onStop();
+      });
+      expect(useImagePanelStore.getState().error).toContain('try Stop again');
+      expect(reads).toBe(2);
+      // One poller reads every 2s. The interrupted loop must not wake up
+      // beside the restarted one when its delay ends.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_100);
+      });
+      expect(reads).toBe(4);
+    } finally {
+      await act(async () => {
+        mocks.fetch.mockImplementation(async (_url, options) =>
+          options?.method === 'DELETE'
+            ? response({ cancelled: true })
+            : response({ ...running, status: 'cancelled' }),
+        );
+        await mocks.dock.onStop();
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      vi.useRealTimers();
+    }
+  });
 });

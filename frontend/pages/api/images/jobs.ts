@@ -41,6 +41,7 @@ import {
   submissionCancelled,
   validSubmissionId,
 } from '@/server/jobSubmission';
+import { publicBackendErrorMessage } from '@/server/publicBackendError';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getStorageSessionId,
@@ -114,6 +115,7 @@ type ImageGenerationResponse = {
   usage?: Record<string, unknown>;
 };
 
+/** An image job failure whose message was written for users. */
 class ImageBackendError extends Error {
   statusCode: number;
 
@@ -121,6 +123,53 @@ class ImageBackendError extends Error {
     super(message);
     this.statusCode = statusCode;
   }
+}
+
+const IMAGE_FAILURE_MESSAGE = 'Image generation failed. Please try again.';
+const ACTIVE_JOB_RETRY_AFTER_SECONDS = '15';
+// The image API's request limits (builder/image_api.py ImageRef and
+// nat_helpers image_input_budget.MAX_IMAGE_INPUTS).
+const MAX_IMAGE_INPUTS = 16;
+const IMAGE_REF_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * The saved and returned message for a failure: user-written text from an
+ * ImageBackendError, otherwise a fixed message. Other errors (Redis, network,
+ * programming errors) can name internal hosts; they are logged instead.
+ */
+function publicImageErrorMessage(error: unknown): string {
+  if (error instanceof ImageBackendError) return error.message;
+  console.error('images/jobs internal error:', error);
+  return IMAGE_FAILURE_MESSAGE;
+}
+
+const IMAGE_REF_FIELDS: Record<string, 'string' | 'number' | 'boolean'> = {
+  sessionId: 'string',
+  userId: 'string',
+  mimeType: 'string',
+  width: 'number',
+  height: 'number',
+  hasAlpha: 'boolean',
+};
+
+/** An image reference the image API accepts, keeping only its known fields. */
+function parseImageRef(value: unknown, label: string): Record<string, unknown> {
+  if (
+    !isObject(value) ||
+    typeof value.imageId !== 'string' ||
+    !IMAGE_REF_ID_PATTERN.test(value.imageId)
+  ) {
+    throw new ImageBackendError(400, `Invalid ${label} reference.`);
+  }
+  const ref: Record<string, unknown> = { imageId: value.imageId };
+  for (const [field, kind] of Object.entries(IMAGE_REF_FIELDS)) {
+    if (value[field] === undefined || value[field] === null) continue;
+    if (typeof value[field] !== kind) {
+      throw new ImageBackendError(400, `Invalid ${label} reference.`);
+    }
+    ref[field] = value[field];
+  }
+  return ref;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -261,21 +310,17 @@ async function imageErrorMessage(res: Response): Promise<string> {
   const fallback =
     res.status === 504
       ? 'Backend timed out'
-      : res.status === 502
+      : res.status === 502 || res.status === 503
       ? 'Backend unavailable'
-      : `HTTP ${res.status}`;
-  const text = await res.text();
-  if (!text) return fallback;
-  try {
-    const json = JSON.parse(text) as {
-      detail?: string;
-      error?: string;
-      message?: string;
-    };
-    return json.detail ?? json.error ?? json.message ?? fallback;
-  } catch {
-    return text || fallback;
-  }
+      : IMAGE_FAILURE_MESSAGE;
+  // The image API writes its JSON `detail` for users; any other body (a
+  // proxy page, plain text) is logged and replaced by a fixed message.
+  return publicBackendErrorMessage(
+    'images/jobs',
+    res.status,
+    await res.text().catch(() => ''),
+    fallback,
+  );
 }
 
 function parseImageStreamEvent(raw: string):
@@ -335,7 +380,20 @@ async function readImageBackendResponse(
     (!contentType.includes('text/event-stream') &&
       !contentType.includes('application/x-ndjson'))
   ) {
-    return (await res.json()) as ImageGenerationResponse;
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as ImageGenerationResponse;
+    } catch {
+      console.warn('images/jobs: backend returned a non-JSON response', {
+        status: res.status,
+        contentType,
+        body: text.slice(0, 2000),
+      });
+      throw new ImageBackendError(
+        502,
+        'The image service returned an unreadable response.',
+      );
+    }
   }
 
   const reader = res.body.getReader();
@@ -501,7 +559,7 @@ async function runImageJob(
     try {
       await updateJobStatus(jobId, {
         status: 'error',
-        error: error instanceof Error ? error.message : 'Request failed',
+        error: publicImageErrorMessage(error),
         completedAt: Date.now(),
       });
     } catch (statusError) {
@@ -536,16 +594,33 @@ function buildPayload(
   if (typeof prompt !== 'string' || !prompt.trim()) {
     throw new ImageBackendError(400, 'Prompt is required');
   }
-  const imageRefs = safeBody.imageRefs;
   if (
     mode === 'edit' &&
-    (!Array.isArray(imageRefs) || imageRefs.length === 0)
+    (!Array.isArray(safeBody.imageRefs) || safeBody.imageRefs.length === 0)
   ) {
     throw new ImageBackendError(
       400,
       'Add at least one input image or switch to Generate.',
     );
   }
+  if (safeBody.imageRefs !== undefined && safeBody.imageRefs !== null) {
+    if (!Array.isArray(safeBody.imageRefs)) {
+      throw new ImageBackendError(400, 'Invalid input image references.');
+    }
+    if (safeBody.imageRefs.length > MAX_IMAGE_INPUTS) {
+      throw new ImageBackendError(
+        400,
+        `Use at most ${MAX_IMAGE_INPUTS} input images.`,
+      );
+    }
+    safeBody.imageRefs = safeBody.imageRefs.map((ref) =>
+      parseImageRef(ref, 'input image'),
+    );
+  }
+  if (safeBody.maskRef !== undefined && safeBody.maskRef !== null) {
+    safeBody.maskRef = parseImageRef(safeBody.maskRef, 'mask');
+  }
+  const imageRefs = safeBody.imageRefs;
 
   const paramsValidation = validateImageParamsForSubmit(
     safeBody,
@@ -621,6 +696,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const activeJobs = await loadActiveJobs(userId);
     if (activeJobs.length >= MAX_ACTIVE_JOBS_PER_USER) {
+      res.setHeader('Retry-After', ACTIVE_JOB_RETRY_AFTER_SECONDS);
       return res.status(429).json({
         error:
           'You already have two image jobs in progress. Wait for one to finish before starting another.',
@@ -688,8 +764,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     );
   } catch (error) {
     const statusCode = statusCodeForError(error);
+    // An active-job limit can also be found inside the atomic job index
+    // update; it carries the same retry hint as the check above.
+    if (statusCode === 429) {
+      res.setHeader('Retry-After', ACTIVE_JOB_RETRY_AFTER_SECONDS);
+    }
     return res.status(statusCode).json({
-      error: error instanceof Error ? error.message : 'Request failed',
+      error: publicImageErrorMessage(error),
     });
   }
 }

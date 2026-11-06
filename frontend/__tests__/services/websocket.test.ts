@@ -689,6 +689,34 @@ describe('WebSocketManager', () => {
       expect(mgr.isConnected).toBe(true);
     });
 
+    it('treats a missing pong as a disconnection without waiting for close', async () => {
+      const mgr = new WebSocketManager('/ws');
+      const disconnected = vi.fn();
+      mgr.on('disconnected', disconnected);
+      mgr.connect();
+      const dead = wsInstances[0];
+      dead.simulateReady();
+      // A half-open link: the browser may not report the close until its own
+      // closing handshake times out.
+      dead.close.mockImplementation(() => {
+        dead.readyState = MockWebSocket.CLOSING;
+      });
+
+      vi.advanceTimersByTime(90_000);
+
+      expect(dead.close).toHaveBeenCalledWith(4003, 'Pong timeout');
+      expect(mgr.isConnected).toBe(false);
+      expect(disconnected).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(wsInstances).toHaveLength(2);
+
+      // The late close of the abandoned socket changes nothing.
+      dead.simulateClose(4003, 'Pong timeout');
+      expect(disconnected).toHaveBeenCalledOnce();
+      expect(wsInstances).toHaveLength(2);
+    });
+
     it('missing pong triggers a close after 60 seconds', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();

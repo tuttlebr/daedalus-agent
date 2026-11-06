@@ -58,6 +58,7 @@ import {
   jsonSetWithExpiry,
   sessionKey,
 } from '@/server/session/redis';
+import { channels } from '@/server/session/redisShared';
 
 const logger = new Logger('AsyncJob');
 
@@ -238,7 +239,7 @@ export async function startBackgroundStreamReader(
   const conversationId = jobRequest.conversationId;
   const statusKey = sessionKey(['async-job-status', jobId]);
   const tokenChannel = conversationId
-    ? `user:${userId}:chat:${conversationId}:tokens`
+    ? channels.chatTokens(userId, conversationId)
     : null;
   // Contiguous token deltas within one publish interval share a message. The
   // first delta after a quiet interval goes out at once, so time to first
@@ -477,6 +478,16 @@ export async function startBackgroundStreamReader(
       await persistSteps();
     };
 
+    // The step list and response text are independent keys: write any due
+    // buffers in one round trip. Both settle before an error propagates, so
+    // the failure path never starts a write while its sibling is in flight.
+    const flushDue = async (): Promise<void> => {
+      const results = await Promise.allSettled([flushSteps(), flushResponse()]);
+      for (const result of results) {
+        if (result.status === 'rejected') throw result.reason;
+      }
+    };
+
     while (true) {
       const { done, value } = await readStreamChunk(
         reader,
@@ -531,8 +542,7 @@ export async function startBackgroundStreamReader(
             observedSteps.push(step);
             pendingSteps.push(step);
             // Append only new events so live polling doesn't rewrite history.
-            await flushSteps();
-            await flushResponse();
+            await flushDue();
 
             if (tokenChannel) {
               flushTokens();
@@ -749,8 +759,7 @@ export async function startBackgroundStreamReader(
       // apart from activity comments. Persist anything the throttle buffered
       // so recovery polling, traces and reclaim see it during that gap. The
       // same 750 ms throttle bounds writes; an empty buffer writes nothing.
-      await flushSteps();
-      await flushResponse();
+      await flushDue();
     }
 
     // Transport EOF alone cannot establish that the agent finished. A pod or

@@ -8,13 +8,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockSismember = vi.fn().mockResolvedValue(1);
 const mockGet = vi.fn().mockResolvedValue(null);
 const mockLrange = vi.fn().mockResolvedValue([]);
+const fieldReads: string[] = [];
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
     get: mockGet,
     lrange: mockLrange,
+    // An empty script cache: digest calls fall back to EVAL below.
+    evalsha: async () => {
+      throw new Error('NOSCRIPT No matching script. Please use EVAL.');
+    },
     eval: async (script: string, _count: number, ...args: any[]) => {
+      if (script.includes('READ_JSON_FIELDS')) {
+        fieldReads.push(args[0]);
+        // A plain-string record is returned whole for the caller to parse.
+        const value = await jsonGet(args[0]);
+        return value == null ? [0] : [2, JSON.stringify(value)];
+      }
       if (script.includes('READ_OWNED_CONVERSATION')) {
         const value = await jsonGet(args[0]);
         return [
@@ -47,6 +58,7 @@ function createMockReqRes(method: string, query: any = {}) {
 describe('conversations/[id]/traces API handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fieldReads.length = 0;
     (getSession as any).mockResolvedValue({ username: 'testuser' });
     mockSismember.mockResolvedValue(1);
     mockGet.mockResolvedValue(null);
@@ -239,6 +251,8 @@ describe('conversations/[id]/traces API handler', () => {
       .map((line) => JSON.parse(line));
 
     expect(lines).toHaveLength(2);
+    // Ownership reads the request's two routing fields, not its history.
+    expect(fieldReads).toEqual(['daedalus:async-job-request:job-1']);
     expect(lines[0]).toMatchObject({
       payload: { UUID: 'saved-step' },
       live: false,

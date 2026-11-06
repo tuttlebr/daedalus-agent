@@ -80,6 +80,41 @@ async function loadBuildPrecache() {
   }
 }
 
+// A worker lifetime that starts without install or activate (browsers stop
+// idle workers and start them again for the next fetch) has not read the
+// build manifest. The precache bucket itself records what was installed, so
+// routing indexes its keys once per lifetime before choosing a bucket. This
+// index is kept apart from ALL_PRECACHE_URLS: activation prunes entries the
+// current manifest no longer lists, which must include earlier builds' keys.
+let installedPrecache = null;
+
+function loadInstalledPrecache() {
+  return (installedPrecache ??= caches
+    .open(CACHE_NAME)
+    .then((cache) => cache.keys())
+    .then(
+      (requests) =>
+        new Set(
+          requests.map(
+            (request) => new URL(request.url, self.location.origin).href,
+          ),
+        ),
+    )
+    .catch((error) => {
+      swLog.warn('Precache index unavailable', error);
+      installedPrecache = null;
+      return new Set();
+    }));
+}
+
+function isHashedStaticAsset(url) {
+  // Next.js content-hashes these names, so a cached copy never goes stale.
+  return (
+    url.origin === self.location.origin &&
+    url.pathname.startsWith('/_next/static/')
+  );
+}
+
 function isPrecachedUrl(value) {
   try {
     // Compare complete normalized cache keys. Substring checks are unsafe here:
@@ -644,37 +679,44 @@ self.addEventListener('fetch', (event) => {
 
   // Read and refresh the SAME bucket. Global caches.match() could repeatedly
   // return a stale install entry even after its runtime copy had been refreshed.
-  const precached = isPrecachedUrl(request.url);
-  const cachePromise = caches.open(precached ? CACHE_NAME : RUNTIME_CACHE);
-  const refresh = async (cache) => {
-    const response = await fetch(request, { cache: 'no-cache' });
-    const contentLength = response.headers.get('content-length');
-    const size = contentLength ? parseInt(contentLength, 10) : 0;
-    if (response.status === 200 && size < 5 * 1024 * 1024) {
-      if (precached) await cache.put(request, response.clone());
-      else await cacheManager.addToCache(cache, request, response.clone());
-    }
-    return response;
-  };
-
+  const immutable = isHashedStaticAsset(url);
   event.respondWith(
-    cachePromise.then(async (cache) => {
+    loadInstalledPrecache().then(async (installed) => {
+      const precached =
+        isPrecachedUrl(request.url) || installed.has(request.url);
+      const cache = await caches.open(precached ? CACHE_NAME : RUNTIME_CACHE);
+      const refresh = async () => {
+        const response = await (immutable
+          ? fetch(request)
+          : fetch(request, { cache: 'no-cache' }));
+        const contentLength = response.headers.get('content-length');
+        const size = contentLength ? parseInt(contentLength, 10) : 0;
+        if (response.status === 200 && size < 5 * 1024 * 1024) {
+          if (precached) await cache.put(request, response.clone());
+          else await cacheManager.addToCache(cache, request, response.clone());
+        }
+        return response;
+      };
+
       const cachedResponse = await cache.match(request);
       if (cachedResponse) {
         // Update access count for LRU
-        cacheManager.updateAccess(request.url);
+        if (!precached) cacheManager.updateAccess(request.url);
 
-        // Return cached version and update cache in background
-        event.waitUntil(
-          refresh(cache).catch(() => {
-            /* Ignore network errors */
-          }),
-        );
+        // Hashed assets cannot change; anything else is refreshed in the
+        // background while the cached copy is returned.
+        if (!immutable) {
+          event.waitUntil(
+            refresh().catch(() => {
+              /* Ignore network errors */
+            }),
+          );
+        }
         return cachedResponse;
       }
 
       // Not in cache, fetch from network
-      return refresh(cache);
+      return refresh();
     }),
   );
 });
@@ -716,14 +758,11 @@ async function clearPrivateCaches() {
 // Message event handler for cache management
 self.addEventListener('message', (event) => {
   // Clear user-private caches on login/logout (shared-device PII protection)
+  // The page deletes the same buckets itself before posting this message
+  // (utils/app/pwa.ts), so it does not wait for a reply; this resets the
+  // worker's LRU accounting for the dropped runtime cache.
   if (event.data && event.data.type === 'CLEAR_PRIVATE_CACHES') {
-    event.waitUntil(
-      clearPrivateCaches().then(() => {
-        if (event.ports && event.ports[0]) {
-          event.ports[0].postMessage({ success: true });
-        }
-      }),
-    );
+    event.waitUntil(clearPrivateCaches());
   }
 });
 

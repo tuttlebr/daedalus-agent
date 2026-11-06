@@ -1,5 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import { base64Payload } from '@/utils/app/fileBase64';
+
 import {
   ownsGeneratedImage,
   readGeneratedImageRecord,
@@ -253,11 +255,9 @@ async function processImage(
   width?: number;
   height?: number;
 }> {
-  // Remove data URL prefix if present
-  const cleanBase64 = base64Data.replace(
-    /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,/i,
-    '',
-  );
+  // Remove a data URL prefix whatever media type the browser gave the file;
+  // the bytes are identified by content below.
+  const cleanBase64 = base64Payload(base64Data);
   const buffer = Buffer.from(cleanBase64, 'base64');
   assertImageUploadSize(buffer.length);
 

@@ -761,7 +761,30 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           'submission_expired',
         );
       }
-      throw error;
+      // Any other failure may be a lost reply to a commit Redis executed (a
+      // command timeout or dropped socket; replies are never resent). The
+      // payload is written by that same commit, so it shows whether the job
+      // was queued. Cleaning up a queued job would leave a worker running it
+      // without records or guards, letting a resubmission run alongside it.
+      let queued: boolean;
+      try {
+        queued = (await getRedis().exists(streamPayloadKey(jobId))) === 1;
+      } catch (checkError) {
+        logger.error(`Job ${jobId}: enqueue outcome unknown`, {
+          enqueueError: error,
+          checkError,
+        });
+        // Keep every record: a worker may own the job. If it was not queued,
+        // stale-submission recovery releases the conversation and slot.
+        jobEnqueued = true;
+        throw new ApiRouteError(
+          503,
+          'The response could not be confirmed as started. Check this conversation before sending it again.',
+          'submission_unconfirmed',
+        );
+      }
+      if (!queued) throw error;
+      logger.warn(`Job ${jobId}: queued; the enqueue reply was lost`, error);
     }
     jobEnqueued = true;
 
@@ -770,7 +793,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (!jobEnqueued && createdJobId) {
       await Promise.all([
         jsonDel(sessionKey(['async-job-request', createdJobId])),
-        jsonDel(sessionKey(['async-job-status', createdJobId])),
+        // A Stop that arrived before queueing may already have finalized this
+        // job; its terminal status must stay readable with its journal.
+        deleteLiveJobStatus(createdJobId),
         jsonDel(streamPayloadKey(createdJobId)),
         ...(acquiredUserGuard
           ? [

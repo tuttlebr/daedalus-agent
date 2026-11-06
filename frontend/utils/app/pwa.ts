@@ -12,11 +12,6 @@ export const registerServiceWorker = async () => {
   // Register on all environments including localhost for testing
   if ('serviceWorker' in navigator && typeof window !== 'undefined') {
     try {
-      // Capture this before registration. The initial worker calls
-      // clients.claim(), so navigator.serviceWorker.controller may become
-      // truthy during its own activation. That first install is not an update
-      // and must not reload a page that the user is already interacting with.
-      const hadController = Boolean(navigator.serviceWorker.controller);
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/',
       });
@@ -40,9 +35,15 @@ export const registerServiceWorker = async () => {
       // Handle updates
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
+        // Read this when each worker is found, before it activates. The
+        // initial worker calls clients.claim(), so the controller becomes
+        // truthy during its own activation; that first install is not an
+        // update. A worker found later in the same session replaces the one
+        // that now controls the page, even if the page loaded without one.
+        const replacesController = Boolean(navigator.serviceWorker.controller);
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'activated' && hadController) {
+            if (newWorker.state === 'activated' && replacesController) {
               // New service worker activated, notify via callback
               onUpdateAvailable?.();
             }

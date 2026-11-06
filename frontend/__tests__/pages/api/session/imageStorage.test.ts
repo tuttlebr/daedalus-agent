@@ -372,6 +372,27 @@ describe('/api/session/imageStorage', () => {
     });
   });
 
+  it.each([
+    'data:application/octet-stream;base64,',
+    'data:;base64,',
+    'DATA:image/heic;base64,',
+  ])('decodes a HEIC upload sent as a %s data URL', async (prefix) => {
+    const { storeImage } = await import('@/pages/api/session/imageStorage');
+    const original = heicHeader();
+
+    // An iPhone photo picked without a file type reaches the browser's
+    // FileReader as application/octet-stream.
+    const stored = await storeImage(
+      'session-1',
+      'alice',
+      `${prefix}${original.toString('base64')}`,
+      'image/heic',
+    );
+
+    expect(stored.mimeType).toBe('image/jpeg');
+    expect(mocks.decodeHeic).toHaveBeenCalledWith({ buffer: original });
+  });
+
   it('content-sniffs and decodes HEIC when the MIME type is misleading', async () => {
     const { storeImage } = await import('@/pages/api/session/imageStorage');
     const original = heicHeader();
