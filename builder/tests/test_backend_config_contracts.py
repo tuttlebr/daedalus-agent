@@ -2329,7 +2329,8 @@ def test_hardcoded_builder_prompts_follow_prompt_guidance_shape():
 
 def test_identity_control_messages_match_backend_memory_contract():
     root = Path(__file__).resolve().parents[2]
-    surfaces = (root / "frontend" / "pages" / "api" / "chat" / "async.ts",)
+    # Browser and compatibility API submissions share this identity message.
+    surfaces = (root / "frontend" / "server" / "chat" / "submission.ts",)
     for surface in surfaces:
         text = surface.read_text(encoding="utf-8")
         assert "[IDENTITY]" in text, surface

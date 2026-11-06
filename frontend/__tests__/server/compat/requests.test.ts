@@ -380,7 +380,9 @@ describe('Anthropic Messages request contract', () => {
 
 describe('caller instruction placement', () => {
   it('sits directly before the final user turn so history selection keeps it', async () => {
-    const { withCallerInstructions } = await import('@/server/chat/submission');
+    const { withCallerInstructions } = await import(
+      '@/server/chat/callerInstructions'
+    );
     const instructions = {
       role: 'user' as const,
       content: '[CALLER_INSTRUCTIONS] x',
