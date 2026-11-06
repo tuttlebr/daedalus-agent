@@ -112,3 +112,58 @@ def test_skill_name_must_match_its_directory(tmp_path):
         ".agents/skills/demo/SKILL.md: name must be demo",
         ".agents/skills/empty: missing SKILL.md",
     ]
+
+
+SYNC_SPEC = importlib.util.spec_from_file_location(
+    "sync_agent_skills", ROOT / "scripts/sync_agent_skills.py"
+)
+sync_module = importlib.util.module_from_spec(SYNC_SPEC)
+SYNC_SPEC.loader.exec_module(sync_module)
+
+
+def skill_repo(tmp_path, *names):
+    for name in names:
+        write(
+            tmp_path / ".agents/skills" / name / "SKILL.md", f"---\nname: {name}\n---\n"
+        )
+    return tmp_path
+
+
+def test_repository_skill_links_are_synchronized():
+    assert sync_module.sync(fix=False) == []
+
+
+def test_missing_claude_directory_is_skipped_by_check_but_created_by_sync(tmp_path):
+    root = skill_repo(tmp_path, "one", "two")
+    assert sync_module.sync(root, fix=False) == []
+    assert len(sync_module.sync(root)) == 2
+    assert sync_module.sync(root, fix=False) == []
+    link = root / ".claude/skills/one"
+    assert link.is_symlink() and (link / "SKILL.md").is_file()
+
+
+def test_stale_wrong_and_shadowing_entries_are_reported_and_repaired(tmp_path):
+    root = skill_repo(tmp_path, "one", "two")
+    sync_module.sync(root)
+    mirror = root / ".claude/skills"
+    (mirror / "one").unlink()
+    (mirror / "one").symlink_to("../../elsewhere")
+    (mirror / "gone").symlink_to("../../.agents/skills/gone")
+    (mirror / "two").unlink()
+    (mirror / "two").mkdir()
+    problems = sync_module.sync(root, fix=False)
+    assert any("one" in p and "wrong link" in p for p in problems)
+    assert any("gone" in p and "stale" in p for p in problems)
+    assert any("two" in p and "shadows" in p for p in problems)
+    sync_module.sync(root)
+    assert not (mirror / "gone").is_symlink()
+    assert (mirror / "one").resolve() == (root / ".agents/skills/one").resolve()
+    # A real directory is never deleted automatically.
+    assert (mirror / "two").is_dir() and not (mirror / "two").is_symlink()
+
+
+def test_personal_copies_are_reported(tmp_path):
+    root = skill_repo(tmp_path / "repo", "one")
+    home = tmp_path / "home"
+    (home / ".codex/skills/one").mkdir(parents=True)
+    assert sync_module.personal_copies(root, home) == [str(home / ".codex/skills/one")]

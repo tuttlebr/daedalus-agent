@@ -60,6 +60,9 @@ hooks: ## run every pre-commit hook  (CI job: hooks)
 	cd frontend && npm ci --legacy-peer-deps
 	uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --all-files --show-diff-on-failure
 
+agent-skills: ## link .agents/skills into harness-specific skill directories
+	python3 scripts/sync_agent_skills.py
+
 rust-check: ## Rust formatting, lint, unit and frozen contract tests
 	cargo fmt --manifest-path builder/runtime/Cargo.toml --check
 	cargo clippy --locked --manifest-path builder/runtime/Cargo.toml --all-targets -- -D warnings

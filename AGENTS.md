@@ -54,12 +54,21 @@ backend image; stub-based tests alone do not validate runtime integration.
 ## Maintenance Skills
 
 `.agents/skills/` holds repository workflows for coding agents, such as
-`daedalus-review-and-remediate`. They are never packaged into images. Codex
-discovers them there. For Claude Code, keep `.claude/` ignored and link each skill
-locally from the repository root:
-`mkdir -p .claude/skills && ln -s ../../.agents/skills/<name> .claude/skills/<name>`.
-Remove same-named personal copies: Claude Code prefers a personal skill over the
-repository version, and Codex lists both.
+`daedalus-review-and-remediate`. It is the single tracked source of truth and is
+never packaged into images. Keep the skills repo-local; do not copy them into
+personal skill directories.
+
+| Harness             | How it finds the skills                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Codex, Pi, OpenCode | Read `.agents/skills/` directly; nothing to set up.                                                           |
+| Claude Code         | Reads only `.claude/skills/`, which stays git-ignored: run `make agent-skills` to symlink each skill.         |
+| Hermes              | No project-local directory; add `<repo>/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml`. |
+
+`scripts/sync_agent_skills.py` creates, repairs, and prunes the Claude links, and
+its `--check` mode runs in the `agent-skill-links` pre-commit hook, so a new,
+renamed, or removed skill fails the commit until `make agent-skills` is run.
+It also warns about same-named personal copies, which Claude Code prefers over
+the repository version and Codex lists twice; remove them.
 
 Use `daedalus-optimize-tool-config` for capability alignment and prompt/tool
 description efficiency in `backend/tool-calling-config.yaml`. When changing tool

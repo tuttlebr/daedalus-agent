@@ -84,6 +84,14 @@ repos:
         # Renaming any referenced file or Make target strands a maintenance
         # skill reference, so this check cannot be selected by filename.
         always_run: true
+      - id: agent-skill-links
+        name: Agent skill links
+        entry: python3 scripts/sync_agent_skills.py --check
+        language: system
+        pass_filenames: false
+        # Adding or removing a skill under .agents/skills strands the ignored
+        # .claude/skills links, so this check cannot be selected by filename.
+        always_run: true
       - id: bash-syntax-check
         name: Bash syntax check
         entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --
