@@ -45,6 +45,20 @@ def test_moved_paths_globs_and_retired_targets_are_reported(tmp_path):
     ]
 
 
+def test_ignored_local_paths_do_not_satisfy_references(tmp_path):
+    import subprocess
+
+    root = fixture_repo(tmp_path, "`builder/service.py` and `.claude/skills`\n")
+    (root / ".claude/skills").mkdir(parents=True)
+    write(root / ".gitignore", ".claude/\n")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    # A clean checkout lacks ignored paths, so they must not count locally.
+    assert skills_module.check(root) == [
+        ".agents/skills/demo/references/guide.md: missing path .claude/skills"
+    ]
+
+
 def test_commands_placeholders_and_code_blocks_are_not_paths(tmp_path):
     root = fixture_repo(
         tmp_path,

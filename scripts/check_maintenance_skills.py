@@ -3,10 +3,14 @@
 
 Skills under .agents/skills/ describe this repository for coding agents. Renaming
 a file or target anywhere can strand their references, so the hook always runs.
-It checks existence only; outdated descriptions still need review.
+It checks existence only; outdated descriptions still need review. In a git
+checkout only tracked paths count, so an ignored local file or directory cannot
+satisfy a reference that a clean CI checkout lacks.
 """
 
+import os
 import re
+import subprocess  # nosec B404 - fixed git argv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,13 +64,41 @@ def references(text, root):
             yield "path", span
 
 
-def resolves(path, skill, root):
+def tracked_paths(root):
+    """Tracked files and their directories, or None outside a git checkout."""
+    try:
+        top = subprocess.run(  # nosec B603 B607 - fixed git argv
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        if Path(top).resolve() != Path(root).resolve():
+            return None
+        listed = subprocess.run(  # nosec B603 B607 - fixed git argv
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+        ).stdout.decode()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    files = {Path(name) for name in listed.split("\0") if name}
+    return files | {parent for name in files for parent in name.parents}
+
+
+def resolves(path, skill, root, tracked=None):
     # Skill files are named relative to the skill; everything else to the root.
+    def present(candidate):
+        if tracked is None:
+            return candidate.exists()
+        relative = Path(os.path.relpath(candidate, root))
+        return relative in tracked
+
     for base in (skill, root):
         if any(char in path for char in "*?["):
-            if any(base.glob(path.rstrip("/"))):
+            if any(present(match) for match in base.glob(path.rstrip("/"))):
                 return True
-        elif (base / path).exists():
+        elif present(base / path):
             return True
     return False
 
@@ -74,6 +106,7 @@ def resolves(path, skill, root):
 def check(root=ROOT):
     errors = []
     targets = make_targets(root / "Makefile")
+    tracked = tracked_paths(root)
     for skill in sorted(path for path in (root / SKILLS).iterdir() if path.is_dir()):
         entry = skill / "SKILL.md"
         if not entry.is_file():
@@ -85,7 +118,7 @@ def check(root=ROOT):
         for source in sorted(skill.rglob("*.md")):
             missing = []
             for kind, value in references(source.read_text(), root):
-                if kind == "path" and not resolves(value, skill, root):
+                if kind == "path" and not resolves(value, skill, root, tracked):
                     missing.append(f"missing path {value}")
                 elif kind == "target":
                     missing += [

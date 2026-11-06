@@ -121,8 +121,10 @@ agent skill links and Helm. Their precise selection and behavior live in the con
   interpolation. Keep validation and deployment interpretation consistent,
   including quoted whitespace and comments after a closing quote.
 - `scripts/sync_agent_skills.py --check` (the `agent-skill-links` hook) passes
-  without checking anything when `.claude/skills` is absent, as in CI; it prunes
-  only links that resolve into `.agents/skills`.
+  without checking anything when the git-ignored Claude Code link directory is
+  absent, as in CI; it prunes only links that resolve into `.agents/skills`.
+- `scripts/check_maintenance_skills.py` counts only git-tracked paths, so an
+  ignored local file cannot satisfy a reference that a clean checkout lacks.
 - Check hook filters at nested package paths and with multiple filenames; inspect
   handling of spaces, excluded generated files and nonzero child-process exits.
 
