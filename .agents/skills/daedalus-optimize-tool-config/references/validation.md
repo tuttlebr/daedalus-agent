@@ -111,11 +111,22 @@ catalog identity; the synthetic catalog does not prove home-deployment coverage.
 Reuse an already authorized evaluation gateway; obtain missing authorization
 before paid model traffic or external mutations. Offline checks can proceed.
 
+For an instructions-only candidate, run both arms on one image and pass the
+deployed workflow instructions as the baseline overlay; the harness default
+prompt is synthetic, so an unpaired default is not a baseline. The harness
+starts backends with host networking: on Docker Desktop, run it from a Linux
+container on the VM network with the repository and output paths mounted at
+identical locations. Isolated model failures occur in both arms. A candidate that
+fails the frozen gate is rejected; do not rerun it until a sample passes.
+
 Require no loss of previously correct behavior and preservation of all hard
 contracts. Count added discovery/retrieval rounds, retries, latency, and actual
 serialized input alongside prose length. A smaller prompt that causes incorrect
 routing, extra repair calls, or incomplete output is not an accepted efficiency
-gain. If only static checks are available, leave a reviewable local candidate
+gain. Estimate the saving from reported input usage per model call before
+proposing test changes: removing text the runtime policy already repeats can
+save well under 1% of input, which rarely justifies relaxing literal contract
+assertions. If only static checks are available, leave a reviewable local candidate
 and explicitly withhold behavioral/performance claims.
 
 ## Self-evolution evidence and existing tooling
