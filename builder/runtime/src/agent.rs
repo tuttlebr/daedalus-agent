@@ -76,6 +76,10 @@ fn error_limit() -> usize {
     4
 }
 
+/// Model rounds reserved for serializing an autonomous result once research
+/// has finished: one submission plus its one argument correction.
+const COMPLETION_ROUNDS: usize = 2;
+
 /// Rides in the failed call's own result, like other recovery guidance.
 const REPEATED_FAILURE_GUIDANCE: &str = "This tool failed the same way repeatedly and is disabled for the rest of this run. Do not call it again. Continue with completed results and other available tools, and report the affected gap without claiming it succeeded.";
 
@@ -330,9 +334,15 @@ impl Agent {
         let mut response_text = ResponseText::default();
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
-        // Research that ends on the last allowed round still gets the one
-        // round that serializes its result.
-        let mut autonomy_completion_round = false;
+        // Once research is finished, the serialization phase gets its own
+        // budget past the iteration limit: one submission and one argument
+        // correction. Retries do not spend it, so research that ends on the
+        // last allowed round can still survive a transient model failure.
+        let mut completion_limit: Option<usize> = None;
+        // Tools the loop guard disabled during execution. Tools disabled for
+        // invalid arguments are rejected before scheduling instead, so valid
+        // calls already accepted in the same batch still execute.
+        let mut guard_disabled = std::collections::HashSet::<String>::new();
         let mut executor_states: HashMap<String, Value> = HashMap::new();
         // The advertised catalogue changes only when the tool menu does; the
         // log digest over its full serialisation is recomputed only then.
@@ -348,7 +358,7 @@ impl Agent {
         response_policy.observe_user(&query);
         while iterations < prepared.max_iterations
             || (briefing_text_fallback && !briefing_fallback_started)
-            || std::mem::take(&mut autonomy_completion_round)
+            || completion_limit.is_some_and(|limit| iterations < limit)
         {
             self.drain().await?;
             for (_, instruction) in &self.pending {
@@ -755,7 +765,7 @@ impl Agent {
                 // opening a user turn after an assistant message.
                 requirement =
                     crate::tool_contracts::Requirement::Named(crate::autonomy_output::TOOL.into());
-                autonomy_completion_round = true;
+                completion_limit.get_or_insert(iterations + COMPLETION_ROUNDS);
                 Self::attach_guidance(&mut history, crate::autonomy_output::GUIDANCE);
                 continue;
             }
@@ -880,7 +890,7 @@ impl Agent {
                         || terminal.is_some();
                     let position = queued.iter().position(|call| {
                         redirected
-                            || !validation_recovery.allows(call.function.name.as_str())
+                            || guard_disabled.contains(call.function.name.as_str())
                             || active_groups
                                 .get(&self.execution_group(&call.function.name))
                                 .copied()
@@ -904,7 +914,7 @@ impl Agent {
                         history.push(Message::tool_result(call.id, call.function.name, "Not executed: this run was redirected or reached an approval boundary."));
                         continue;
                     }
-                    if !validation_recovery.allows(&name) {
+                    if guard_disabled.contains(&name) {
                         // Proposed before an identical failure disabled it.
                         tracing::info!(event = "tool_call_skipped", reason = "tool_disabled");
                         history.push(Message::tool_result(
@@ -1110,9 +1120,10 @@ impl Agent {
                 // its other tools; iteration and run deadlines still apply.
                 let disable = prepared.repeated_error_limit > 0
                     && repeated_errors >= prepared.repeated_error_limit
-                    && validation_recovery.allows(&name);
+                    && !guard_disabled.contains(&name);
                 if disable {
                     validation_recovery.disable(&name);
+                    guard_disabled.insert(name.clone());
                     tracing::warn!(
                         event = "tool_disabled",
                         tool = label(&name),
@@ -1142,6 +1153,7 @@ impl Agent {
                     requirement = crate::tool_contracts::Requirement::Named(
                         crate::autonomy_output::TOOL.into(),
                     );
+                    completion_limit.get_or_insert(iterations + COMPLETION_ROUNDS);
                     Self::attach_guidance(&mut history, crate::autonomy_output::GUIDANCE);
                     continue;
                 }
@@ -1641,8 +1653,14 @@ mod tests {
                 .into_response();
         }
         // Like the Python service, report the state for the next call.
-        let result = json!({"event":"result","data":{"content":format!("result for {query}"),
+        let mut result = json!({"event":"result","data":{"content":format!("result for {query}"),
             "executor_state":{"last_query":query}}});
+        if query == "artifact" {
+            // A validated artifact ends the round like the Python service's
+            // terminal renderer result.
+            result["data"]["terminal"] = json!(true);
+            result["data"]["terminal_reason"] = json!("validated_artifact");
+        }
         (
             [(http::header::CONTENT_TYPE, "application/x-ndjson")],
             format!("{result}\n"),
@@ -2541,5 +2559,200 @@ mod tests {
             error.root_cause().to_string(),
             "Model completed without an answer"
         );
+    }
+
+    fn summary_schema() -> Value {
+        json!({"autonomy_output_schema":{
+            "type":"object","properties":{"summary":{"type":"string"}},
+            "required":["summary"],"additionalProperties":false}})
+    }
+
+    #[tokio::test]
+    async fn last_round_completion_survives_a_transient_model_failure() {
+        let tool = crate::autonomy_output::TOOL;
+        let result = json!({"summary":"The time was read."});
+        let mut interrupted = completed(vec![call("partial", tool, &result.to_string())]).unwrap();
+        interrupted.truncate(3);
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"],"max_iterations":2}),
+            "Check the time and finish.",
+            vec![
+                completed(vec![call("read", "clock", "{}")]),
+                completed(vec![text("The time was read.")]),
+                Some(interrupted),
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({"max_retries":1}),
+            None,
+            summary_schema(),
+        )
+        .await;
+        assert_eq!(
+            outcome.requests.len(),
+            4,
+            "the completion round was not retried"
+        );
+        outcome.result.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn last_round_completion_keeps_its_argument_correction() {
+        let tool = crate::autonomy_output::TOOL;
+        let result = json!({"summary":"The time was read."});
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"],"max_iterations":2}),
+            "Check the time and finish.",
+            vec![
+                completed(vec![call("read", "clock", "{}")]),
+                completed(vec![text("The time was read.")]),
+                completed(vec![call("invalid", tool, r#"{"summary":42}"#)]),
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({}),
+            None,
+            summary_schema(),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 4);
+        assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn steering_during_the_last_round_completion_still_submits() {
+        let tool = crate::autonomy_output::TOOL;
+        let result = json!({"summary":"Used the second source."});
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"],"max_iterations":2}),
+            "Check the time and finish.",
+            vec![
+                completed(vec![call("read", "clock", "{}")]),
+                completed(vec![text("The time was read.")]),
+                // The completion round stalls until steering interrupts it.
+                None,
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({}),
+            Some((3, "Mention the second source.")),
+            summary_schema(),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 4);
+        assert!(
+            outcome.requests[3]["input"]
+                .to_string()
+                .contains("Mention the second source.")
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn a_terminal_artifact_on_the_last_round_still_gets_its_completion_round() {
+        let tool = crate::autonomy_output::TOOL;
+        let result = json!({"summary":"The artifact was validated."});
+        let outcome = run_scripted(
+            json!({"lookup_tool":{"_type":"webscrape"}}),
+            json!({"tools":["lookup_tool"],"max_iterations":1}),
+            "Produce the artifact and finish.",
+            vec![
+                completed(vec![call(
+                    "render",
+                    "lookup_tool",
+                    "{\"query\":\"artifact\"}",
+                )]),
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({}),
+            None,
+            summary_schema(),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 2);
+        assert_eq!(tool_names(&outcome.requests[1]), vec![tool]);
+        assert_eq!(outcome.tool_calls.len(), 1, "research must not be replayed");
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn valid_siblings_of_a_tool_with_exhausted_corrections_still_execute() {
+        let outcome = run(
+            clocks(),
+            json!({"tools":["clock","calendar_clock"]}),
+            "What time is it?",
+            vec![
+                completed(vec![call("bad1", "clock", r#"{"extra":1}"#)]),
+                completed(vec![
+                    call("bad2", "clock", r#"{"extra":2}"#),
+                    call("good", "clock", "{}"),
+                ]),
+                completed(vec![text("Done.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        let input = outcome.requests[2]["input"].as_array().unwrap();
+        let output = |id: &str| {
+            input
+                .iter()
+                .find(|item| item["call_id"] == id && item["type"] == "function_call_output")
+                .unwrap()
+                .to_string()
+        };
+        // The valid call ran; only the invalid one carries the correction
+        // outcome, and nothing claims a repeated identical failure.
+        assert!(!output("good").contains("error"), "{}", output("good"));
+        assert!(output("bad2").contains("repeated invalid arguments have been disabled"));
+        assert!(
+            !input
+                .iter()
+                .any(|item| item.to_string().contains("failed the same way"))
+        );
+        assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
+        assert_eq!(tool_names(&outcome.requests[2]), vec!["calendar_clock"]);
+    }
+
+    #[tokio::test]
+    async fn a_required_tool_disabled_by_the_loop_guard_fails_explicitly() {
+        let outcome = run_scripted(
+            lookup_and_clock(),
+            json!({"tools":["lookup_tool","clock"],
+                "loop_guard":{"enabled":true,"repeated_error_limit":2}}),
+            "Look it up",
+            vec![
+                completed(vec![call("f1", "lookup_tool", "{\"query\":\"fail\"}")]),
+                completed(vec![call("f2", "lookup_tool", "{\"query\":\"fail\"}")]),
+                completed(vec![text("Made up answer.")]),
+            ],
+            json!({}),
+            None,
+            json!({"tool_choice":{"type":"function","function":{"name":"lookup_tool"}}}),
+        )
+        .await;
+        let error = outcome.result.unwrap_err();
+        assert_eq!(
+            error.root_cause().to_string(),
+            "Required tool did not complete successfully"
+        );
+        assert_eq!(outcome.requests.len(), 2);
+        assert!(!outcome.stream.contains("Made up answer."));
     }
 }

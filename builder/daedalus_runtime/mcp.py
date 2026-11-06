@@ -174,12 +174,15 @@ class MCPManager:
 
     def _schemas(self, name, connection):
         group = self.groups[name]
-        include = set(group.get("include", []))
-        exclude = set(group.get("exclude", []))
+        # Match exposure as the approval policy does (trimmed and casefolded),
+        # so an excluded operation cannot stay exposed through a case variant.
+        include = {name.strip().casefold() for name in group.get("include") or []}
+        exclude = {name.strip().casefold() for name in group.get("exclude") or []}
         schemas = []
         for tool in connection.tools.values():
-            if (include and tool.name not in include) or (
-                not include and tool.name in exclude
+            normalized = tool.name.strip().casefold()
+            if (include and normalized not in include) or (
+                not include and normalized in exclude
             ):
                 continue
             override = group.get("tool_overrides", {}).get(tool.name, {})

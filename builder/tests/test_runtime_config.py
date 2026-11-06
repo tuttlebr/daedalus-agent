@@ -224,3 +224,32 @@ def test_tool_database_must_be_the_default(runtime_config, monkeypatch, function
     assert "functions.retrieval.database_name" in describe_validation_error(
         caught.value
     )
+
+
+@pytest.mark.parametrize("limit", [0, 4, 100])
+def test_loop_guard_accepts_bounded_integer_limits(runtime_config, limit):
+    runtime_config["workflow"]["loop_guard"] = {"repeated_error_limit": limit}
+    validate_config(runtime_config, ToolRegistry(runtime_config))
+
+
+@pytest.mark.parametrize(
+    "loop_guard",
+    [
+        {"repeated_error_limit": -1},
+        {"repeated_error_limit": 101},
+        {"repeated_error_limit": 2.5},
+        {"repeated_error_limit": "4"},
+        {"repeated_error_limit": True},
+        {"repeated_error_limit": None},
+        None,
+        [],
+    ],
+)
+def test_loop_guard_rejects_limits_the_preparations_disagree_on(
+    runtime_config, loop_guard
+):
+    # Rust preparation would disable a negative limit while Python preparation
+    # fails every request with it; both validators reject it before startup.
+    runtime_config["workflow"]["loop_guard"] = loop_guard
+    with pytest.raises(ConfigValidationError, match="loop_guard"):
+        validate_config(runtime_config, ToolRegistry(runtime_config))

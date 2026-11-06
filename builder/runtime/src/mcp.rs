@@ -365,9 +365,21 @@ impl Mcp {
     }
     fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
         let group = &self.config.raw["function_groups"][name];
-        let include = names(group.get("include")).unwrap_or_default();
-        let exclude = names(group.get("exclude")).unwrap_or_default();
-        connection.tools.iter().filter(|tool|if include.is_empty(){!exclude.iter().any(|n|n==tool.name.as_ref())}else{include.iter().any(|n|n==tool.name.as_ref())}).map(|tool|{
+        // Match exposure exactly as the approval policy does (trimmed and
+        // casefolded), so an excluded operation cannot stay exposed because
+        // its remote name differs only in case.
+        let normalized = |key| -> HashSet<String> {
+            names(group.get(key))
+                .unwrap_or_default()
+                .iter()
+                .map(|name| crate::authorization::fold(name.trim()))
+                .collect()
+        };
+        let (include, exclude) = (normalized("include"), normalized("exclude"));
+        connection.tools.iter().filter(|tool| {
+            let name = crate::authorization::fold(tool.name.trim());
+            if include.is_empty() { !exclude.contains(&name) } else { include.contains(&name) }
+        }).map(|tool|{
             let description=group["tool_overrides"][tool.name.as_ref()]["description"].as_str().filter(|s|!s.trim().is_empty()).or(tool.description.as_deref()).filter(|s|!s.trim().is_empty()).ok_or_else(||anyhow!("MCP tool requires a description or configured override"))?;
             Ok(json!({"name":format!("{name}__{}",tool.name),"description":description.trim(),"parameters":&*tool.input_schema}))
         }).collect()

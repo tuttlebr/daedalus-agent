@@ -28,7 +28,9 @@ description from that file.
 | `source_verifier_tool`       | Plan sources, check a public claim against a URL, or audit citations | Plan: research question; verify: claim and source_url; audit: answer_markdown; these operations have separate arguments   |
 
 MCP names, schemas, discovery, read/write classification, and authorization remain
-owned by the configured server group and execution gate. Loading a skill never
+owned by the configured server group and execution gate. Group `include` and
+`exclude` names match remote tool names after trimming and casefolding, the same
+way approval policies match them. Loading a skill never
 adds permissions. Unknown tools are not executed. Discovery may add definitions;
 it cannot silently replace an existing definition with a conflicting schema or
 description. Missing MCP descriptions require a configured override; duplicate
@@ -78,9 +80,12 @@ values. Missing facts must be resolved from supplied context, existing results o
 available memory rather than guessed. Required-tool requests still fail if the
 required capability cannot succeed.
 Executed calls have a separate loop guard. When the same tool, arguments and
-error recur `workflow.loop_guard.repeated_error_limit` times, the runtime
-disables only that tool for the rest of the run. Calls already started finish and
-report their results; queued calls of that tool are skipped as not executed. The
+error recur `workflow.loop_guard.repeated_error_limit` times (an integer from
+0 to 100; 0 turns the guard off, and other values fail configuration validation),
+the runtime disables only that tool for the rest of the run. Calls already
+started finish and report their results; queued calls of that tool are skipped
+as not executed. Valid calls accepted in the batch whose invalid sibling
+exhausted its correction still run. The
 failed call's result tells the model to continue with other tools and report the
 gap. The run ends only through its other limits, or fails explicitly if a
 required tool can no longer run.

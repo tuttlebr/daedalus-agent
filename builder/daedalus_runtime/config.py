@@ -100,6 +100,9 @@ def _validate_upload_collection(name: str, configured: str | None) -> None:
         )
 
 
+MAX_REPEATED_ERROR_LIMIT = 100
+
+
 def validate_config(config: dict, registry) -> None:
     """Reject unsupported or unbounded runtime settings before accepting work."""
     from nat_helpers.model_routing import ModelRoutingConfig, validate_skill_mappings
@@ -117,6 +120,18 @@ def validate_config(config: dict, registry) -> None:
         value = float(workflow.get(name, default))
         if not math.isfinite(value) or not 1 <= value <= maximum:
             raise ConfigValidationError(f"Invalid workflow.{name}")
+    # Both preparation modes read this limit per request; reject values they
+    # would interpret differently (or not at all) before startup. 0 disables it.
+    if "loop_guard" in workflow:
+        loop_guard = workflow["loop_guard"]
+        if not isinstance(loop_guard, dict):
+            raise ConfigValidationError("Invalid workflow.loop_guard")
+        if "repeated_error_limit" in loop_guard:
+            limit = loop_guard["repeated_error_limit"]
+            if type(limit) is not int or not 0 <= limit <= MAX_REPEATED_ERROR_LIMIT:
+                raise ConfigValidationError(
+                    "Invalid workflow.loop_guard.repeated_error_limit"
+                )
     functions = config.get("functions", {})
     groups = config.get("function_groups", {})
     if set(functions) & set(groups):

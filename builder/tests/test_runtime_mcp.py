@@ -244,3 +244,27 @@ def test_mcp_requires_guidance_or_explicit_override():
         manager._schemas("fixture", connection)[0]["description"]
         == "Read the requested record."
     )
+
+
+def test_exposure_filters_match_names_like_the_approval_policy():
+    """Exposure trims and casefolds include/exclude as approval policy does."""
+
+    def tool(name):
+        return SimpleNamespace(
+            name=name, description=f"Fixture {name}", inputSchema={"type": "object"}
+        )
+
+    connection = SimpleNamespace(
+        tools={name: tool(name) for name in ("read", "Delete", "STRASSE")}
+    )
+    config = {"function_groups": {"fixture": {"exclude": [" delete "]}}}
+    manager = mcp.MCPManager(config, SimpleNamespace())
+    assert [s["name"] for s in manager._schemas("fixture", connection)] == [
+        "fixture__read",
+        "fixture__STRASSE",
+    ]
+    config["function_groups"]["fixture"] = {"include": ["READ", "straße"]}
+    assert [s["name"] for s in manager._schemas("fixture", connection)] == [
+        "fixture__read",
+        "fixture__STRASSE",
+    ]

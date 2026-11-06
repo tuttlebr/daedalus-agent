@@ -584,3 +584,55 @@ async fn catalogue_does_not_wait_behind_another_runs_authorization() {
     let _ = waiting.await;
     server.abort();
 }
+
+#[tokio::test]
+async fn exposure_filters_match_names_like_the_approval_policy() {
+    // Exposure trims and casefolds include/exclude exactly as the approval
+    // policy does, so a case variant cannot keep an excluded tool exposed.
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let group = |filter: Value| {
+        let mut group = json!({"_type":"per_user_mcp_client","server":{"url":url},
+            "approval_policy":"auto_approve"});
+        crate::config::merge(&mut group, filter);
+        Config::new(
+            json!({"llms":{"main":{"model_name":"fixture","base_url":"http://127.0.0.1/v1"}},
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["fixture"]},
+            "function_groups":{"fixture":group}}),
+            HashMap::new(),
+        )
+        .unwrap()
+    };
+    let excluded = Mcp::new(&group(json!({"exclude":[" HIDDEN ", "Bad_Output"]}))).unwrap();
+    let schemas = excluded
+        .catalogue(&["fixture".into()], "synthetic", false)
+        .await;
+    assert_eq!(
+        names(&schemas),
+        [
+            "fixture__inspect",
+            "fixture__mutate",
+            "fixture__remote_error",
+            "fixture__marker"
+        ]
+    );
+    let (emit, _events) = emit();
+    let outcome = excluded
+        .call(
+            "fixture__hidden",
+            &json!({"value":1}),
+            "synthetic",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(outcome.is_error);
+    assert_eq!(count(&peer, "tools/call"), 0);
+    let included = Mcp::new(&group(json!({"include":["INSPECT", " mutate "]}))).unwrap();
+    let schemas = included
+        .catalogue(&["fixture".into()], "synthetic", false)
+        .await;
+    assert_eq!(names(&schemas), ["fixture__inspect", "fixture__mutate"]);
+    server.abort();
+}

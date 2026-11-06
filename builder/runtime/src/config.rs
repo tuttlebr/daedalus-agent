@@ -15,6 +15,9 @@ pub struct Config {
     pub python_tools: bool,
 }
 
+/// Upper bound for `workflow.loop_guard.repeated_error_limit`; 0 disables it.
+pub const MAX_REPEATED_ERROR_LIMIT: u64 = 100;
+
 pub fn merge(base: &mut Value, overlay: Value) {
     if let (Some(base), Some(overlay)) = (base.as_object_mut(), overlay.as_object()) {
         for (key, value) in overlay {
@@ -271,6 +274,20 @@ impl Config {
                 .unwrap_or(default);
             if !(1.0..=maximum).contains(&value) {
                 bail!("Invalid workflow.{name}");
+            }
+        }
+        // Both preparation modes read this limit per request; reject values
+        // they would interpret differently (or not at all) before startup.
+        if let Some(guard) = workflow.get("loop_guard") {
+            if !guard.is_object() {
+                bail!("Invalid workflow.loop_guard");
+            }
+            if guard.get("repeated_error_limit").is_some_and(|limit| {
+                limit
+                    .as_u64()
+                    .is_none_or(|limit| limit > MAX_REPEATED_ERROR_LIMIT)
+            }) {
+                bail!("Invalid workflow.loop_guard.repeated_error_limit");
             }
         }
         let empty = json!({});
@@ -717,5 +734,38 @@ mod concurrency_tests {
             assert!(!super::allow_insecure_internal(Some(value)), "{value:?}");
         }
         assert!(!super::allow_insecure_internal(None));
+    }
+
+    #[test]
+    fn loop_guard_limits_are_bounded_integers_in_both_preparations() {
+        let workflow = |loop_guard: Value| {
+            Config::new(
+                json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                    "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","loop_guard":loop_guard}}),
+                HashMap::new(),
+            )
+        };
+        for limit in [0, 4, 100] {
+            workflow(json!({"repeated_error_limit":limit})).unwrap();
+        }
+        workflow(json!({"enabled":false})).unwrap();
+        // A negative limit disabled Rust's guard but failed every Python
+        // preparation; reject anything the two would read differently.
+        for loop_guard in [
+            json!({"repeated_error_limit":-1}),
+            json!({"repeated_error_limit":101}),
+            json!({"repeated_error_limit":2.5}),
+            json!({"repeated_error_limit":"4"}),
+            json!({"repeated_error_limit":true}),
+            json!({"repeated_error_limit":null}),
+            json!(null),
+            json!([]),
+        ] {
+            let error = workflow(loop_guard.clone())
+                .err()
+                .unwrap_or_else(|| panic!("{loop_guard} must be rejected"))
+                .to_string();
+            assert!(error.contains("loop_guard"), "{error}");
+        }
     }
 }
