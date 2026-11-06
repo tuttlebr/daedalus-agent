@@ -255,7 +255,7 @@ def test_helm_nginx_rebuild_keeps_the_upstream_unprivileged_interface():
         instructions[0][1],
     )
     assert instructions[1][1] == "root"
-    assert instructions[2][1] == "apk add --no-cache 'zlib=1.3.2-r1'"
+    assert instructions[2][1] == "apk add --no-cache 'zlib=1.4-r0'"
     # Upstream runs as numeric user 101; the chart pins the same identity.
     values = yaml.safe_load((ROOT / "helm/daedalus/values.yaml").read_text())
     assert instructions[3][1] == str(values["nginx"]["securityContext"]["runAsUser"])

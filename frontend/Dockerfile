@@ -5,7 +5,7 @@ ENV TZ=America/New_York
 RUN apk add --no-cache \
         'libcrypto3>=3.5.8-r0' \
         'libssl3>=3.5.8-r0' \
-        'zlib>=1.3.2-r1' \
+        'zlib>=1.4-r0' \
         tzdata && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone

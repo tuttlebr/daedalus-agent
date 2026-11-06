@@ -14,7 +14,7 @@
   "derived": [
     {
       "id": "nginx-compose",
-      "image": "daedalus/nginx:1.31.5-pcre2-10.49-zlib-1.3.2-r1",
+      "image": "daedalus/nginx:1.31.5-pcre2-10.49-zlib-1.4-r0",
       "context": "vendor-images/nginx",
       "services": {
         "compose": ["nginx"]
@@ -22,7 +22,7 @@
     },
     {
       "id": "seaweedfs",
-      "image": "daedalus/seaweedfs:4.46-go1.26.10-net0.60.0-curl8.23.0-brotli1.2.1-jose4.1.6-zlib1.3.2-r1",
+      "image": "daedalus/seaweedfs:4.46-go1.26.10-net0.60.0-curl8.23.0-brotli1.2.1-jose4.1.6-zlib1.4-r0",
       "context": "vendor-images/seaweedfs",
       "services": {
         "compose": ["object-store", "object-store-init"],
