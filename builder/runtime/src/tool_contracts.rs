@@ -120,6 +120,12 @@ impl Recovery {
         !self.disabled.contains(name)
     }
 
+    /// Disable a tool for the rest of the run for another reason, such as a
+    /// call that keeps failing the same way. Other tools stay available.
+    pub fn disable(&mut self, name: &str) {
+        self.disabled.insert(name.to_owned());
+    }
+
     /// Unrelated successful calls cannot hide a repeated invalid proposal.
     pub fn exhausted(&mut self, calls: &[ToolCall], problems: &[String]) -> bool {
         let invalid: HashSet<_> = calls

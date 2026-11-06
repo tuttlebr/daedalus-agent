@@ -430,7 +430,6 @@ async fn supervise(
             "Run cancelled by user" => "Run cancelled by user",
             "Agent run timed out" => "Agent run timed out",
             "Agent iteration limit reached" => "Agent iteration limit reached",
-            "Repeated identical tool failure" => "Repeated identical tool failure",
             "Invalid or repeated tool call ID" => {
                 "Invalid or repeated tool call ID; the rejected batch was not executed"
             }

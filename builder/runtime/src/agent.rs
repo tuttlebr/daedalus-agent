@@ -76,6 +76,9 @@ fn error_limit() -> usize {
     4
 }
 
+/// Rides in the failed call's own result, like other recovery guidance.
+const REPEATED_FAILURE_GUIDANCE: &str = "This tool failed the same way repeatedly and is disabled for the rest of this run. Do not call it again. Continue with completed results and other available tools, and report the affected gap without claiming it succeeded.";
+
 #[derive(serde::Serialize, Deserialize, Default)]
 pub struct ToolOutcome {
     pub content: String,
@@ -877,6 +880,7 @@ impl Agent {
                         || terminal.is_some();
                     let position = queued.iter().position(|call| {
                         redirected
+                            || !validation_recovery.allows(call.function.name.as_str())
                             || active_groups
                                 .get(&self.execution_group(&call.function.name))
                                 .copied()
@@ -898,6 +902,18 @@ impl Agent {
                             reason = "redirected_or_terminal"
                         );
                         history.push(Message::tool_result(call.id, call.function.name, "Not executed: this run was redirected or reached an approval boundary."));
+                        continue;
+                    }
+                    if !validation_recovery.allows(&name) {
+                        // Proposed before an identical failure disabled it.
+                        tracing::info!(event = "tool_call_skipped", reason = "tool_disabled");
+                        history.push(Message::tool_result(
+                            call.id,
+                            call.function.name,
+                            json!({"status":"error", "executed":false, "error":"tool_disabled",
+                                "guidance":REPEATED_FAILURE_GUIDANCE})
+                            .to_string(),
+                        ));
                         continue;
                     }
                     let tool_call = self
@@ -1088,20 +1104,35 @@ impl Agent {
                     terminal_result =
                         Some((history.len(), call.id.clone(), call.function.name.clone()));
                 }
+                // The loop guard disables only the tool that keeps failing the
+                // same way. Started sibling calls finish and report, queued
+                // calls of this tool are skipped, and the run continues with
+                // its other tools; iteration and run deadlines still apply.
+                let disable = prepared.repeated_error_limit > 0
+                    && repeated_errors >= prepared.repeated_error_limit
+                    && validation_recovery.allows(&name);
+                if disable {
+                    validation_recovery.disable(&name);
+                    tracing::warn!(
+                        event = "tool_disabled",
+                        tool = label(&name),
+                        reason = "repeated_identical_failure",
+                        failures = repeated_errors
+                    );
+                }
                 history.push(Message::tool_result(
                     call.id,
                     call.function.name,
-                    if outcome.is_error {
+                    if disable {
+                        json!({"status":"error", "content":outcome.content,
+                            "guidance":REPEATED_FAILURE_GUIDANCE})
+                        .to_string()
+                    } else if outcome.is_error {
                         json!({"status":"error", "content":outcome.content}).to_string()
                     } else {
                         outcome.content
                     },
                 ));
-                if prepared.repeated_error_limit > 0
-                    && repeated_errors >= prepared.repeated_error_limit
-                {
-                    bail!("Repeated identical tool failure");
-                }
             }
             if let Some((content, reason)) = terminal {
                 if autonomy_output
@@ -2260,6 +2291,86 @@ mod tests {
                 json!({"last_query":"alpha"})
             ]
         );
+    }
+
+    fn lookup_and_clock() -> Value {
+        json!({"lookup_tool":{"_type":"webscrape"},"clock":{"_type":"current_datetime"}})
+    }
+
+    #[tokio::test]
+    async fn a_repeatedly_failing_tool_is_disabled_and_the_run_continues() {
+        let outcome = run(
+            lookup_and_clock(),
+            json!({"tools":["lookup_tool","clock"],
+                "loop_guard":{"enabled":true,"repeated_error_limit":2}}),
+            "Look it up",
+            vec![
+                completed(vec![call("f1", "lookup_tool", "{\"query\":\"fail\"}")]),
+                completed(vec![call("f2", "lookup_tool", "{\"query\":\"fail\"}")]),
+                completed(vec![text("Answered from the clock instead.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert!(outcome.stream.contains("Answered from the clock instead."));
+        assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
+        assert!(!outcome.stream.contains("event: error"));
+        // Only the failing tool leaves the menu; the guidance rides in its
+        // own result rather than a new user turn.
+        assert_eq!(tool_names(&outcome.requests[2]), vec!["clock"]);
+        let input = outcome.requests[2]["input"].as_array().unwrap();
+        assert!(
+            input
+                .last()
+                .unwrap()
+                .to_string()
+                .contains("disabled for the rest of this run"),
+            "{input:?}"
+        );
+        assert_no_runtime_user_turn(input, "disabled for the rest of this run");
+    }
+
+    #[tokio::test]
+    async fn disabling_a_tool_keeps_started_siblings_and_skips_its_queued_calls() {
+        let outcome = run(
+            lookup_and_clock(),
+            json!({"tools":["lookup_tool","clock"],"parallel_tool_calls":true,
+                "loop_guard":{"enabled":true,"repeated_error_limit":1}}),
+            "Look things up",
+            vec![
+                completed(vec![
+                    call("broken", "lookup_tool", "{\"query\":\"fail\"}"),
+                    call("queued", "lookup_tool", "{\"query\":\"alpha\"}"),
+                    call("sibling", "clock", "{}"),
+                ]),
+                completed(vec![text("Done with the time.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        // The queued call of the disabled tool never reached the service.
+        let queries: Vec<_> = outcome
+            .tool_calls
+            .iter()
+            .map(|call| call["arguments"]["query"].clone())
+            .collect();
+        assert_eq!(queries, [json!("fail")]);
+        let input = outcome.requests[1]["input"].as_array().unwrap();
+        let output = |id: &str| {
+            input
+                .iter()
+                .find(|item| item["call_id"] == id && item["type"] == "function_call_output")
+                .unwrap()
+                .to_string()
+        };
+        assert!(output("queued").contains("tool_disabled"));
+        assert!(
+            !output("sibling").contains("error"),
+            "{}",
+            output("sibling")
+        );
+        assert!(outcome.stream.contains("Done with the time."));
+        assert_eq!(tool_names(&outcome.requests[1]), vec!["clock"]);
     }
 
     #[tokio::test]

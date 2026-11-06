@@ -87,6 +87,8 @@ const PUBLIC_BACKEND_RUN_ERRORS = new Set([
   'Run cancelled by user',
   'Agent run timed out',
   'Agent iteration limit reached',
+  // Earlier backend images end the run this way; current ones disable the
+  // failing tool instead. Kept for rolling deploys and rollback images.
   'Repeated identical tool failure',
   'Invalid or repeated tool call ID; the rejected batch was not executed',
   'Required tool did not complete successfully; no answer was accepted',

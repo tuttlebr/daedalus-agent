@@ -77,6 +77,13 @@ identify only advertised tools, schema constraints and JSON types, never argumen
 values. Missing facts must be resolved from supplied context, existing results or
 available memory rather than guessed. Required-tool requests still fail if the
 required capability cannot succeed.
+Executed calls have a separate loop guard. When the same tool, arguments and
+error recur `workflow.loop_guard.repeated_error_limit` times, the runtime
+disables only that tool for the rest of the run. Calls already started finish and
+report their results; queued calls of that tool are skipped as not executed. The
+failed call's result tells the model to continue with other tools and report the
+gap. The run ends only through its other limits, or fails explicitly if a
+required tool can no longer run.
 Missing, duplicate, and reused provider call IDs end
 the run immediately. IDs from rejected batches must not be reused. Interrupted
 or undecodable model responses still never execute proposed calls.
