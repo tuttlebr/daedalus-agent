@@ -25,6 +25,18 @@ async function openSettings(page: import('@playwright/test').Page) {
     : page.getByRole('dialog');
 }
 
+/** Phone widths show a sheet with Done; tablet widths a popover that closes
+ * on Escape; desktop keeps the settings column open. */
+async function closeSettings(page: import('@playwright/test').Page) {
+  const width = page.viewportSize()!.width;
+  if (width < 768)
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  else if (width < 1024) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+}
+
 test('GIF controls persist while uploading a source and submitting image-to-GIF', async ({
   page,
 }) => {
@@ -59,8 +71,7 @@ test('GIF controls persist while uploading a source and submitting image-to-GIF'
   await expect(frames).toHaveValue('3');
   await expect(duration).toHaveValue('100');
   await assertFits(page);
-  if (page.viewportSize()!.width < 1024)
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeSettings(page);
   await page.getByRole('radio', { name: 'Edit', exact: true }).check();
   const editSettings = await openSettings(page);
   await expect(
@@ -73,8 +84,7 @@ test('GIF controls persist while uploading a source and submitting image-to-GIF'
   await expect(
     editSettings.getByRole('spinbutton', { name: 'Frames', exact: true }),
   ).toHaveAttribute('max', '16');
-  if (page.viewportSize()!.width < 1024)
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeSettings(page);
   const source = readFileSync('public/icons/icon-512x512.png');
   await page.route('**/api/session/imageStorage', (route) =>
     route.fulfill({

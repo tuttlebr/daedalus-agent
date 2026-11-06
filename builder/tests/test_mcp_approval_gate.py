@@ -359,6 +359,36 @@ def test_blocked_workspace_write_creates_compact_gate_owned_approval(monkeypatch
     assert "doc-123" not in reason
 
 
+def test_background_run_refuses_without_recording_an_approval(monkeypatch):
+    import nat_helpers.autonomous_llm as autonomous_llm
+    import nat_helpers.identity as identity
+
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _fallback: "alice",
+    )
+    monkeypatch.setattr(
+        autonomous_llm, "is_authenticated_autonomy_request", lambda: True
+    )
+    monkeypatch.setattr(
+        mcp_patches,
+        "_create_mcp_approval_marker",
+        lambda **_kwargs: pytest.fail("no one can answer a background approval"),
+    )
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "update_doc",
+        {"documentId": "doc-123", "requests": []},
+        server_name="docs_mcp_server",
+    )
+
+    # Same non-terminal refusal as the Rust gate: the run keeps its other work.
+    assert ok is False
+    assert reason == mcp_patches.BACKGROUND_APPROVAL_REFUSAL
+    rust = (Path(__file__).parents[1] / "runtime/src/authorization.rs").read_text()
+    assert f'"{reason}"' in rust
+
+
 def test_gate_persists_exact_document_once_but_marker_contains_only_metadata(
     monkeypatch,
 ):

@@ -36,6 +36,61 @@ const WS_FALLBACK_POLL_INTERVAL = Math.max(
   Number(process.env.NEXT_PUBLIC_WS_FALLBACK_POLL_INTERVAL_MS) || 15000,
 );
 const SUBMIT_JOB_TIMEOUT_MS = 60_000;
+
+/** Stop a submission by the ID the browser chose before POST. The server keeps
+ * this user-scoped tombstone even before it allocates the job. */
+async function cancelSubmissionRequest(submissionId: string): Promise<any> {
+  const response = await fetch(
+    `/api/chat/async?submissionId=${encodeURIComponent(submissionId)}`,
+    {
+      method: 'DELETE',
+      credentials: 'include',
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  return response.ok ? await response.json() : null;
+}
+
+const CONVERSATION_BUSY_ATTEMPTS = 4;
+const MAX_CONVERSATION_BUSY_DELAY_MS = 5_000;
+
+/** The Retry-After delay for a conversation still finishing its previous
+ * response, or null for any other result. */
+async function conversationBusyRetryDelay(
+  response: Response,
+): Promise<number | null> {
+  if (response.status !== 409) return null;
+  // Read a copy: a final rejection is reported from the original body.
+  const copy =
+    typeof response.clone === 'function' ? response.clone() : response;
+  const body = await copy.json().catch(() => null);
+  if (body?.reason !== 'conversation_job_active') return null;
+  const seconds = Number(response.headers?.get('Retry-After'));
+  return Number.isFinite(seconds) && seconds > 0
+    ? Math.min(seconds * 1000, MAX_CONVERSATION_BUSY_DELAY_MS)
+    : 2_000;
+}
+
+function waitUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+function submissionStopped(outcome: any): boolean {
+  return Boolean(
+    outcome &&
+      (outcome.canceled === true ||
+        ['completed', 'error'].includes(outcome.status)),
+  );
+}
 const STATUS_FETCH_TIMEOUT_MS = 15_000;
 // The worker persists streamed text for status reads at most every 750 ms
 // (STREAM_STATUS_FLUSH_INTERVAL_MS), so a repair read can briefly trail the
@@ -1135,22 +1190,10 @@ export const useAsyncChat = (
       try {
         await Promise.all([
           ...submissions.map(async (submission) => {
-            const response = await fetch(
-              `/api/chat/async?submissionId=${encodeURIComponent(
-                submission.submissionId,
-              )}`,
-              {
-                method: 'DELETE',
-                credentials: 'include',
-                signal: AbortSignal.timeout(10000),
-              },
+            const outcome = await cancelSubmissionRequest(
+              submission.submissionId,
             );
-            const outcome = response.ok ? await response.json() : null;
-            if (
-              !outcome ||
-              (outcome.canceled !== true &&
-                !['completed', 'error'].includes(outcome.status))
-            ) {
+            if (!submissionStopped(outcome)) {
               throw new Error('Could not stop the response. Please try again.');
             }
             submission.cancelled = true;
@@ -1232,28 +1275,53 @@ export const useAsyncChat = (
 
         let response: Response;
         try {
-          response = await fetchWithTimeout(
-            '/api/chat/async',
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              signal: submission.controller.signal,
-              body: JSON.stringify({
-                submissionId: submission.submissionId,
-                messages,
-                additionalProps,
-                userId: jobUserId,
-                conversationId,
-                conversationName,
-                turnId,
-                assistantMessageId,
-              }),
-            },
-            SUBMIT_JOB_TIMEOUT_MS,
-          );
+          for (let attempt = 1; ; attempt++) {
+            response = await fetchWithTimeout(
+              '/api/chat/async',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                signal: submission.controller.signal,
+                body: JSON.stringify({
+                  submissionId: submission.submissionId,
+                  messages,
+                  additionalProps,
+                  userId: jobUserId,
+                  conversationId,
+                  conversationName,
+                  turnId,
+                  assistantMessageId,
+                }),
+              },
+              SUBMIT_JOB_TIMEOUT_MS,
+            );
+            const retryAfterMs = await conversationBusyRetryDelay(response);
+            if (retryAfterMs === null || attempt >= CONVERSATION_BUSY_ATTEMPTS)
+              break;
+            // A stopped response keeps its conversation until the worker
+            // saves it, usually within a second or two. Wait as the server
+            // asks. The rejected attempt registered its ID, so the next
+            // attempt needs a fresh one; Stop during the wait still reaches it.
+            await waitUnlessAborted(retryAfterMs, submission.controller.signal);
+            if (submission.cancelled) return submission.jobId ?? '';
+            delete pendingSubmissionsRef.current[submission.submissionId];
+            submission.submissionId = uuidv4();
+            pendingSubmissionsRef.current[submission.submissionId] = submission;
+          }
         } catch (err) {
           if (err instanceof FetchTimeoutError) {
+            // The server can still queue this submission after the browser
+            // stops waiting. Without the stop tombstone that run would hold
+            // the conversation, ignore Stop and later replace this failed turn.
+            const outcome = await cancelSubmissionRequest(
+              submission.submissionId,
+            ).catch(() => null);
+            if (!submissionStopped(outcome)) {
+              logger.warn('Timed-out submission could not be stopped', {
+                conversationId,
+              });
+            }
             throw new Error(
               'The server did not respond in time. Please try again.',
             );

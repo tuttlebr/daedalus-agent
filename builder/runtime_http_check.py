@@ -1677,12 +1677,21 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert len(peers.requests) - before == 3
                 assert response.count("Function Start: current_datetime_tool") == 1
                 before = len(peers.requests)
-                rejected = chat(
-                    "AUTONOMY_OUTPUT",
-                    "interactive-output-schema",
-                    autonomy_output_schema=output_schema,
+                # Interactive requests cannot enable the completion contract;
+                # the route rejects them before admission or a model request.
+                rejected = client.post(
+                    base + "/v1/chat/completions",
+                    headers={
+                        **headers,
+                        "x-daedalus-request-id": "interactive-output-schema",
+                    },
+                    json={
+                        "stream": True,
+                        "messages": [{"role": "user", "content": "AUTONOMY_OUTPUT"}],
+                        "autonomy_output_schema": output_schema,
+                    },
                 )
-                assert '"finish_reason":"error"' in rejected
+                assert rejected.status_code == 400, rejected.status_code
                 assert len(peers.requests) == before
                 conflict = chat("POLICY_CONFLICT", "policy-conflict-run")
                 assert "read-only policy conflicts" in conflict

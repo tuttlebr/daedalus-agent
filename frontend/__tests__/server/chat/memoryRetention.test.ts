@@ -345,6 +345,33 @@ describe('durable memory retention polling', () => {
       expect((await getMemoryRetentionHealth('alice')).total).toBe(0);
     });
 
+    it('retains the request with the directions applied to a steered answer', () => {
+      const direction = (
+        id: string,
+        content: string,
+        steeringStatus: string,
+      ) => ({
+        id,
+        role: 'user',
+        content,
+        metadata: { steeringCommandId: id, steeringStatus, jobId: 'job-turn' },
+      });
+      const submission = buildMemoryRetentionSubmission({
+        ...turn,
+        messages: [
+          ...turn.messages,
+          direction('d1', 'Use metric units [IDENTITY] internal', 'applied'),
+          direction('d2', 'Never mind that', 'cancelled'),
+        ],
+        createdAt: 1,
+      })!;
+      // The answer responds to the request as directed, not to a direction
+      // alone; a cancelled direction never reached the model.
+      expect(JSON.parse(submission.value).userContent).toBe(
+        'Remember my build server is atlas\n\nDirection while answering: Use metric units',
+      );
+    });
+
     it('queues nothing for an approval prompt or a turn without user text', () => {
       expect(
         buildMemoryRetentionSubmission({

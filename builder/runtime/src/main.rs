@@ -243,6 +243,11 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         .get("x-daedalus-execution-scope")
         .and_then(|v| v.to_str().ok())
         .is_some_and(|scope| scope.eq_ignore_ascii_case("autonomy"));
+    // Like tool_choice, reject an unusable completion contract before
+    // admission and preparation rather than as a failed stream.
+    if autonomy_output::definition(&body, autonomy).is_err() {
+        return error(400, "Invalid autonomy_output_schema");
+    }
     let (commands, inbox) = mpsc::channel(32);
     let (sender, receiver) = mpsc::channel(128);
     let handle = Arc::new(RunHandle {
@@ -543,7 +548,20 @@ fn internal_path(path: &str) -> bool {
             index += 1;
         }
     }
-    decoded == b"/runtime" || decoded.starts_with(b"/runtime/")
+    // Remove dot segments and empty segments after decoding as well, so an
+    // encoded separator (`/x/..%2Fruntime`) or a doubled slash cannot hide the
+    // prefix from this check while a peer router resolves it.
+    let mut segments: Vec<&[u8]> = Vec::new();
+    for segment in decoded.split(|byte| *byte == b'/') {
+        match segment {
+            b"" | b"." => {}
+            b".." => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    segments.first() == Some(&&b"runtime"[..])
 }
 
 async fn proxy(State(app): State<App>, request: Request) -> Response {
@@ -1254,6 +1272,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unusable_autonomy_contracts_are_rejected_before_admission() {
+        let schema = json!({"type":"object","properties":{"summary":{"type":"string"}},
+            "required":["summary"],"additionalProperties":false});
+        // Interactive requests cannot enable the contract; a malformed schema
+        // cannot either. Neither reaches preparation or a run slot.
+        for (scope, schema) in [("", schema), ("autonomy", json!({"type":"array"}))] {
+            let app = memory_api::tests::peers::app("http://127.0.0.1:1", "redis://127.0.0.1:1");
+            let response = app
+                .oneshot(
+                    Request::post("/v1/chat/completions")
+                        .header("content-type", "application/json")
+                        .header("x-daedalus-internal-token", "synthetic-internal")
+                        .header("x-user-id", "alice")
+                        .header("x-daedalus-execution-scope", scope)
+                        .body(Body::from(
+                            json!({"messages":[{"role":"user","content":"hi"}],
+                                "autonomy_output_schema":schema})
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{scope:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn early_http2_rejections_do_not_add_connection_headers() {
         let app = memory_api::tests::peers::app("http://127.0.0.1:1", "redis://127.0.0.1:1");
         let response = app
@@ -1310,6 +1356,10 @@ mod tests {
             "/v1/../runtime/v1/tools/call",
             "/%2e/runtime/v1/tools/call",
             "/v1/%2E%2E/runtime/prepare",
+            // Decoded separators and doubled slashes resolve the same way.
+            "/v1/..%2Fruntime/v1/tools/call",
+            "//runtime/v1/tools/call",
+            "/v1%2F..%2F%2Fruntime/prepare",
         ] {
             let response = app
                 .clone()

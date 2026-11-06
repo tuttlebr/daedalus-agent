@@ -96,11 +96,10 @@ class _FakeRedis:
                 states[raw] = "claimed"
             return 1
         if "LREM" in script:
-            lease_key, processing_key, claim_key, state_key, token, raw = args
+            lease_key, processing_key, state_key, token, raw = args
             if self.kv.get(lease_key) != token:
                 return 0
             self.lrem(processing_key, 1, raw)
-            self.delete(claim_key)
             self.hashes.setdefault(state_key, {}).pop(raw, None)
             return 1
         assert num_keys == 1
@@ -301,25 +300,6 @@ def test_poison_message_is_dropped_from_processing():
     store.redis.lpush(key("u", "queue"), "{not valid json")
     assert store.dequeue("u", timeout=0) is None
     assert store.redis.llen(key("u", "processing")) == 0
-
-
-def test_processing_claim_tracks_owner_and_visibility_deadline():
-    store = _store()
-    assert store.acquire_lease("u", ttl_seconds=30)
-    store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
-
-    assert store.dequeue("u", timeout=0) == {"id": "r1"}
-    raw = store._inflight["u"]
-    claim_key = store._processing_claim_key("u", raw)
-    claim = json.loads(store.redis.get(claim_key))
-    assert claim["ownerToken"] == store._lease_tokens["u"]
-    assert claim["visibilityDeadlineAt"] > claim["claimedAt"]
-
-    assert store.refresh_lease("u", ttl_seconds=60) is True
-    refreshed_claim = json.loads(store.redis.get(claim_key))
-    assert refreshed_claim["visibilityDeadlineAt"] >= (
-        refreshed_claim["claimedAt"] + 60_000
-    )
 
 
 def test_refresh_lease_reports_lost_ownership():

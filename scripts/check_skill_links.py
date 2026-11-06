@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
-def prose(text):
+def prose(text, keep_inline_code=False):
     """Return Markdown outside fenced blocks (including indented list fences)
-    and inline code, where link syntax is only an example."""
+    and, unless kept, inline code, where link syntax is only an example."""
     lines, fence = [], None
     for line in text.splitlines():
         stripped = line.strip()
@@ -23,7 +23,7 @@ def prose(text):
         if match:
             fence = match.group(1)
             continue
-        lines.append(re.sub(r"(`+).+?\1", "", line))
+        lines.append(line if keep_inline_code else re.sub(r"(`+).+?\1", "", line))
     return "\n".join(lines)
 
 
@@ -53,7 +53,9 @@ def resource_references(path):
     The loader resolves them against the skill directory; a renamed file would
     otherwise fail only at run time, inside the model's tool call."""
     root = skill_directory(path)
-    for target in re.findall(r"\bresource=([^\s`'\")\],]+)", prose(path.read_text())):
+    # The documented call form is itself inline code, so keep code spans.
+    text = prose(path.read_text(), keep_inline_code=True)
+    for target in re.findall(r"\bresource=([^\s`'\")\],]+)", text):
         target = target.strip().rstrip(".")
         if not target or any(marker in target for marker in "<>{}$"):
             continue

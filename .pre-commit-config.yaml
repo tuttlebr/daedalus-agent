@@ -101,7 +101,10 @@ repos:
         name: Helm lint daedalus
         # `helm lint` logs template `fail`/`required` errors without failing,
         # and override allowlist guards trigger only on real values. Render
-        # the defaults and the deployed values as `make helm` does.
+        # the defaults and the deployed values as `make helm` does; that
+        # target and CI also check rendered pod security. Selection by
+        # filename keeps Helm optional for unrelated commits, so a commit that
+        # only deletes chart files is checked by CI's all-files run instead.
         entry: bash -c 'helm lint helm/daedalus && helm template daedalus helm/daedalus >/dev/null && helm template daedalus helm/daedalus -f custom-values.yaml >/dev/null' --
         language: system
         pass_filenames: false

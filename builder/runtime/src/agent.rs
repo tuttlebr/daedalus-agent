@@ -327,6 +327,9 @@ impl Agent {
         let mut response_text = ResponseText::default();
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
+        // Research that ends on the last allowed round still gets the one
+        // round that serializes its result.
+        let mut autonomy_completion_round = false;
         let mut executor_states: HashMap<String, Value> = HashMap::new();
         // The advertised catalogue changes only when the tool menu does; the
         // log digest over its full serialisation is recomputed only then.
@@ -342,6 +345,7 @@ impl Agent {
         response_policy.observe_user(&query);
         while iterations < prepared.max_iterations
             || (briefing_text_fallback && !briefing_fallback_started)
+            || std::mem::take(&mut autonomy_completion_round)
         {
             self.drain().await?;
             for (_, instruction) in &self.pending {
@@ -740,16 +744,20 @@ impl Agent {
                 );
                 continue;
             }
-            if let Some(message) = completed.message() {
-                history.push(message);
-            }
             if calls.is_empty() && autonomy_output && self.pending.is_empty() {
                 // Research has finished. Force only the serialization tool;
-                // completed actions cannot be replayed during this phase.
+                // completed actions cannot be replayed during this phase. Like
+                // the other withheld answers, the prose is dropped so the
+                // guidance rides inside the last tool result instead of
+                // opening a user turn after an assistant message.
                 requirement =
                     crate::tool_contracts::Requirement::Named(crate::autonomy_output::TOOL.into());
+                autonomy_completion_round = true;
                 Self::attach_guidance(&mut history, crate::autonomy_output::GUIDANCE);
                 continue;
+            }
+            if let Some(message) = completed.message() {
+                history.push(message);
             }
             if calls.is_empty() {
                 if !self.pending.is_empty() {
@@ -772,9 +780,16 @@ impl Agent {
             }
             let batch_revision = self.revision;
             let mut problems = catalog.check_batch(&calls, &tools)?;
+            // A premature completion with valid arguments is an ordering
+            // rejection, not an invalid-argument strike: two such batches must
+            // not disable the tool the run has to finish with.
+            let mut ordering_only = vec![false; calls.len()];
             if autonomy_output && calls.len() > 1 {
-                for (call, problem) in calls.iter().zip(&mut problems) {
+                for ((call, problem), ordering) in
+                    calls.iter().zip(&mut problems).zip(&mut ordering_only)
+                {
                     if call.function.name.as_str() == crate::autonomy_output::TOOL {
+                        *ordering = problem.is_empty();
                         *problem =
                             "Submit the result alone after all other tool results are available."
                                 .into();
@@ -784,8 +799,11 @@ impl Agent {
             let (counted_calls, counted_problems): (Vec<_>, Vec<_>) = calls
                 .iter()
                 .zip(&problems)
-                .filter(|(call, _)| !menu_hidden.contains(call.function.name.as_str()))
-                .map(|(call, problem)| (call.clone(), problem.clone()))
+                .zip(&ordering_only)
+                .filter(|((call, _), ordering)| {
+                    !**ordering && !menu_hidden.contains(call.function.name.as_str())
+                })
+                .map(|((call, problem), _)| (call.clone(), problem.clone()))
                 .unzip();
             let recovery_exhausted =
                 validation_recovery.exhausted(&counted_calls, &counted_problems);
@@ -994,10 +1012,15 @@ impl Agent {
                 if preparation.is_some() {
                     // Scraping and verification have no run-scoped executor state.
                     // Never replace shared state with a concurrent call's snapshot.
+                    // A call that failed before the tool service answered returns
+                    // no state; keep the last state it reported. The service
+                    // requires an object, so storing null would fail every later
+                    // call of this tool in the run.
                     if !matches!(
                         group.as_str(),
                         "native:source_verifier" | "native:webscrape"
-                    ) {
+                    ) && outcome.executor_state.is_object()
+                    {
                         executor_states.insert(group.clone(), outcome.executor_state.clone());
                     }
                     if let Some(preparation) = &preparation {
@@ -1545,10 +1568,12 @@ mod tests {
         model.tool_calls.lock().unwrap().push(body.clone());
         if let Some(context) = body.get("context") {
             let allowed = ["version", "query", "available_tools", "executor_state"];
+            // Mirrors the Python CallContext: exact fields, object state.
             if context.as_object().is_none_or(|fields| {
                 fields.len() != allowed.len()
                     || fields.keys().any(|key| !allowed.contains(&key.as_str()))
-            }) {
+            }) || !context["executor_state"].is_object()
+            {
                 return (
                     http::StatusCode::UNPROCESSABLE_ENTITY,
                     "Invalid call context",
@@ -1584,7 +1609,9 @@ mod tests {
             )
                 .into_response();
         }
-        let result = json!({"event":"result","data":{"content":format!("result for {query}")}});
+        // Like the Python service, report the state for the next call.
+        let result = json!({"event":"result","data":{"content":format!("result for {query}"),
+            "executor_state":{"last_query":query}}});
         (
             [(http::header::CONTENT_TYPE, "application/x-ndjson")],
             format!("{result}\n"),
@@ -1713,6 +1740,7 @@ mod tests {
 
     struct Outcome {
         requests: Vec<Value>,
+        tool_calls: Vec<Value>,
         stream: String,
         result: Result<()>,
     }
@@ -1852,8 +1880,10 @@ mod tests {
         let stream = collector.await.unwrap();
         peer.abort();
         let requests = model.requests.lock().unwrap().clone();
+        let tool_calls = model.tool_calls.lock().unwrap().clone();
         Outcome {
             requests,
+            tool_calls,
             stream,
             result,
         }
@@ -1918,9 +1948,100 @@ mod tests {
             assert_eq!(serde_json::from_str::<Value>(&visible).unwrap(), expected);
             assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
             if variant == 1 {
-                assert_eq!(tool_names(outcome.requests.last().unwrap()), vec![tool]);
+                let last = outcome.requests.last().unwrap();
+                assert_eq!(tool_names(last), vec![tool]);
+                // The withheld prose is not replayed and the completion
+                // guidance stays inside the research result.
+                let input = last["input"].as_array().unwrap();
+                assert!(!last["input"].to_string().contains("duplicated{"));
+                assert_no_runtime_user_turn(input, "Finish this autonomous cycle");
             }
         }
+    }
+
+    fn visible_content(stream: &str) -> String {
+        stream
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|event| {
+                event["choices"][0]["delta"]["content"]
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn premature_autonomous_completions_do_not_disable_the_completion_tool() {
+        let tool = crate::autonomy_output::TOOL;
+        let schema = json!({"type":"object","properties":{"summary":{"type":"string"}},
+            "required":["summary"],"additionalProperties":false});
+        let result = json!({"summary":"Both clocks were read."});
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock","calendar_clock"]}),
+            "Read both clocks and finish.",
+            vec![
+                completed(vec![
+                    call("read1", "clock", "{}"),
+                    call("early1", tool, &result.to_string()),
+                ]),
+                completed(vec![
+                    call("read2", "calendar_clock", "{}"),
+                    call("early2", tool, &result.to_string()),
+                ]),
+                completed(vec![text("Both clocks were read.")]),
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({}),
+            None,
+            json!({"autonomy_output_schema":schema}),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
+        assert_eq!(
+            tool_names(outcome.requests.last().unwrap()),
+            vec![tool],
+            "the completion tool must remain available"
+        );
+        assert!(
+            !outcome.requests[2]["input"]
+                .to_string()
+                .contains("have been disabled")
+        );
+    }
+
+    #[tokio::test]
+    async fn research_ending_on_the_last_round_can_still_submit_its_result() {
+        let tool = crate::autonomy_output::TOOL;
+        let result = json!({"summary":"The time was read."});
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"],"max_iterations":2}),
+            "Check the time and finish.",
+            vec![
+                completed(vec![call("read", "clock", "{}")]),
+                completed(vec![text("The time was read.")]),
+                completed(vec![call("finish", tool, &result.to_string())]),
+            ],
+            json!({}),
+            None,
+            json!({"autonomy_output_schema":{
+                "type":"object","properties":{"summary":{"type":"string"}},
+                "required":["summary"],"additionalProperties":false}}),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 3);
+        assert_eq!(
+            serde_json::from_str::<Value>(&visible_content(&outcome.stream)).unwrap(),
+            result
+        );
     }
 
     #[tokio::test]
@@ -2105,6 +2226,40 @@ mod tests {
         assert!(input.contains("Tool failed (http_status)"), "{input}");
         assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
         assert!(!outcome.stream.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_stateful_leaf_call_keeps_the_last_reported_state() {
+        let outcome = run(
+            json!({"lookup_tool":{"_type":"rss_feed"}}),
+            json!({"tools":["lookup_tool"]}),
+            "Look things up",
+            vec![
+                completed(vec![call("first", "lookup_tool", "{\"query\":\"alpha\"}")]),
+                completed(vec![call("broken", "lookup_tool", "{\"query\":\"fail\"}")]),
+                completed(vec![call("after", "lookup_tool", "{\"query\":\"beta\"}")]),
+                completed(vec![text("Done.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        // The call after a transport failure still reaches the tool and
+        // carries the state reported before the failure.
+        let input = outcome.requests[3]["input"].to_string();
+        assert!(input.contains("result for beta"), "{input}");
+        let states = outcome
+            .tool_calls
+            .iter()
+            .map(|call| call["context"]["executor_state"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            states,
+            [
+                json!({}),
+                json!({"last_query":"alpha"}),
+                json!({"last_query":"alpha"})
+            ]
+        );
     }
 
     #[tokio::test]

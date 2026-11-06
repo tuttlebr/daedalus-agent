@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import uuid
@@ -86,28 +85,6 @@ class RedisStore:
         # F-013: raw payload of the request currently being processed per user,
         # so it can be removed from the reliable-queue processing list on completion.
         self._inflight: dict[str, str] = {}
-
-    @staticmethod
-    def _processing_claim_key(user_id: str, raw_request: str) -> str:
-        request_hash = hashlib.sha256(raw_request.encode("utf-8")).hexdigest()[:32]
-        return key(user_id, f"processing_claim:{request_hash}")
-
-    def _write_processing_claim(self, user_id: str, raw_request: str) -> None:
-        token = self._lease_tokens.get(user_id)
-        ttl_seconds = self._lease_ttls.get(user_id)
-        if not token or not ttl_seconds:
-            raise RuntimeError("cannot claim a request without an active worker lease")
-        claimed_at = now_ms()
-        claim = {
-            "ownerToken": token,
-            "claimedAt": claimed_at,
-            "visibilityDeadlineAt": claimed_at + ttl_seconds * 1000,
-        }
-        self.redis.set(
-            self._processing_claim_key(user_id, raw_request),
-            json.dumps(claim, sort_keys=True, separators=(",", ":")),
-            ex=ttl_seconds,
-        )
 
     def ping(self) -> None:
         self.redis.ping()
@@ -527,7 +504,6 @@ class RedisStore:
                 self.redis.hdel(key(user_id, "processing_state"), raw)
             return None
         self._inflight[user_id] = raw
-        self._write_processing_claim(user_id, raw)
         return parsed
 
     def mark_backend_started(self, user_id: str) -> None:
@@ -581,14 +557,12 @@ class RedisStore:
                     return 0
                 end
                 redis.call("LREM", KEYS[2], 1, ARGV[2])
-                redis.call("DEL", KEYS[3])
-                redis.call("HDEL", KEYS[4], ARGV[2])
+                redis.call("HDEL", KEYS[3], ARGV[2])
                 return 1
                 """,
-                4,
+                3,
                 key(user_id, "lease"),
                 key(user_id, "processing"),
-                self._processing_claim_key(user_id, raw),
                 key(user_id, "processing_state"),
                 token,
                 raw,
@@ -689,9 +663,6 @@ class RedisStore:
         local_inflight = self._inflight.get(user_id)
         if local_inflight in moved:
             self._inflight.pop(user_id, None)
-        for raw in moved:
-            with contextlib.suppress(Exception):
-                self.redis.delete(self._processing_claim_key(user_id, raw))
         return len(moved)
 
     def _abort_interrupted_runs(self, user_id: str, *, requeued: bool = False) -> None:
@@ -780,9 +751,6 @@ class RedisStore:
             self._lease_ttls.pop(user_id, None)
             return False
         self._lease_ttls[user_id] = ttl_seconds
-        raw = self._inflight.get(user_id)
-        if raw is not None:
-            self._write_processing_claim(user_id, raw)
         return True
 
     def release_lease(self, user_id: str) -> None:

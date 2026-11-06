@@ -34,7 +34,7 @@ def directory(root, identifier):
     ):
         raise ValueError("Use the exact round ID returned by the loop")
     path = root / ".cache/skill-loop/reviewed" / identifier
-    if any(p.is_symlink() for p in [path, *path.parents]):
+    if any(p.is_symlink() for p in [path, *path.parents] if p.is_relative_to(root)):
         raise ValueError("Symlinked review state")
     return path
 
@@ -122,7 +122,9 @@ def run(
     path.mkdir(parents=True)
     base = gate.git(root, "rev-parse", "HEAD").decode().strip()
     branch = "skill-loop/" + proposal["skill"] + "/" + identifier[:12]
-    candidate = Path(tempfile.mkdtemp(prefix="reviewed-skill-")) / "candidate"
+    # Git registers the worktree by real path; macOS temp paths begin at the
+    # /var symlink, so record the resolved path the registration check expects.
+    candidate = Path(tempfile.mkdtemp(prefix="reviewed-skill-")).resolve() / "candidate"
     gate.git(root, "worktree", "add", "-b", branch, str(candidate), base)
     files = {selected["root"] + "/" + edit["path"] for edit in proposal["edits"]}
     snapshot = {name: (candidate / name).read_text() for name in files}

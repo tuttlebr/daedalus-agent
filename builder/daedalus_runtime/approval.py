@@ -21,6 +21,11 @@ _mcp_server_group_names: dict[str, str] = {}
 _approval_policy_configured = False
 
 
+BACKGROUND_APPROVAL_REFUSAL = (
+    "This action needs the user's approval, which a background run cannot "
+    "request. The call was not executed; leave it for an interactive chat."
+)
+
 _READ_ONLY_APPROVAL_POLICY = "read_only"
 
 
@@ -563,6 +568,12 @@ def _validate_mcp_approval(
         )
     token = str(approval_token or "").strip()
     if not token:
+        from nat_helpers.autonomous_llm import is_authenticated_autonomy_request
+
+        if is_authenticated_autonomy_request():
+            # No one can answer an approval for a scheduled run. Refuse this
+            # call without recording one; the run continues (same as Rust).
+            return False, BACKGROUND_APPROVAL_REFUSAL
         try:
             canonical_arguments, arguments_sha256 = _canonical_mcp_call(
                 payload, input_schema

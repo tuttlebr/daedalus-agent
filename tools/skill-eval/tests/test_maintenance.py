@@ -120,11 +120,20 @@ class MaintenanceTests(unittest.TestCase):
         )
 
     def test_isolation_and_process_status_are_real(self):
-        code = "import json,os,socket; print(json.dumps({'interfaces':os.listdir('/sys/class/net'),'judge':os.path.exists('/judge'),'socket':os.path.exists('/var/run/docker.sock')}))"
+        # Some kernels add down-state fallback tunnels to every namespace, so
+        # check that loopback is the only interface administratively up.
+        code = (
+            "import json,os\n"
+            "net='/sys/class/net'\n"
+            "up=sorted(i for i in os.listdir(net) if os.path.isdir(f'{net}/{i}')"
+            " and int(open(f'{net}/{i}/flags').read(),16)&1)\n"
+            "print(json.dumps({'up':up,'judge':os.path.exists('/judge'),"
+            "'socket':os.path.exists('/var/run/docker.sock')}))"
+        )
         result = sandbox.execute({}, ["python3", "-c", code], self.image)
         self.assertEqual(
             json.loads(result["stdout"]),
-            {"interfaces": ["lo"], "judge": False, "socket": False},
+            {"up": ["lo"], "judge": False, "socket": False},
         )
         result = sandbox.execute(
             {}, ["python3", "-c", "raise SystemExit(125)"], self.image

@@ -39,14 +39,18 @@ def test_prose_resource_references_resolve_against_the_skill_directory(
     (skill / "references/guide.md").write_text("# Guide\n")
     (skill / "SKILL.md").write_text(
         "# Demo\n\nLoad `agent_skills_tool` with resource=references/guide.md, "
-        "or browse resource=references/ for more. In code: `resource=ignored.md`.\n"
+        "or browse resource=references/ for more. Placeholders such as "
+        "`resource=<path>` and `resource=...` are examples.\n\n"
+        "Call `agent_skills_tool(operation=load_skill, resource=references/guide.md)`.\n"
+        "```text\nresource=fenced-example.md\n```\n"
     )
     assert links.check(tmp_path / "skills") == []
 
+    # The documented call form is inline code: a reference there is checked
+    # whether or not the code span wraps onto another line.
     (skill / "references/guide.md").unlink()
-    assert links.check(tmp_path / "skills") == [
-        f"skills/demo/SKILL.md: missing resource {(skill / 'references/guide.md').resolve()}"
-    ]
+    missing = f"skills/demo/SKILL.md: missing resource {(skill / 'references/guide.md').resolve()}"
+    assert links.check(tmp_path / "skills") == [missing, missing]
 
 
 def test_same_file_anchors_are_checked_against_the_linking_file(tmp_path, monkeypatch):

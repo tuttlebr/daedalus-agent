@@ -18,9 +18,18 @@ def test_panel_rejects_more_references_than_the_ui_supports():
 
 
 def test_chat_reuses_identical_decoded_inputs(monkeypatch):
-    import visual_media.visual_media_function as mod
+    import io
+    import random
 
-    encoded = base64.b64encode(b"x" * (1024 * 1024)).decode()
+    import visual_media.visual_media_function as mod
+    from PIL import Image
+
+    # A real, incompressible ~1 MiB PNG: edit sources are decoded and
+    # re-encoded, so only identical references may share that work.
+    noise = random.Random(0).randbytes(600 * 600 * 3)
+    png = io.BytesIO()
+    Image.frombytes("RGB", (600, 600), noise).save(png, format="PNG")
+    encoded = base64.b64encode(png.getvalue()).decode()
     fetch = AsyncMock(return_value=(encoded, "image/png"))
     captured = {}
 

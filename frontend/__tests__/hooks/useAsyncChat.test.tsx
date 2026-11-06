@@ -976,6 +976,125 @@ describe('useAsyncChat streaming callbacks', () => {
     act(() => probe.root.unmount());
   });
 
+  it('stops a submission whose admission response timed out', async () => {
+    const { FetchTimeoutError } = await import('@/utils/fetchWithTimeout');
+    mocks.fetchWithTimeoutMock.mockRejectedValue(
+      new FetchTimeoutError('/api/chat/async', 60_000),
+    );
+    const stop = vi
+      .fn()
+      .mockResolvedValue(response({ success: true, canceled: true }));
+    vi.stubGlobal('fetch', stop);
+    const onError = vi.fn();
+    const probe = renderProbe({ userId: 'alice', onError });
+    let failure: unknown;
+    await act(async () => {
+      await probe.api
+        .startAsyncJob([], {}, 'alice', 'conv-1', 'fixture')
+        .catch((error) => {
+          failure = error;
+        });
+    });
+    const body = JSON.parse(mocks.fetchWithTimeoutMock.mock.calls[0][1].body);
+    // The server may still queue the request; its tombstone must stop it.
+    expect(stop).toHaveBeenCalledOnce();
+    expect(stop.mock.calls[0][0]).toBe(
+      `/api/chat/async?submissionId=${body.submissionId}`,
+    );
+    expect(stop.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
+    expect(String(failure)).toContain('did not respond in time');
+    expect(onError).toHaveBeenCalledWith(
+      'The server did not respond in time. Please try again.',
+      expect.objectContaining({ conversationId: 'conv-1', persisted: false }),
+    );
+    act(() => probe.root.unmount());
+  });
+
+  it('waits as asked while a stopped response still holds the conversation', async () => {
+    const busy = {
+      ...response(
+        {
+          error: 'Another response is active',
+          reason: 'conversation_job_active',
+        },
+        { ok: false, status: 409 },
+      ),
+      headers: new Headers({ 'Retry-After': '2' }),
+    };
+    busy.clone = () => busy;
+    mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) => {
+      if (url !== '/api/chat/async') {
+        return response({
+          jobId: 'job-1',
+          status: 'pending',
+          conversationId: 'conv-1',
+          createdAt: 1,
+          updatedAt: 1,
+        });
+      }
+      return mocks.fetchWithTimeoutMock.mock.calls.length === 1
+        ? busy
+        : response({ jobId: 'job-1', status: 'pending' });
+    });
+    const onError = vi.fn();
+    const probe = renderProbe({ userId: 'alice', onError });
+    let jobId!: Promise<string>;
+    await act(async () => {
+      jobId = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'fixture');
+    });
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    const posts = mocks.fetchWithTimeoutMock.mock.calls.filter(
+      ([url]) => url === '/api/chat/async',
+    );
+    expect(posts).toHaveLength(2);
+    const ids = posts.map(([, init]) => JSON.parse(init.body).submissionId);
+    // The rejected attempt registered its ID; the retry uses a fresh one.
+    expect(new Set(ids).size).toBe(2);
+    await act(async () => {
+      await expect(jobId).resolves.toBe('job-1');
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(mocks.manager.subscribeToJob).toHaveBeenCalledWith('job-1');
+    act(() => probe.root.unmount());
+  });
+
+  it('reports a conversation that stays busy after bounded waits', async () => {
+    const busy = {
+      ...response(
+        {
+          error: 'Another response is active',
+          reason: 'conversation_job_active',
+        },
+        { ok: false, status: 409 },
+      ),
+      headers: new Headers({ 'Retry-After': '2' }),
+    };
+    busy.clone = () => busy;
+    mocks.fetchWithTimeoutMock.mockResolvedValue(busy);
+    const onError = vi.fn();
+    const probe = renderProbe({ userId: 'alice', onError });
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = probe.api
+        .startAsyncJob([], {}, 'alice', 'conv-1', 'fixture')
+        .catch((error) => error);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(String(await pending)).toContain('Another response is active');
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(4);
+    expect(onError).toHaveBeenCalledOnce();
+    act(() => probe.root.unmount());
+  });
+
   it('ignores a stale poll that arrives after confirmed Stop', async () => {
     let resolveStatus!: (value: any) => void;
     mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) => {

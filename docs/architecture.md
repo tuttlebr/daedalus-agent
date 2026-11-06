@@ -37,8 +37,8 @@ worker's request with successful streaming response headers. The worker then
 persists and publishes the streaming status immediately, including while
 backend preparation or model reasoning produces no visible output. This
 transition reports execution progress; it does not imply the first answer
-token has arrived. Backend selection races at most three health probes per
-submission and cancels the remaining probes when a healthy pod responds.
+token has arrived. Backend selection runs at most three health probes at a
+time per submission and cancels the remaining probes when a healthy pod responds.
 
 The diagram includes optional integrations. The local configuration needs only
 the browser, frontend, Redis, worker, backend, and model endpoint; Compose also
@@ -263,8 +263,11 @@ Because a judged turn can move the run to a provider that rejects the current
 provider's retained reasoning state, the runtime never opens a user turn for
 its own recovery guidance after tool results: argument corrections, disabled
 tool notices, interrupted-stream and decode-retry instructions, evidence
-checks and briefing synthesis prompts ride inside the last tool result. Only
-steering, which is a real user direction, is added as a user message.
+checks, briefing synthesis prompts and the autonomy completion request ride
+inside the last tool result. Steering, which is a real user direction, is
+added as a user message. So is the instruction to continue an interrupted
+answer whose partial text was already shown, because that text, not a tool
+result, ends the transcript.
 
 See [runtime logs](operations.md#runtime-logs) to correlate model attempts,
 tool calls, and terminal events with a frontend job.
@@ -338,8 +341,10 @@ reader accepts legacy and versioned stored formats and writes versioned grants w
 losing refresh tokens. Model or user instructions cannot bypass approval:
 the MCP gate binds a one-use credential to the user, server, operation, and
 canonical arguments. A scheduled autonomy run has no user watching it, so the
-gate refuses an operation that would need approval instead of recording an
-approval nobody can answer; the worker records the refusal as a blocked run.
+gate, in Rust and in the Python fallback, refuses an operation that would need
+approval instead of recording an approval nobody can answer. The refusal is an
+unexecuted-call error, and the run continues with its other work. If a run
+still ends at an approval boundary, the worker records it as a blocked run.
 Uncertain remote mutations are never automatically retried.
 
 The shipped Kubernetes MCP group uses `approval_policy: auto_approve` for its

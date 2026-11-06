@@ -34,8 +34,9 @@ growing model/tool transcript within a run, nor include system instructions or
 tool schemas. The agent currently retains that transcript. Responses requests
 send `truncation: auto`, which is a provider setting rather than an
 application-owned evidence-retention policy. Chat Completions has no equivalent
-setting here. The runtime allows 128 rounds in the shipped configuration and
-enforces a 30-minute whole-run deadline even if a model timeout is longer.
+setting here. `workflow.max_iterations` bounds model rounds (264 in the home
+configuration; the runtime accepts at most 512), and the runtime enforces a
+30-minute whole-run deadline even if a model timeout is longer.
 
 The next substantial optimization is a measured context-compaction policy:
 retain the user request, steering, approvals, call/result bindings, execution

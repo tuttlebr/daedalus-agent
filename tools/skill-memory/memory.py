@@ -46,7 +46,11 @@ def safe(root, relative):
         raise ValueError("Path escapes governed workspace")
     if not path.resolve().is_relative_to(root.resolve()):
         raise ValueError("Symlink escapes governed workspace")
-    if any(part.is_symlink() for part in [path, *path.parents] if part != root.parent):
+    # Only the governed workspace is checked: the operator controls its ancestors
+    # (for example macOS /var -> /private/var).
+    if any(
+        part.is_symlink() for part in [path, *path.parents] if part.is_relative_to(root)
+    ):
         raise ValueError("Symlinked governance paths are forbidden")
     return path
 

@@ -267,6 +267,27 @@ async def _plan_brief(
     return ImageBrief.model_validate_json(raw)
 
 
+def _inherit_settings(
+    inherited: dict[str, Any], requested: dict[str, Any], mode: str
+) -> dict[str, Any]:
+    """Merge a parent's settings under this request's, dropping the inherited
+    ones its new choices make invalid. Requested settings win and are never
+    altered, so an explicit invalid combination is still reported."""
+    inherited = dict(inherited)
+    output_format = requested.get("output_format")
+    if inherited.get("output_format") == "gif" and output_format not in (None, "gif"):
+        # A still output keeps neither animation settings nor a GIF frame size.
+        for key in ("output_format", "frame_count", "frame_duration_ms", "size"):
+            inherited.pop(key, None)
+    if (output_format or inherited.get("output_format")) == "gif":
+        if inherited.get("background") == "transparent":
+            inherited.pop("background")
+        if mode == "edit" and inherited.get("frame_count", 0) > 16:
+            # Image-to-GIF supports fewer frames than generated animations.
+            inherited["frame_count"] = 16
+    return {**inherited, **requested}
+
+
 async def prepare_image_request(
     *,
     prompt: str,
@@ -288,14 +309,6 @@ async def prepare_image_request(
         if parent
         else {"quality": "medium"}
     )
-    if (
-        inherited.get("output_format") == "gif"
-        and options.get("output_format", "gif") != "gif"
-    ):
-        # Do not inherit animation settings or a small GIF frame size into an
-        # explicitly requested still-image output.
-        for key in ("output_format", "frame_count", "frame_duration_ms", "size"):
-            inherited.pop(key, None)
     # Reject explicit invalid settings before an optional model call.
     normalize_image_options(model, options, mode)
     if not prompt.strip():
@@ -305,7 +318,9 @@ async def prepare_image_request(
             originalPrompt=prompt,
             prompt=prompt,
             brief=ImageBrief(),
-            params=normalize_image_options(model, {**inherited, **options}, mode),
+            params=normalize_image_options(
+                model, _inherit_settings(inherited, options, mode), mode
+            ),
             inputImages=refs,
             guidance="exact",
         )
@@ -347,11 +362,21 @@ async def prepare_image_request(
                 and key not in {"options", "changes", "references"}
             }
         )
-    params = normalize_image_options(
-        model,
-        {**inherited, **brief.options.model_dump(exclude_none=True), **options},
-        mode,
-    )
+    requested = {**brief.options.model_dump(exclude_none=True), **options}
+    try:
+        params = normalize_image_options(
+            model, _inherit_settings(inherited, requested, mode), mode
+        )
+    except ValueError:
+        if not planned:
+            raise
+        # Planned settings are optional assistance like the rest of the brief;
+        # the caller's explicit settings were validated above.
+        logger.warning("Image prompt assistance proposed unsupported settings")
+        brief = brief.model_copy(update={"options": ImageOptions()})
+        params = normalize_image_options(
+            model, _inherit_settings(inherited, options, mode), mode
+        )
     if params.get("background") == "transparent":
         brief = brief.model_copy(
             update={

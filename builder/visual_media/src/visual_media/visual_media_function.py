@@ -33,7 +33,7 @@ from nat_helpers.image_utils import (
 from nat_helpers.openai_images import edit_images, generate_images
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from openai import AsyncOpenAI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +287,18 @@ def _validated_user_id(
     return (expected or None, None)
 
 
+def _invalid_request(exc: ValueError) -> str:
+    """Report a cross-field option or brief rule the model can correct, as
+    Create does. These messages describe the request, not the provider."""
+    if isinstance(exc, ValidationError):
+        detail = "; ".join(
+            str(error["msg"]).removeprefix("Value error, ") for error in exc.errors()
+        )
+    else:
+        detail = str(exc)
+    return f"Error: invalid image request: {detail}"
+
+
 @register_tool(config_type=VisualMediaFunctionConfig)
 async def visual_media_function(
     config: VisualMediaFunctionConfig, builder: ToolRegistry
@@ -366,14 +378,17 @@ async def visual_media_function(
         if not owner_user_id:
             return "Error: authenticated request identity is required for generation."
 
-        context = await prepare_image_request(
-            prompt=prompt,
-            model=config.generation_model,
-            mode="generate",
-            options=_image_options(options, background),
-            brief=brief,
-            guidance=guidance,
-        )
+        try:
+            context = await prepare_image_request(
+                prompt=prompt,
+                model=config.generation_model,
+                mode="generate",
+                options=_image_options(options, background),
+                brief=brief,
+                guidance=guidance,
+            )
+        except ValueError as exc:
+            return _invalid_request(exc)
         results = await generate_images(
             _get_image_client("generate"),
             model=config.generation_model,
@@ -451,14 +466,12 @@ async def visual_media_function(
                 return f"Error fetching image {idx + 1}: {mime_type_or_error}"
             try:
                 image_bytes = budget.decode(image_base64)
-                mime_type = mime_type_or_error
-                extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
-                if mime_type == "image/gif" or image_bytes.startswith(
-                    (b"GIF87a", b"GIF89a")
-                ):
-                    image_bytes, mime_type, extension = await asyncio.to_thread(
-                        normalize_edit_source, image_bytes
-                    )
+                # Decode and re-encode every source as Create does: stored
+                # MIME types can be wrong, and MPO or animated containers
+                # (GIF inputs use their first frame) would reach the provider.
+                image_bytes, mime_type, extension = await asyncio.to_thread(
+                    normalize_edit_source, image_bytes
+                )
                 budget.add_part(image_bytes)
             except (ValueError, TypeError) as exc:
                 logger.warning("Failed to decode image %d: %s", idx + 1, exc)
@@ -469,16 +482,19 @@ async def visual_media_function(
         parent = await fetch_image_context(
             redis_client, image_refs[0], expected_user_id
         )
-        context = await prepare_image_request(
-            prompt=prompt,
-            model=config.edit_model,
-            mode="edit",
-            refs=image_refs,
-            options=_image_options(options, background),
-            brief=brief,
-            guidance=guidance,
-            parent=parent,
-        )
+        try:
+            context = await prepare_image_request(
+                prompt=prompt,
+                model=config.edit_model,
+                mode="edit",
+                refs=image_refs,
+                options=_image_options(options, background),
+                brief=brief,
+                guidance=guidance,
+                parent=parent,
+            )
+        except ValueError as exc:
+            return _invalid_request(exc)
         results = await edit_images(
             _get_image_client("edit"),
             model=config.edit_model,
@@ -654,10 +670,13 @@ async def visual_media_function(
                     )
                     return f"Error: visual media request denied: {exc}."
 
-            if isinstance(brief, dict):
-                brief = ImageBrief.model_validate(brief)
-            if isinstance(options, dict):
-                options = ImageOptions.model_validate(options)
+            try:
+                if isinstance(brief, dict):
+                    brief = ImageBrief.model_validate(brief)
+                if isinstance(options, dict):
+                    options = ImageOptions.model_validate(options)
+            except ValueError as exc:
+                return _invalid_request(exc)
             if op == "generate":
                 return await _generate(
                     prompt, effective_user_id, background, brief, options, guidance

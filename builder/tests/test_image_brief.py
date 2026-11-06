@@ -429,3 +429,75 @@ def test_chat_runtime_schema_options_description_and_no_second_model_call(monkey
         storage.call_args.kwargs["image_context"]["originalPrompt"] == "Four logo ideas"
     )
     planner.assert_not_called()
+
+
+def _parent(params, **brief):
+    return ImageContext(
+        originalPrompt="A looping animation",
+        prompt="old",
+        guidance="assisted",
+        brief=ImageBrief(**brief),
+        params=params,
+    )
+
+
+@pytest.mark.parametrize(
+    ("parent_params", "request_kwargs", "expected"),
+    [
+        # A brief that chooses a still format drops inherited animation and
+        # the small GIF frame size, as explicit options already did.
+        (
+            {"output_format": "gif", "frame_count": 12, "size": "512x512"},
+            {"brief": ImageBrief(options=ImageOptions(output_format="png"))},
+            {"output_format": "png"},
+        ),
+        # Animating a transparent still cannot keep its alpha background.
+        (
+            {"output_format": "png", "background": "transparent"},
+            {"options": {"output_format": "gif"}},
+            {"output_format": "gif"},
+        ),
+        # A long generated animation edits at the image-to-GIF frame limit.
+        (
+            {"output_format": "gif", "frame_count": 40},
+            {},
+            {"output_format": "gif", "frame_count": 16},
+        ),
+    ],
+)
+def test_inherited_settings_yield_to_the_current_request(
+    parent_params, request_kwargs, expected
+):
+    result = prepare(
+        mode="edit",
+        prompt="Continue from this image",
+        parent=_parent({"quality": "medium", **parent_params}),
+        **request_kwargs,
+    )
+    for key in ("frame_count", "frame_duration_ms", "size", "background"):
+        if key not in expected:
+            assert key not in result.params, key
+    assert result.params | expected == result.params
+
+
+def test_unsupported_planner_settings_cannot_block_the_request(monkeypatch):
+    monkeypatch.setattr(
+        mod,
+        "_plan_brief",
+        AsyncMock(
+            return_value=ImageBrief(
+                scene="a looping wave",
+                options=ImageOptions(output_format="gif", frame_count=24),
+            )
+        ),
+    )
+    result = prepare(mode="edit", prompt="Animate the wave", use_model=True)
+    assert "a looping wave" in result.prompt
+    assert "frame_count" not in result.params
+    # Explicit invalid settings still fail with an actionable message.
+    with pytest.raises(ValueError, match="2-16"):
+        prepare(
+            mode="edit",
+            prompt="Animate the wave",
+            options={"output_format": "gif", "frame_count": 24},
+        )

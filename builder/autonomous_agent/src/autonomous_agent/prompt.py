@@ -111,13 +111,23 @@ class _StrictOutputModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
 
 
-_Title = Annotated[str, StringConstraints(min_length=1, max_length=160)]
-_Bluf = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+# Required text must contain a non-space character. Stripping happens only
+# here, so the runtime's JSON Schema check needs the pattern to reject a
+# whitespace-only value instead of accepting a result publication rejects.
+_NOT_BLANK = r"\S"
+_Title = Annotated[
+    str, StringConstraints(min_length=1, max_length=160, pattern=_NOT_BLANK)
+]
+_Bluf = Annotated[
+    str, StringConstraints(min_length=1, max_length=500, pattern=_NOT_BLANK)
+]
 _Body = Annotated[str, StringConstraints(max_length=4_000)]
 _SourceUrl = Annotated[str, StringConstraints(max_length=2_048)]
 _ThreadKey = Annotated[str, StringConstraints(max_length=160)]
 _Reason = Annotated[str, StringConstraints(max_length=500)]
-_Summary = Annotated[str, StringConstraints(min_length=1, max_length=2_000)]
+_Summary = Annotated[
+    str, StringConstraints(min_length=1, max_length=2_000, pattern=_NOT_BLANK)
+]
 _WorkspaceText = Annotated[
     str, StringConstraints(max_length=_MAX_WORKSPACE_SECTION_CHARS)
 ]

@@ -4,6 +4,7 @@ Shared pytest configuration for all builder package tests.
 Sets up sys.path for all package src/ directories and mocks heavy external dependencies before any test module is imported.
 """
 
+import importlib.metadata
 import os
 import shutil
 import sys
@@ -196,9 +197,24 @@ def pytest_runtest_setup(item):
     (and `make ci`, through tools-check) provisions Helm, so a missing binary
     there is an environment defect rather than a reason to skip coverage.
     """
+    in_ci = (os.environ.get("CI") or "").strip().lower() in ("1", "true", "yes")
+    distributions = item.get_closest_marker("requires_distributions")
+    if distributions is not None:
+        missing = []
+        for name in distributions.args:
+            try:
+                importlib.metadata.version(name)
+            except importlib.metadata.PackageNotFoundError:
+                missing.append(name)
+        if missing:
+            # These belong to the `test` extra that CI and `make builder` install.
+            message = f"requires {', '.join(missing)} from the test extra"
+            if in_ci:
+                pytest.fail(f"{message}; CI is set, so install it instead of skipping")
+            pytest.skip(f'{message}; install with uv pip install -e ".[test]"')
     if item.get_closest_marker("requires_helm") is None or shutil.which("helm"):
         return
     message = "helm is required for rendered-chart tests"
-    if (os.environ.get("CI") or "").strip().lower() in ("1", "true", "yes"):
+    if in_ci:
         pytest.fail(f"{message}; CI is set, so install Helm instead of skipping")
     pytest.skip(f"{message}; install Helm to run them")

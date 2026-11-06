@@ -116,16 +116,40 @@ export interface MemoryRetentionSubmissionWrite {
   dueAt: number;
 }
 
-function latestUserText(messages: unknown): string {
-  if (!Array.isArray(messages)) return '';
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'user' || typeof message?.content !== 'string') {
-      continue;
-    }
-    return message.content.trim();
-  }
-  return '';
+/** The turn's request, then the steering directions applied to its answer.
+ * The stream reader appends each direction as a user message, so the last
+ * user message alone can be a direction without the request it changed. */
+function turnUserParts(messages: unknown): {
+  request: string;
+  directions: string[];
+} {
+  const none = { request: '', directions: [] };
+  if (!Array.isArray(messages)) return none;
+  const userText = (message: any): string =>
+    message?.role === 'user' && typeof message?.content === 'string'
+      ? message.content
+      : '';
+  const isDirection = (message: any) =>
+    Boolean(message?.metadata?.steeringCommandId);
+  let index = messages.length - 1;
+  while (
+    index >= 0 &&
+    (!userText(messages[index]) || isDirection(messages[index]))
+  )
+    index -= 1;
+  if (index < 0) return none;
+  return {
+    request: userText(messages[index]),
+    directions: messages
+      .slice(index + 1)
+      .filter(
+        (message: any) =>
+          isDirection(message) &&
+          message.metadata.steeringStatus === 'applied' &&
+          userText(message),
+      )
+      .map(userText),
+  };
 }
 
 function sanitizeRetentionText(value: string): string {
@@ -151,8 +175,19 @@ export function buildMemoryRetentionSubmission(input: {
   createdAt: number;
 }): MemoryRetentionSubmissionWrite | null {
   if (isMcpApprovalMarkerMessage(input.content)) return null;
-  const userContent = sanitizeRetentionText(latestUserText(input.messages));
-  if (!userContent) return null;
+  const turn = turnUserParts(input.messages);
+  const request = sanitizeRetentionText(turn.request);
+  if (!request) return null;
+  // Sanitize each part: identity scrubbing runs to the end of its text.
+  const userContent = [
+    request,
+    ...turn.directions
+      .map(sanitizeRetentionText)
+      .filter(Boolean)
+      .map((direction) => `Direction while answering: ${direction}`),
+  ]
+    .join('\n\n')
+    .slice(0, RETAIN_MAX_PART_CHARS);
   const submission: MemoryRetentionSubmission = {
     version: 1,
     jobId: input.jobId,

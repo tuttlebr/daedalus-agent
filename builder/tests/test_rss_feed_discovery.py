@@ -8,7 +8,6 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -151,18 +150,7 @@ def test_schema_uses_only_configured_scopes():
         schema(top_k=6)
 
 
-def _runtime_available():
-    try:
-        for name in ("markitdown", "fastfeedparser"):
-            distribution(name)
-    except PackageNotFoundError:
-        return False
-    return True
-
-
-@pytest.mark.skipif(
-    not _runtime_available(), reason="Requires installed backend runtime dependencies"
-)
+@pytest.mark.requires_distributions("markitdown", "fastfeedparser")
 def test_real_owned_registration_preserves_schema_and_nested_batch_models():
     """Subprocess uses real dependencies and the public typed invocation."""
     root = Path(__file__).resolve().parents[2]

@@ -58,6 +58,27 @@ def test_commands_placeholders_and_code_blocks_are_not_paths(tmp_path):
     ]
 
 
+def test_files_named_by_commands_are_checked(tmp_path):
+    # Commands are examples too, so only files under a real top-level
+    # directory count: a renamed test file in a fence must not go unnoticed.
+    root = fixture_repo(
+        tmp_path,
+        "Run `python -m pytest builder/service.py builder/test_gone.py -q`.\n"
+        "```sh\n"
+        "builder/.venv/bin/python builder/migration/image_check.py --image x\n"
+        "python3 builder/renamed_check.py /tmp/report.json <changed-files>\n"
+        "make builder retired-in-fence\n"
+        "cat example/invented.py\n"
+        "```\n",
+    )
+
+    assert skills_module.check(root) == [
+        ".agents/skills/demo/references/guide.md: missing path builder/renamed_check.py",
+        ".agents/skills/demo/references/guide.md: missing make target retired-in-fence",
+        ".agents/skills/demo/references/guide.md: missing path builder/test_gone.py",
+    ]
+
+
 def test_retired_root_files_are_reported(tmp_path):
     # Root files carry no directory separator but are still repository paths.
     root = fixture_repo(

@@ -776,9 +776,13 @@ test('approves one exact MCP action without another model turn', async ({
   ).toBeHidden();
 
   await page.getByRole('button', { name: 'Approve' }).click();
+  // The executed call's output replaces the prompt in the conversation.
   await expect(
-    page.getByText('Update completed', { exact: true }),
+    page.getByText('Updated document doc-e2e (revision 2).').first(),
   ).toBeVisible();
+  await expect(
+    page.getByText('The operation completed, but its output is unavailable.'),
+  ).toHaveCount(0);
   await expect(
     page.getByText('This model-generated approval prose must not be shown.'),
   ).toBeHidden();

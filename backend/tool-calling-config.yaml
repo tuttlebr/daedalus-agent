@@ -980,9 +980,9 @@ workflow:
   tool_output_compaction_max_ratio: 0.70
   tool_output_compaction_max_original_chars: 4000000
   tool_output_cache_ttl_seconds: 7200
-  # A daily briefing needs fewer schemas than general chat. After five minutes,
-  # expose only the renderer so collected evidence becomes an answer while the
-  # outer request still has time remaining.
+  # A daily briefing needs fewer schemas than general chat. Once the research
+  # budget elapses, expose only the renderer so collected evidence becomes an
+  # answer while the 30-minute run deadline still has time remaining.
   daily_summary_research_budget_seconds: 600
   daily_summary_synthesis_retry_timeout_seconds: 75
   daily_summary_tools:

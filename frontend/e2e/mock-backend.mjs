@@ -314,10 +314,18 @@ const server = http.createServer(async (req, res) => {
     ) {
       return json(res, 409, { error: 'exact approval binding missing' });
     }
+    // Same shape as the Rust execute route: the tool output travels as
+    // `content` beside the exact call binding.
     return json(res, 200, {
       executionId: 'e2e-execution-1',
       status: 'completed',
-      result: { status: 'completed' },
+      result: {
+        status: 'completed',
+        serverName: body.server_name,
+        toolName: body.tool_name,
+        argumentsSha256: body.arguments_sha256,
+        content: 'Updated document doc-e2e (revision 2).',
+      },
     });
   }
 

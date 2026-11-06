@@ -48,6 +48,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn whitespace_only_required_text_fails_the_worker_schema_pattern() {
+        // The worker strips text before publication; its schema marks
+        // required strings with a non-space pattern that this validator uses.
+        let schema = json!({"type":"object","additionalProperties":false,
+            "required":["summary"],
+            "properties":{"summary":{"type":"string","minLength":1,"pattern":"\\S"}}});
+        let tool = definition(&json!({"autonomy_output_schema":schema}), true)
+            .unwrap()
+            .unwrap();
+        let validator = crate::tool_contracts::validator(&tool.parameters).unwrap();
+        assert!(!validator.is_valid(&json!({"summary":" \n\t"})));
+        assert!(validator.is_valid(&json!({"summary":" Done. "})));
+    }
+
+    #[test]
     fn output_schema_is_scoped_and_cannot_resolve_external_references() {
         let schema = json!({"type":"object", "properties":{"summary":{"type":"string"}},
             "required":["summary"], "additionalProperties":false});

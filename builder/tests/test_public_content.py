@@ -460,21 +460,13 @@ def test_actual_html_conversion_errors_are_not_hidden_by_fallback(monkeypatch, e
     generic.assert_not_called()
 
 
+@pytest.mark.requires_distributions("markitdown")
 def test_real_html_converter_preserves_full_markdown_without_classifier(tmp_path):
     """Exercise the installed converter outside conftest's dependency stubs."""
-    import importlib.metadata
     import os
     import subprocess
     import sys
     from pathlib import Path
-
-    try:
-        importlib.metadata.version("markitdown")
-    except importlib.metadata.PackageNotFoundError:
-        pytest.skip(
-            "MarkItDown is not installed; real HTML conversion runs only in the "
-            "opt-in `make migration` checks against the built image"
-        )
 
     fixture = """<!doctype html><html><head><title>Full article</title>
     <meta charset="utf-8"><style>.hidden {display:none}</style></head><body>

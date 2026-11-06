@@ -170,8 +170,9 @@ Transparent backgrounds require PNG/WebP. GIFs retain their animation, timing,
 looping, and embedded Content Credentials in previews and downloads. Editing a
 GIF uses its first frame as a reference; GIF output creates a new animation,
 while PNG/JPEG/WebP output creates a still image. Masks are incompatible with
-GIF output. Create and chat share this
-conversion in `nat_helpers.image_edit_source`. SVG output and markup layers are
+GIF output. Create and chat decode and re-encode every edit source with
+`nat_helpers.image_edit_source`, which also repairs stored records whose MIME
+type does not match their bytes. SVG output and markup layers are
 not exposed. See the [OpenAI image edit API reference](https://developers.openai.com/api/reference/resources/images/methods/edit)
 for the image-to-GIF contract. In Create, add an image in Edit mode, choose
 Animated GIF in Settings, and describe its motion. Existing generated images
@@ -182,7 +183,12 @@ prompts, the brief, effective parameters, ordered parent references, skill hash,
 and assistance status. Completed JSON/SSE responses carry that context into job
 status and history. Follow-up edits inherit the selected primary image's output
 settings; a complete new brief replaces obsolete preservation/text constraints.
-The latest user request takes precedence. Chat edits use full-resolution edit
+The latest user request takes precedence: a still format drops inherited
+animation settings and GIF frame size, GIF output drops an inherited transparent
+background, and an inherited frame count above the image-to-GIF limit of 16 is
+reduced to it. Settings proposed by Create's prompt assistance that would make
+the request invalid are discarded; explicit invalid settings return their
+validation message in Create and chat. Chat edits use full-resolution edit
 sources, never the smaller vision-analysis derivative.
 
 **Send to chat** stages the selected output and context in the composer. It does

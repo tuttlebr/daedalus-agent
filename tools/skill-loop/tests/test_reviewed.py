@@ -34,7 +34,8 @@ ORIGINAL = "---\nname: daedalus-review-and-remediate\ndescription: Use when revi
 class ReviewedTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name) / "repository"
+        # Production roots are resolved; macOS temp paths start at a /var symlink.
+        self.root = Path(self.temporary.name).resolve() / "repository"
         self.root.mkdir()
         self.worktrees = []
         gate.git(self.root, "init", "-q")

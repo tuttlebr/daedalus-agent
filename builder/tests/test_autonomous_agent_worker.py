@@ -200,6 +200,30 @@ def test_parse_structured_output_rejects_contract_violations():
         )
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        {"summary": "   "},
+        {"summary": "ok", "feed_items": [{"title": " ", "bluf": "Supported."}]},
+        {"summary": "ok", "feed_items": [{"title": "Title", "bluf": "\n\t"}]},
+    ],
+)
+def test_runtime_schema_rejects_results_that_publication_rejects(output):
+    """The runtime validates completion arguments against output_schema() and
+    then ends the run, so a value only the worker rejects loses the cycle."""
+    from jsonschema import Draft202012Validator
+
+    assert list(Draft202012Validator(output_schema()).iter_errors(output))
+    with pytest.raises(ValueError, match="invalid structured output"):
+        parse_structured_output(json.dumps(output))
+    accepted = {
+        "summary": " Done. ",
+        "feed_items": [{"title": "Title", "bluf": "Supported."}],
+    }
+    assert not list(Draft202012Validator(output_schema()).iter_errors(accepted))
+    assert parse_structured_output(json.dumps(accepted))["summary"] == "Done."
+
+
 def test_feed_items_from_output_limits_and_normalizes():
     output = {
         "feed_items": [
@@ -1420,7 +1444,7 @@ def test_cancellation_racing_a_returned_response_is_recorded_as_cancelled(
     # The heartbeat sets the shared abort event for a dashboard Stop as well as
     # for a lost lease. When the backend response completes in that window, the
     # run must still be the user's cancellation, rather than an infrastructure
-    # interruption awaiting processing-claim cleanup by the next lease owner.
+    # interruption left for the next lease owner to reclaim.
     from autonomous_agent import worker
 
     monkeypatch.setattr(worker, "CANCEL_POLL_SECONDS", 0.02)

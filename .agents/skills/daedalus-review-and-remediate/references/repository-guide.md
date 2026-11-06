@@ -88,12 +88,16 @@ and Helm. Their precise selection and behavior live in the configuration. In par
 - `check-added-large-files` runs with `--enforce-all`: without it the upstream
   hook inspects only files staged as added, so CI's all-files run and
   `make hooks` would check nothing.
-- `scripts/check_skill_links.py` checks Markdown links and prose
-  `resource=<path>` references in runtime `skills/` and maintenance
-  `.agents/skills/`; it always runs so deletion-only commits cannot bypass
-  validation when a linked resource disappears.
+- `scripts/check_skill_links.py` checks Markdown links and `resource=<path>`
+  references, including those in inline code (the documented call form),
+  in runtime `skills/` and maintenance `.agents/skills/`. Placeholders and
+  fenced examples are skipped. It always runs so deletion-only commits cannot
+  bypass validation when a linked resource disappears.
 - `scripts/check_maintenance_skills.py` always runs, because a rename anywhere
-  can strand a path or `make` target named by a maintenance skill.
+  can strand a path or `make` target named by a maintenance skill. It checks
+  single-word inline paths, `make` commands, and file paths inside fenced or
+  multi-word commands when they start at an existing top-level directory, so
+  invented example directories and placeholders are not references.
 - The Helm hook lints the chart and renders it with default and `custom-values.yaml`
   values, because `helm lint` only logs template `fail` errors; it fails when Helm
   is missing. `make helm` also checks rendered pod security, provisioning

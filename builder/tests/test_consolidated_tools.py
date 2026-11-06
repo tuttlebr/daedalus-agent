@@ -182,6 +182,17 @@ def test_visual_media_chat_forwards_transparent_background_for_generation(
     assert "transparent-output" in result
 
 
+def _png_bytes() -> bytes:
+    # Edit sources are decoded and re-encoded, so fixtures must be real images.
+    import io
+
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.new("RGBA", (16, 16), (255, 0, 0, 128)).save(output, format="PNG")
+    return output.getvalue()
+
+
 def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch):
     async def _run():
         import visual_media.visual_media_function as mod
@@ -189,7 +200,7 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
         captured = {}
 
         async def _fetch_image(*args, **kwargs):
-            return base64.b64encode(b"image-bytes").decode(), "image/png"
+            return base64.b64encode(_png_bytes()).decode(), "image/png"
 
         async def _edit_images(client, **kwargs):
             captured.update(kwargs)
@@ -457,3 +468,99 @@ def test_rss_feed_config_accepts_feed_map():
 
     assert "nvidia_blog" in config.feeds
     assert "semianalysis" in config.feeds
+
+
+@pytest.mark.parametrize(
+    ("operation", "options", "message"),
+    [
+        ("generate", {"output_format": "png", "frame_count": 3}, "require GIF"),
+        (
+            "generate",
+            {"output_format": "gif", "background": "transparent"},
+            "PNG or WebP",
+        ),
+        ("edit", {"output_format": "gif", "frame_count": 24}, "2-16 frames"),
+    ],
+)
+def test_visual_media_reports_correctable_option_rules(
+    monkeypatch, operation, options, message
+):
+    async def run():
+        import visual_media.visual_media_function as mod
+
+        image = base64.b64encode(_png_bytes()).decode()
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
+        monkeypatch.setattr(
+            mod, "fetch_image_from_redis", AsyncMock(return_value=(image, "image/png"))
+        )
+        monkeypatch.setattr(mod, "fetch_image_context", AsyncMock(return_value=None))
+        provider = AsyncMock(side_effect=AssertionError("must not call the provider"))
+        monkeypatch.setattr(mod, "generate_images", provider)
+        monkeypatch.setattr(mod, "edit_images", provider)
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(generation_api_key="test", edit_api_key="test"),
+            MagicMock(),
+        )
+        info = await generator.__anext__()
+        try:
+            return await info.fn(
+                operation=operation,
+                prompt="Loop a waving bird",
+                guidance="exact",
+                imageRef={"imageId": "source", "sessionId": "generated"},
+                options=options,
+            )
+        finally:
+            await generator.aclose()
+
+    result = asyncio.run(run())
+    # The model can correct a cross-field rule only if it sees the rule.
+    assert result.startswith("Error: invalid image request: ")
+    assert message in result
+
+
+def test_visual_media_chat_normalizes_edit_sources_like_create(monkeypatch):
+    import io
+
+    from PIL import Image
+
+    jpeg = io.BytesIO()
+    Image.new("RGB", (16, 16), "blue").save(jpeg, format="JPEG")
+
+    async def run():
+        import visual_media.visual_media_function as mod
+
+        edit = AsyncMock(
+            return_value=[SimpleNamespace(b64_json="aW1hZ2U=", mime_type="image/png")]
+        )
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
+        # A legacy record whose stored MIME type does not match its bytes.
+        monkeypatch.setattr(
+            mod,
+            "fetch_image_from_redis",
+            AsyncMock(
+                return_value=(base64.b64encode(jpeg.getvalue()).decode(), "image/png")
+            ),
+        )
+        monkeypatch.setattr(mod, "fetch_image_context", AsyncMock(return_value=None))
+        monkeypatch.setattr(mod, "edit_images", edit)
+        monkeypatch.setattr(mod, "store_image_in_redis", AsyncMock(return_value="out"))
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(edit_api_key="test"), MagicMock()
+        )
+        info = await generator.__anext__()
+        try:
+            await info.fn(
+                operation="edit",
+                prompt="Make it green",
+                guidance="exact",
+                imageRef={"imageId": "legacy", "sessionId": "generated"},
+            )
+        finally:
+            await generator.aclose()
+        return edit.call_args.kwargs["image"]
+
+    name, data, mime_type = asyncio.run(run())
+    assert (name.rsplit(".", 1)[-1], mime_type) == ("jpg", "image/jpeg")
+    with Image.open(io.BytesIO(data)) as decoded:
+        assert decoded.format == "JPEG"
