@@ -374,3 +374,6 @@ ingress:
     - secretName: daedalus-tls
       hosts:
         - daedalus.ddns.me
+
+compatibilityApi:
+  enabled: true
