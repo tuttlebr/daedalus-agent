@@ -39,6 +39,11 @@ vi.mock('@/components/primitives', () => ({
   ),
 }));
 
+// The API key panel has its own tests.
+vi.mock('@/components/connections/ApiKeysPanel', () => ({
+  ApiKeysPanel: () => null,
+}));
+
 vi.mock('@/components/surfaces', () => ({
   GlassCard: ({ children }: any) => <div>{children}</div>,
 }));

@@ -48,6 +48,35 @@ function lastPrompt(body) {
   return '';
 }
 
+// Every chat request the frontend worker sent, for compatibility API tests
+// that must prove what reached (or never reached) the backend.
+const chatRequests = [];
+
+function recordChatRequest(req, body, res) {
+  const entry = {
+    prompt: lastPrompt(body),
+    userId: req.headers['x-user-id'],
+    conversationId: req.headers['x-conversation-id'] || null,
+    executionScope: req.headers['x-daedalus-execution-scope'] || null,
+    responseMode: body.response_mode ?? null,
+    roles: (Array.isArray(body.messages) ? body.messages : []).map(
+      (message) => message?.role,
+    ),
+    tags: (Array.isArray(body.messages) ? body.messages : [])
+      .map((message) =>
+        typeof message?.content === 'string'
+          ? message.content.match(/^\[[A-Z_]+\]/)?.[0]
+          : undefined,
+      )
+      .filter(Boolean),
+    closed: false,
+  };
+  chatRequests.push(entry);
+  res.once('close', () => {
+    entry.closed = true;
+  });
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -63,12 +92,47 @@ function sendToken(res, content) {
 async function streamChat(req, res) {
   const body = await readJson(req);
   const prompt = lastPrompt(body);
+  recordChatRequest(req, body, res);
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
     connection: 'keep-alive',
   });
   res.flushHeaders();
+
+  if (prompt.includes('E2E_COMPAT_ANSWER')) {
+    // The final answer, the backend's run usage, then its terminal event.
+    sendToken(
+      res,
+      'Compat answer: café ✓ 👋 [artifact](/api/generated-image/e2e-image)',
+    );
+    res.write(
+      `event: usage\ndata: ${JSON.stringify({
+        model_calls: 2,
+        tool_calls: 1,
+        input_tokens: 321,
+        output_tokens: 45,
+        cached_tokens: 21,
+        reported_input_tokens: 321,
+        reported_output_tokens: 45,
+        reported_cached_tokens: 21,
+        reported_usage_calls: 2,
+      })}\n\n`,
+    );
+    res.end(
+      `event: message\ndata: ${JSON.stringify({
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+            daedalus_terminal: true,
+          },
+        ],
+      })}\n\ndata: [DONE]\n\n`,
+    );
+    return;
+  }
 
   if (prompt.includes('E2E_SILENT_PREPARATION')) {
     // Accepted headers, then preparation/reasoning with no SSE body yet.
@@ -257,6 +321,16 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/health') {
     return json(res, 200, { status: 'ok' });
+  }
+
+  // Test-only ledger on the loopback mock; the real backend has no such route.
+  if (url.pathname === '/__e2e/chat-requests' && req.method === 'GET') {
+    const marker = url.searchParams.get('marker') || '';
+    return json(
+      res,
+      200,
+      chatRequests.filter((entry) => entry.prompt.includes(marker)),
+    );
   }
 
   if (url.pathname === '/docs' && req.method === 'HEAD') {

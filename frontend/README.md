@@ -192,6 +192,7 @@ Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 | `DOCUMENT_OBJECT_*`                                     | S3-compatible endpoint, credentials, bucket, prefix, and retention contract       |
 | `STREAM_WORKER_*`                                       | Worker concurrency, lease, heartbeat, reclaim, drain, and probe tuning            |
 | `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                                     |
+| `DAEDALUS_COMPAT_API_ENABLED`, `DAEDALUS_PUBLIC_URL`    | Opt-in OpenAI/Anthropic compatible API and the origin used in its links           |
 
 Default browser file bounds are 30 MiB per image, 75 MiB per video, and 200 MiB
 per document. Image limits use the actual raw file
@@ -227,6 +228,9 @@ the [operations reference](../docs/operations.md) for the complete deployment se
 | Path                                   | Responsibility                                                      |
 | -------------------------------------- | ------------------------------------------------------------------- |
 | `pages/api/chat/async.ts`              | Authenticated submission, status polling, and cancellation          |
+| `server/chat/submission.ts`            | Admission and queueing shared by browser and API submissions        |
+| `server/compat/`, `pages/api/v1/`      | OpenAI/Anthropic compatible API (`docs/compatibility-api.md`)       |
+| `server/apiKeys.ts`                    | User-bound API key verifiers, rotation, and revocation              |
 | `server/chat/streamQueue.ts`           | Redis Stream enqueue, claim, lease, and acknowledgement primitives  |
 | `server/chat/streamWorker.ts`          | Durable execution, reclaim policy, cancellation, and drain          |
 | `server/chat/streamReader.ts`          | Bounded backend stream parsing and live-event persistence           |

@@ -47,6 +47,7 @@ import {
   type BackgroundExecutionControl,
   type OAuthRequest,
   PublicJobError,
+  type RunUsage,
   StreamUserCancellationError,
   USER_CANCELLATION_MESSAGE,
 } from './types';
@@ -199,6 +200,48 @@ function extractOAuthRequiredPayload(
   };
 }
 
+function tokenCount(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+/**
+ * The backend's `usage` event: run-wide sums across its model calls. A null
+ * total means some call did not report that field.
+ */
+export function parseRunUsage(value: unknown): RunUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const usage = value as Record<string, unknown>;
+  const modelCalls = tokenCount(usage.model_calls);
+  const totals = [
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.output_tokens),
+    tokenCount(usage.cached_tokens),
+  ];
+  const reported = [
+    tokenCount(usage.reported_input_tokens),
+    tokenCount(usage.reported_output_tokens),
+    tokenCount(usage.reported_cached_tokens),
+  ];
+  if (
+    typeof modelCalls !== 'number' ||
+    totals.some((total) => total === undefined) ||
+    reported.some((sum) => typeof sum !== 'number')
+  )
+    return undefined;
+  return {
+    modelCalls,
+    inputTokens: totals[0] as number | null,
+    outputTokens: totals[1] as number | null,
+    cachedTokens: totals[2] as number | null,
+    reportedInputTokens: reported[0] as number,
+    reportedOutputTokens: reported[1] as number,
+    reportedCachedTokens: reported[2] as number,
+  };
+}
+
 function oauthRequestId(authUrl: string, oauthState?: string): string {
   return oauthState ? `${oauthState}:${authUrl}` : authUrl;
 }
@@ -233,6 +276,9 @@ export async function startBackgroundStreamReader(
       enableIntermediateSteps: true,
     },
     stream_options: { include_usage: true },
+    ...(jobRequest.responseMode
+      ? { response_mode: jobRequest.responseMode }
+      : {}),
   };
 
   const userId = jobRequest.userId;
@@ -296,6 +342,8 @@ export async function startBackgroundStreamReader(
   let persistedResponseBytes = 0;
   let persistedStepCount = 0;
   let pendingApprovalMarker: string | null = null;
+  // Whole-run model usage the backend reports just before its terminal event.
+  let runUsage: RunUsage | undefined;
   let streamDone = false;
   // Once this backend stream has requested interactive authorization, keep its
   // longer idle budget for the rest of the turn. Parallel Google tool calls
@@ -639,6 +687,12 @@ export async function startBackgroundStreamReader(
             }
             continue;
           }
+          if (currentSseEvent === 'usage') {
+            // Content-free counters; an unusable report is ignored rather
+            // than failing an otherwise complete answer.
+            runUsage = parseRunUsage(parsed) ?? runUsage;
+            continue;
+          }
           if (currentSseEvent === 'mcp_approval_required') {
             const marker = extractMcpApprovalMarkerText(parsed?.marker);
             if (!marker || !parseMcpApprovalMarker(marker)) {
@@ -796,7 +850,13 @@ export async function startBackgroundStreamReader(
       });
     }
 
-    await finalizeSuccess(jobId, jobRequest, partialResponse, observedSteps);
+    if (runUsage) {
+      await finalizeSuccess(jobId, jobRequest, partialResponse, observedSteps, {
+        usage: runUsage,
+      });
+    } else {
+      await finalizeSuccess(jobId, jobRequest, partialResponse, observedSteps);
+    }
 
     logger.info(`Job ${jobId}: Stream reader finished`, {
       steps: accumulatedStepCount,

@@ -1,8 +1,10 @@
 import { assertAuthenticatedSession } from '../helpers/auth';
 
+import Anthropic from '@anthropic-ai/sdk';
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import OpenAI from 'openai';
 
 test('candidate image preserves chat, memory, and profile workflows through the real frontend', async ({
   page,
@@ -540,4 +542,59 @@ test('candidate ingests an S3 upload through the stream worker and retains the r
   await expect(domain).toBeVisible();
   await expect(retrieved).toBeVisible();
   await expect(success).toBeVisible();
+});
+
+test('candidate image runs its native clock tool through both compatibility APIs', async ({
+  request,
+}) => {
+  const login = await request.post('/api/auth/login', {
+    data: { username: 'e2e-user', password: 'e2e-password' },
+  });
+  expect(login.status()).toBe(200);
+  const created = await request.post('/api/api-keys', {
+    data: { name: 'candidate compatibility check' },
+  });
+  expect(created.status()).toBe(201);
+  const { key, metadata } = await created.json();
+  const origin = `http://127.0.0.1:${process.env.E2E_NEXT_PORT || '15002'}`;
+  try {
+    // The built image's scripted model calls the real native clock tool for
+    // BASIC requests; only the final answer may reach the API client.
+    const completion = await new OpenAI({
+      apiKey: key,
+      baseURL: `${origin}/v1`,
+      maxRetries: 0,
+    }).chat.completions.create({
+      model: 'daedalus',
+      messages: [
+        { role: 'user', content: 'BASIC synthetic candidate clock request' },
+      ],
+    });
+    expect(completion.choices[0].finish_reason).toBe('stop');
+    expect(completion.choices[0].message.content).toContain(
+      'The real datetime tool completed',
+    );
+
+    const message = await new Anthropic({
+      apiKey: key,
+      baseURL: origin,
+      maxRetries: 0,
+    }).messages
+      .stream({
+        model: 'daedalus',
+        max_tokens: 1024,
+        messages: [
+          { role: 'user', content: 'BASIC synthetic candidate clock request' },
+        ],
+      })
+      .finalMessage();
+    expect(message.stop_reason).toBe('end_turn');
+    expect((message.content[0] as { text: string }).text).toContain(
+      'The real datetime tool completed',
+    );
+    // The runtime reports measured run usage before its terminal event.
+    expect(message.usage.output_tokens).toBeGreaterThanOrEqual(0);
+  } finally {
+    await request.delete(`/api/api-keys/${metadata.id}`);
+  }
 });

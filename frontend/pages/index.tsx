@@ -31,6 +31,7 @@ import {
   conversationRevision,
   withConversationRevision,
 } from '@/utils/app/conversationRevision';
+import { clearAppDeepLink, readAppDeepLink } from '@/utils/app/deepLink';
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
@@ -318,6 +319,14 @@ const Home = () => {
   // Initial data load
   useEffect(() => {
     let disposed = false;
+    // An approval or connection link from the compatibility API.
+    const deepLink = readAppDeepLink(window.location.search);
+    clearAppDeepLink();
+    if (deepLink.view || deepLink.conversationId) {
+      useUISettingsStore
+        .getState()
+        .setActiveView(deepLink.conversationId ? 'chat' : deepLink.view!);
+    }
     const savedWidth = getUserSessionItem('chatbarWidth');
     if (savedWidth) {
       const parsed = parseInt(savedWidth, 10);
@@ -369,6 +378,7 @@ const Home = () => {
       if (disposed) return;
       const store = useConversationStore.getState();
       const selected = [
+        deepLink.conversationId,
         serverSelection,
         cachedSelectedConversationId(),
         // A conversation opened while history loaded.

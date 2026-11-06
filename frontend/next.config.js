@@ -29,6 +29,18 @@ const nextConfig = {
       transform: '@tabler/icons-react/dist/esm/icons/{{member}}',
     },
   },
+  // OpenAI/Anthropic compatible paths. The handlers answer 404 unless the
+  // operator enables them with DAEDALUS_COMPAT_API_ENABLED.
+  async rewrites() {
+    return [
+      {
+        source: '/v1/chat/completions',
+        destination: '/api/v1/chat/completions',
+      },
+      { source: '/v1/messages', destination: '/api/v1/messages' },
+      { source: '/v1/models', destination: '/api/v1/models' },
+    ];
+  },
   // PWA configuration
   async headers() {
     return [

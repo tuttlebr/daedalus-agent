@@ -11,6 +11,8 @@ import { ToolbarButton } from '@/components/layout/ToolbarSlot';
 import { Button, Badge } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
 
+import { ApiKeysPanel } from './ApiKeysPanel';
+
 import { useUISettingsStore } from '@/state/uiSettingsStore';
 
 type ConnectionsResponse = { connections: GoogleWorkspaceConnection[] };
@@ -241,6 +243,8 @@ export function ConnectionsView() {
             Go to Chat
           </Button>
         </GlassCard>
+
+        <ApiKeysPanel />
       </div>
     </section>
   );

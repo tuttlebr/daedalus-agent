@@ -11,6 +11,16 @@ export interface ChatAdditionalProps {
   [key: string]: any;
 }
 
+/**
+ * A run submitted through the OpenAI or Anthropic compatible API. `isolated`
+ * runs have no saved Daedalus conversation; `conversation` runs continue one
+ * the caller named with X-Daedalus-Conversation-ID.
+ */
+export interface ApiRunContext {
+  protocol: 'openai' | 'anthropic';
+  persistence: 'isolated' | 'conversation';
+}
+
 export interface AsyncJobRequest {
   jobId: string;
   natBaseUrl: string;
@@ -25,6 +35,24 @@ export interface AsyncJobRequest {
   conversationName?: string;
   turnId?: string;
   assistantMessageId?: string;
+  /** Backend presentation mode; API runs request only the final answer. */
+  responseMode?: 'final_only';
+  api?: ApiRunContext;
+}
+
+/**
+ * Model token usage the backend measured for a whole run, summed across its
+ * model calls. A null total means at least one call did not report that
+ * field; the `reported*` sums cover only the calls that did.
+ */
+export interface RunUsage {
+  modelCalls: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedTokens: number | null;
+  reportedInputTokens: number;
+  reportedOutputTokens: number;
+  reportedCachedTokens: number;
 }
 
 export interface DocumentIngestJobRequest {
@@ -75,6 +103,8 @@ export interface AsyncJobStatus {
   generationDurationMs?: number;
   turnId?: string;
   assistantMessageId?: string;
+  /** Measured run usage, when the backend reported it before completion. */
+  usage?: RunUsage;
 }
 
 export interface BackgroundExecutionControl {

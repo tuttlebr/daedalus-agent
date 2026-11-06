@@ -1,4 +1,7 @@
-import { preferSavedMcpApprovalResult } from '@/utils/app/mcpApproval';
+import {
+  isMcpApprovalMarkerMessage,
+  preferSavedMcpApprovalResult,
+} from '@/utils/app/mcpApproval';
 import { Logger } from '@/utils/logger';
 
 import {
@@ -41,6 +44,7 @@ import {
   USER_CANCELLATION_MESSAGE,
   type AsyncJobRequest,
   type AsyncJobStatus,
+  type RunUsage,
   type StreamFailureSnapshot,
 } from './types';
 import { userJobGuardKey } from './userJobGuard';
@@ -162,7 +166,7 @@ async function applyConversationState(
         );
         return applied;
       },
-      false,
+      journal.conversation.create === true,
       undefined,
       { key: finalizerLockKey(journal.jobId), token: lockToken },
     );
@@ -298,7 +302,10 @@ function planCompletion(
   }
   if (current.memoryRetentionAttemptedAt === undefined) {
     const submission =
-      !suppressed && current.outcome === 'completed' && current.conversation
+      !suppressed &&
+      current.outcome === 'completed' &&
+      current.conversation &&
+      !current.conversation.skipMemoryRetention
         ? buildMemoryRetentionSubmission({
             jobId: current.jobId,
             userId: current.userId,
@@ -448,6 +455,7 @@ export async function finalizeSuccess(
   jobRequest: AsyncJobRequest,
   rawOutput: string,
   observedSteps: any[] = [],
+  options: { usage?: RunUsage } = {},
 ): Promise<boolean> {
   // Independent reads: the steps for the journal and the live status the
   // terminal claim compares.
@@ -488,9 +496,14 @@ export async function finalizeSuccess(
     ? processedContent
     : '[No response was generated]';
   const finalizedAt = Date.now();
+  // An isolated API run has no saved conversation. It gets one only when it
+  // stops at an approval prompt, which the user answers in the web app.
+  const isolated = jobRequest.api?.persistence === 'isolated';
+  const saveConversation =
+    Boolean(jobRequest.conversationId) &&
+    (!isolated || isMcpApprovalMarkerMessage(responseContent));
   const assistantMessageId =
-    jobRequest.assistantMessageId ||
-    (jobRequest.conversationId ? uuidv4() : undefined);
+    jobRequest.assistantMessageId || (saveConversation ? uuidv4() : undefined);
   const journal: NewJobFinalizationJournal = {
     version: 1,
     state: 'pending',
@@ -499,7 +512,7 @@ export async function finalizeSuccess(
     outcome: 'completed',
     userId: jobRequest.userId,
     finalizedAt,
-    ...(jobRequest.conversationId && assistantMessageId
+    ...(saveConversation && jobRequest.conversationId && assistantMessageId
       ? {
           conversation: {
             id: jobRequest.conversationId,
@@ -510,6 +523,7 @@ export async function finalizeSuccess(
             content: responseContent,
             intermediateSteps: accumulatedSteps,
             isPartial: false,
+            ...(isolated ? { create: true, skipMemoryRetention: true } : {}),
           },
         }
       : {}),
@@ -527,6 +541,7 @@ export async function finalizeSuccess(
       progress: 100,
       turnId: jobRequest.turnId,
       assistantMessageId,
+      ...(options.usage ? { usage: options.usage } : {}),
       updatedAt: finalizedAt,
       finalizedAt,
     },
@@ -613,9 +628,12 @@ export async function finalizeError(
   }
 
   const finalizedAt = Date.now();
+  // A failed or stopped isolated API run leaves no saved conversation.
+  const saveConversation =
+    Boolean(jobRequest.conversationId) &&
+    jobRequest.api?.persistence !== 'isolated';
   const assistantMessageId =
-    jobRequest.assistantMessageId ||
-    (jobRequest.conversationId ? uuidv4() : undefined);
+    jobRequest.assistantMessageId || (saveConversation ? uuidv4() : undefined);
   // A Stop keeps whatever text had streamed, as the browser's own Stop does.
   const stopped = errorMessage === USER_CANCELLATION_MESSAGE;
   const conversationContent = processedContent.trim()
@@ -631,7 +649,7 @@ export async function finalizeError(
     outcome: 'error',
     userId: jobRequest.userId,
     finalizedAt,
-    ...(jobRequest.conversationId && assistantMessageId
+    ...(saveConversation && jobRequest.conversationId && assistantMessageId
       ? {
           conversation: {
             id: jobRequest.conversationId,

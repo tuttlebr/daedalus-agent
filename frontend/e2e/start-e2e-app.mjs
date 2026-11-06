@@ -45,6 +45,9 @@ const runtimeEnv = {
   BACKEND_PORT: backendPort,
   BACKEND_API_PATH: '/v1/chat/completions',
   DAEDALUS_INTERNAL_API_TOKEN: 'e2e-internal-token',
+  DAEDALUS_COMPAT_API_ENABLED: 'true',
+  // Compatibility API specs share the per-user chat submission budget.
+  RATE_LIMIT_CHAT_MAX: '500',
   DAEDALUS_ARTIFACT_PUBLISH_URL: `http://127.0.0.1:${nextPort}/api/internal/sandboxArtifacts`,
   DOCUMENT_OBJECT_ENDPOINT: 'http://127.0.0.1:18333',
   DOCUMENT_OBJECT_ACCESS_KEY: 'e2e-s3-access',

@@ -179,6 +179,60 @@ describe('backend stream reader persistence', () => {
     );
   });
 
+  it('requests final-only output for API runs and records run usage', async () => {
+    const body = controlledBody();
+    const fetch = vi.fn(async () => body.response);
+    vi.stubGlobal('fetch', fetch);
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      { ...structuredClone(jobRequest), responseMode: 'final_only' },
+      [],
+      'alice',
+    );
+    body.push(
+      'data: {"choices":[{"delta":{"content":"Answer"}}]}\n\n' +
+        'event: usage\ndata: {"model_calls":2,"tool_calls":1,"input_tokens":120,"output_tokens":null,"cached_tokens":20,"reported_input_tokens":120,"reported_output_tokens":7,"reported_cached_tokens":20}\n\n' +
+        'event: message\ndata: {"choices":[{"delta":{},"finish_reason":"stop","daedalus_terminal":true}]}\n\n',
+    );
+    await reading;
+    const sent = JSON.parse((fetch.mock.calls[0] as any)[1].body);
+    expect(sent.response_mode).toBe('final_only');
+    expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'Answer',
+      [],
+      {
+        usage: {
+          modelCalls: 2,
+          inputTokens: 120,
+          outputTokens: null,
+          cachedTokens: 20,
+          reportedInputTokens: 120,
+          reportedOutputTokens: 7,
+          reportedCachedTokens: 20,
+        },
+      },
+    );
+  });
+
+  it('ignores a malformed usage report instead of failing the answer', async () => {
+    const { parseRunUsage } = await import('@/server/chat/streamReader');
+    expect(parseRunUsage({ model_calls: -1 })).toBeUndefined();
+    expect(
+      parseRunUsage({
+        model_calls: 1,
+        input_tokens: 'x',
+        output_tokens: 1,
+        cached_tokens: null,
+        reported_input_tokens: 1,
+        reported_output_tokens: 1,
+        reported_cached_tokens: 0,
+      }),
+    ).toBeUndefined();
+    expect(parseRunUsage(null)).toBeUndefined();
+  });
+
   it.each([false, true])(
     'keeps a backend error finish reason as a partial failure (terminal=%s)',
     async (terminal) => {

@@ -32,6 +32,13 @@ export interface JobFinalizationConversation {
   error?: string;
   /** The user stopped this response; it is saved as stopped, not failed. */
   stopped?: boolean;
+  /**
+   * Create the conversation record when it does not exist. Set only when an
+   * isolated API run stops at an approval prompt, so the user can answer it.
+   */
+  create?: boolean;
+  /** Do not queue this turn for automatic memory retention. */
+  skipMemoryRetention?: boolean;
 }
 
 export interface JobFinalizationJournal {
