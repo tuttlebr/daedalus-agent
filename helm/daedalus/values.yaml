@@ -414,6 +414,13 @@ nginx:
 # Setting enabled: false removes the routes and disables the handlers.
 compatibilityApi:
   enabled: false
+  # Also offer daedalus-model on the OpenAI routes. It forwards caller tools,
+  # structured output and token limits to the configured model provider.
+  modelEndpoint:
+    enabled: true
+    # Empty uses llms[workflow.llm_name].model_name. The provider must support
+    # both /chat/completions and /responses with the required controls.
+    model: ''
   # Browser origin used in API responses for approval, connection and
   # generated-file links, e.g. https://daedalus.example. Empty derives it from
   # the request's forwarded host.

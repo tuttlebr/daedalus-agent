@@ -121,6 +121,10 @@ spec:
             - secretRef:
                 name: {{ .Values.backend.default.env.fromSecret | default (printf "%s-backend-env" (include "daedalus.fullname" .)) }}
           env:
+            - name: DAEDALUS_COMPAT_MODEL_ENABLED
+              value: {{ ternary "true" "false" (and .Values.compatibilityApi.enabled .Values.compatibilityApi.modelEndpoint.enabled) | quote }}
+            - name: DAEDALUS_COMPAT_MODEL_NAME
+              value: {{ .Values.compatibilityApi.modelEndpoint.model | quote }}
             {{- if .Values.exploration.enabled }}
             - name: EXPLORATION_BASE_URL
               value: {{ .Values.exploration.baseUrl | quote }}

@@ -10,6 +10,15 @@ export function isCompatApiEnabled(): boolean {
 /** The single advertised agent alias; it uses automatic model selection. */
 export const COMPAT_MODEL_ALIAS = 'daedalus';
 
+/** Explicit opt-in to caller-controlled, stateless model inference. */
+export const COMPAT_DIRECT_MODEL_ALIAS = 'daedalus-model';
+
+export function isCompatModelEnabled(): boolean {
+  return (
+    isCompatApiEnabled() && process.env.DAEDALUS_COMPAT_MODEL_ENABLED === 'true'
+  );
+}
+
 /** Upper bounds applied before any job is admitted. */
 export const COMPAT_LIMITS = {
   maxMessages: 500,

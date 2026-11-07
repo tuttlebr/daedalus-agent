@@ -106,6 +106,8 @@ spec:
             # Same switch as the nginx routes, so disabling it is one rollback.
             - name: DAEDALUS_COMPAT_API_ENABLED
               value: {{ ternary "true" "false" (.Values.compatibilityApi.enabled | default false) | quote }}
+            - name: DAEDALUS_COMPAT_MODEL_ENABLED
+              value: {{ ternary "true" "false" (and .Values.compatibilityApi.enabled .Values.compatibilityApi.modelEndpoint.enabled) | quote }}
             {{- with .Values.compatibilityApi.publicUrl }}
             - name: DAEDALUS_PUBLIC_URL
               value: {{ . | quote }}

@@ -1,12 +1,17 @@
 # OpenAI and Anthropic compatible API
 
 Daedalus can serve applications that speak the OpenAI Chat Completions, OpenAI
-Responses, or Anthropic Messages API. A request runs the full Daedalus agent as the API key's
+Responses, or Anthropic Messages API. The `daedalus` model runs the full Daedalus agent as the API key's
 owner: the same Rust agent loop, authorized server-side tools, memory,
 retrieval, skills and connected services as the web application, through the
 same queue, per-user limits, conversation locks and finalization.
 
-The endpoints accept the vendors’ create-request schemas and return their JSON
+The optional `daedalus-model` alias forwards OpenAI requests directly to the
+configured model provider, returning caller-defined tool calls and preserving
+structured-output controls, token limits, and inline history. It does not run
+the agent or execute tools. See [Direct model requests](#direct-model-requests).
+
+For the `daedalus` agent, the endpoints accept the vendors’ create-request schemas and return their JSON
 and SSE response shapes. Provider-specific controls are advisory: they are
 accepted, dropped, and reported in `X-Daedalus-Ignored-Parameters`. This is
 wire-format compatibility with the Daedalus agent, not vendor feature parity.
@@ -149,7 +154,90 @@ Other applications are not claimed as supported until tested.
 
 ## Compatibility matrix
 
-`GET /v1/models` advertises `daedalus`. A vendor model name in a create
+### Direct model requests
+
+Use `model: "daedalus-model"` on `/v1/chat/completions` or `/v1/responses`
+when your client needs to execute its own tools or requires structured output
+and provider-enforced token limits. Authentication uses the same per-user API
+key. Existing `daedalus` requests keep the full agent behavior described below.
+
+```yaml
+compatibilityApi:
+  enabled: true
+  modelEndpoint:
+    enabled: true
+    model: '' # Empty uses llms[workflow.llm_name].model_name.
+```
+
+The Helm chart enables this alias with the compatibility API by default;
+`modelEndpoint.enabled: false` disables only direct inference. For local runs,
+set `DAEDALUS_COMPAT_API_ENABLED=true` on the frontend and
+`DAEDALUS_COMPAT_MODEL_ENABLED=true` on both frontend and Rust backend.
+`DAEDALUS_COMPAT_MODEL_NAME` is an optional backend-only model override. The
+provider URL and credential come from the workflow's configured LLM and remain
+in the backend. Rust preparation is required. No ports or ingress paths change.
+
+The configured provider must implement **both** OpenAI create endpoints and
+support the selected model's requested controls. The adapter forwards the
+request without converting protocols, rewriting history, or estimating output
+tokens. In particular, it retains:
+
+- Chat Completions `tools`, `tool_choice`, `parallel_tool_calls`,
+  `response_format`, `max_completion_tokens`, and legacy `max_tokens`;
+- Responses `tools`, `tool_choice`, `parallel_tool_calls`, `text.format`, and
+  `max_output_tokens`;
+- inline system/developer instructions, assistant tool calls, tool-result IDs,
+  tool outputs, and all supplied history facts.
+
+Provider JSON and SSE bodies pass through unchanged, including tool calls,
+structured text, usage, refusals, and token-limit termination. The response's
+`model` identifies the upstream model. There is no agent fallback or local
+text truncation. Provider rejection is returned as an error; provider diagnostic
+bodies are sanitized. An upstream `X-Daedalus-Ignored-Parameters` header causes
+an error rather than a successful response with discarded controls. A provider
+that silently violates its contract still requires provider-side remediation;
+forwarding alone cannot guarantee model compliance.
+
+```python
+response = client.responses.create(
+    model="daedalus-model",
+    input="Record the verified identifier A-17.",
+    tools=[{
+        "type": "function", "name": "record_fact", "strict": True,
+        "parameters": {
+            "type": "object", "properties": {"fact": {"type": "string"}},
+            "required": ["fact"], "additionalProperties": False,
+        },
+    }],
+    tool_choice={"type": "function", "name": "record_fact"},
+    max_output_tokens=128,
+)
+```
+
+The client executes returned function calls and resends their outputs with the
+inline history. Direct requests do not read or modify saved Daedalus histories
+or memories, and cannot execute Daedalus's internal tools. Verify a provider
+with a named tool call, a strict JSON schema, and a small token budget for each
+API before configuring clients to depend on it.
+
+Direct inference is stateless: `store` is set to `false`; `store: true`,
+`background: true`, provider resource references (`previous_response_id`,
+`conversation`, `prompt`, file IDs and item references), hosted tools, `X-Daedalus-Conversation-ID`, and
+`Idempotency-Key` are rejected explicitly. This prevents resolving another
+user's provider resources through the shared service credential. Only function
+tools executed by the caller are supported. Anthropic requests cannot select
+this alias.
+
+Direct inference shares the per-user request-start rate limit and has a separate
+runtime capacity limit of five active requests per user and 64 per process.
+Requests have a ten-minute provider deadline and cancel on client disconnect.
+The agent's queue, approval flow, persistence, and idempotency rules below apply
+to `daedalus`, not direct inference.
+
+### Agent model
+
+`GET /v1/models` advertises `daedalus` and, for OpenAI clients when enabled,
+`daedalus-model`. A vendor model name in a create
 request is accepted as an alias for the agent and reported as ignored; the
 response identifies the actual model as `daedalus`. It uses automatic model
 selection. Caller model names never select a provider or grant permissions.

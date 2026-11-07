@@ -148,10 +148,277 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   delete process.env.DAEDALUS_COMPAT_API_ENABLED;
+  delete process.env.DAEDALUS_COMPAT_MODEL_ENABLED;
 });
 
 describe('compatibility chat execution', () => {
+  it.each(['chat.completions', 'responses'] as const)(
+    'preserves caller controls, verified history and returned tool calls for direct %s',
+    async (name) => {
+      process.env.DAEDALUS_COMPAT_MODEL_ENABLED = 'true';
+      const { parseResponsesRequest } = await import(
+        '@/server/compat/responsesRequest'
+      );
+      const { createResponsesResponder } = await import(
+        '@/server/compat/responders'
+      );
+      const route =
+        name === 'responses'
+          ? {
+              protocol: 'openai' as const,
+              name,
+              parse: parseResponsesRequest,
+              createResponder: createResponsesResponder,
+            }
+          : openaiRoute;
+      const schema = {
+        type: 'object',
+        properties: { fact: { type: 'string' } },
+        required: ['fact'],
+        additionalProperties: false,
+      };
+      const fn = { name: 'record_fact', parameters: schema, strict: true };
+      const history = [
+        { role: 'system', content: 'Preserve verified history facts.' },
+        {
+          role: 'assistant',
+          content: 'The verified identifier is A-17.',
+          tool_calls: [
+            {
+              id: 'call_old',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'call_old', content: '{"fact":"A-17"}' },
+        { role: 'user', content: 'Record the verified fact.' },
+      ];
+      const body =
+        name === 'responses'
+          ? {
+              model: 'daedalus-model',
+              input: [
+                history[0],
+                {
+                  type: 'function_call',
+                  call_id: 'call_old',
+                  name: 'lookup',
+                  arguments: '{}',
+                },
+                {
+                  type: 'function_call_output',
+                  call_id: 'call_old',
+                  output: '{"fact":"A-17"}',
+                },
+                history[3],
+              ],
+              tools: [{ type: 'function', ...fn }],
+              tool_choice: { type: 'function', name: fn.name },
+              text: {
+                format: {
+                  type: 'json_schema',
+                  name: 'fact',
+                  strict: true,
+                  schema,
+                },
+              },
+              max_output_tokens: 32,
+            }
+          : {
+              model: 'daedalus-model',
+              messages: history,
+              tools: [{ type: 'function', function: fn }],
+              tool_choice: { type: 'function', function: { name: fn.name } },
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'fact', strict: true, schema },
+              },
+              max_completion_tokens: 32,
+            };
+      const output =
+        name === 'responses'
+          ? {
+              output: [
+                {
+                  type: 'function_call',
+                  call_id: 'call_new',
+                  name: fn.name,
+                  arguments: '{"fact":"A-17"}',
+                },
+              ],
+              status: 'completed',
+            }
+          : {
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                      {
+                        id: 'call_new',
+                        type: 'function',
+                        function: {
+                          name: fn.name,
+                          arguments: '{"fact":"A-17"}',
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            };
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(output), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const res = response();
+      await handleCompatChat(
+        request(body, { 'x-user-id': 'mallory' }),
+        res,
+        route,
+      );
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(body);
+      expect(fetchMock.mock.calls[0][1].headers['x-user-id']).toBe('alice');
+      expect(fetchMock.mock.calls[0][1].headers.authorization).toBeUndefined();
+      expect(fetchMock.mock.calls[0][0]).toContain(
+        `/internal/model/${
+          name === 'responses' ? 'responses' : 'chat/completions'
+        }`,
+      );
+      expect(JSON.parse(res.chunks.join(''))).toEqual(output);
+      expect(res.headers['x-daedalus-ignored-parameters']).toBeUndefined();
+      expect(mocks.submit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('relays direct model SSE exactly, including tool arguments and length termination', async () => {
+    process.env.DAEDALUS_COMPAT_MODEL_ENABLED = 'true';
+    const wire =
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(wire, {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      ),
+    );
+    const res = response();
+    await handleCompatChat(
+      request(
+        chat({
+          model: 'daedalus-model',
+          stream: true,
+          max_completion_tokens: 1,
+        }),
+      ),
+      res,
+      openaiRoute,
+    );
+    expect(res.chunks.join('')).toBe(wire);
+    expect(res.writableEnded).toBe(true);
+  });
+
+  it('never falls back to the agent for a disabled or incompatible direct request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const disabled = response();
+    await handleCompatChat(
+      request(chat({ model: 'daedalus-model' })),
+      disabled,
+      openaiRoute,
+    );
+    expect(disabled.statusCode).toBe(404);
+    process.env.DAEDALUS_COMPAT_MODEL_ENABLED = 'true';
+    for (const header of ['x-daedalus-conversation-id', 'idempotency-key']) {
+      const res = response();
+      await handleCompatChat(
+        request(chat({ model: 'daedalus-model' }), { [header]: 'saved' }),
+        res,
+        openaiRoute,
+      );
+      expect(res.statusCode).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+
+  it('cancels direct inference when its client disconnects', async () => {
+    process.env.DAEDALUS_COMPAT_MODEL_ENABLED = 'true';
+    const res = response();
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url, options) => {
+        signal = options.signal;
+        res.destroyed = true;
+        res.emit('close');
+        throw new Error('aborted');
+      }),
+    );
+    await handleCompatChat(
+      request(chat({ model: 'daedalus-model' })),
+      res,
+      openaiRoute,
+    );
+    expect(signal?.aborted).toBe(true);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(res.listenerCount('close')).toBe(0);
+  });
+
+  it('returns model rejection without running the agent or claiming success', async () => {
+    process.env.DAEDALUS_COMPAT_MODEL_ENABLED = 'true';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'Configured model endpoint ignored request controls',
+            },
+          }),
+          { status: 502 },
+        ),
+      ),
+    );
+    const res = response();
+    await handleCompatChat(
+      request(chat({ model: 'daedalus-model' })),
+      res,
+      openaiRoute,
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body.error.message).toContain('ignored request controls');
+    expect(res.headers['x-should-retry']).toBe('false');
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'advertises the direct model only when enabled (%s) and only to OpenAI',
+    async (enabled) => {
+      process.env.DAEDALUS_COMPAT_MODEL_ENABLED = String(enabled);
+      const { default: models } = await import('@/pages/api/v1/models');
+      for (const anthropic of [false, true]) {
+        const req = request(
+          {},
+          anthropic ? { 'anthropic-version': '2023-06-01' } : {},
+        );
+        req.method = 'GET';
+        const res = response();
+        await models(req, res);
+        expect(res.body.data.map((model: { id: string }) => model.id)).toEqual(
+          enabled && !anthropic ? ['daedalus', 'daedalus-model'] : ['daedalus'],
+        );
+      }
+    },
+  );
   it('answers 404 while the operator switch is off', async () => {
     delete process.env.DAEDALUS_COMPAT_API_ENABLED;
     const res = response();

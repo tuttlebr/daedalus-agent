@@ -17,6 +17,7 @@ import {
   validateIdempotencyKey,
 } from './idempotency';
 import { absolutizeAppLinks, appLink, publicOrigin } from './links';
+import { handleModelRequest } from './modelEndpoint';
 import { applyOutputBudget } from './outputBudget';
 import type { CompatProtocol, NormalizedRequest } from './request';
 import {
@@ -543,6 +544,10 @@ export async function handleCompatChat(
     }
     body = await readJsonBody(req);
     route.validateHeaders?.(req.headers);
+    if (
+      await handleModelRequest(req, res, body, principal.username, route.name)
+    )
+      return;
     request = route.parse(body, req.headers);
     const conversationHeader = req.headers[CONVERSATION_HEADER];
     if (conversationHeader !== undefined) {

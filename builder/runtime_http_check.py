@@ -58,6 +58,7 @@ class Peers:
         self.image_waiting = threading.Event()
         self.image_disconnected = threading.Event()
         self.image_requests = []
+        self.direct_requests = []
 
     def handler(self):
         peers = self
@@ -134,6 +135,25 @@ class Peers:
                             body[key] = int(body[key])
                 else:
                     body = json.loads(raw)
+                if body.get("metadata", {}).get("direct_contract") == "true":
+                    peers.direct_requests.append((self.path, body))
+                    if body["metadata"].get("ignore_controls") == "true":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", "2")
+                        self.send_header("X-Daedalus-Ignored-Parameters", "tool_choice")
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+                    elif body.get("stream"):
+                        wire = b'data: {"choices":[{"delta":{"content":"{}"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream")
+                        self.send_header("Content-Length", str(len(wire)))
+                        self.end_headers()
+                        self.wfile.write(wire)
+                    else:
+                        self.reply({"caller_tool_call": body["tools"][0]})
+                    return
                 if self.path in {"/v1/images/generations", "/v1/images/edits"}:
                     peers.image_requests.append(body)
                     if body.get("stream"):
@@ -1247,6 +1267,8 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
         path.write_text(yaml.safe_dump(config))
         path.chmod(0o644)
         env = {
+            "DAEDALUS_COMPAT_MODEL_ENABLED": "true",
+            "DAEDALUS_COMPAT_MODEL_NAME": "",
             "DAEDALUS_PREPARATION": preparation,
             "DAEDALUS_AUTHORIZATION": "rust" if preparation == "rust" else "python",
             "DAEDALUS_INTERNAL_API_TOKEN": f"  {token}  ",
@@ -1387,6 +1409,170 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     ).status_code
                     == 404
                 )
+
+                if preparation == "rust":
+                    for endpoint in ("chat/completions", "responses"):
+                        direct_url = base + "/internal/model/" + endpoint
+                        assert client.post(direct_url, json={}).status_code == 401
+                        function = {
+                            "name": "record_fact",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"fact": {"type": "string"}},
+                                "required": ["fact"],
+                                "additionalProperties": False,
+                            },
+                            "strict": True,
+                        }
+                        history = [
+                            {"role": "system", "content": "Preserve verified facts."},
+                            {
+                                "role": "assistant",
+                                "content": "The verified identifier is A-17.",
+                            },
+                            {"role": "user", "content": "Record that identifier."},
+                        ]
+                        direct_body = {
+                            "model": "daedalus-model",
+                            "metadata": {"direct_contract": "true"},
+                            "parallel_tool_calls": False,
+                        }
+                        if endpoint == "responses":
+                            direct_body.update(
+                                input=[
+                                    *history,
+                                    {
+                                        "type": "function_call",
+                                        "name": "lookup",
+                                        "call_id": "call_old",
+                                        "arguments": "{}",
+                                    },
+                                    {
+                                        "type": "function_call_output",
+                                        "call_id": "call_old",
+                                        "output": '{"fact":"A-17"}',
+                                    },
+                                ],
+                                tools=[{"type": "function", **function}],
+                                tool_choice={
+                                    "type": "function",
+                                    "name": function["name"],
+                                },
+                                text={
+                                    "format": {
+                                        "type": "json_schema",
+                                        "name": "fact",
+                                        "strict": True,
+                                        "schema": function["parameters"],
+                                    }
+                                },
+                                max_output_tokens=32,
+                            )
+                        else:
+                            direct_body.update(
+                                messages=[
+                                    *history,
+                                    {
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": [
+                                            {
+                                                "id": "call_old",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "lookup",
+                                                    "arguments": "{}",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": "call_old",
+                                        "content": '{"fact":"A-17"}',
+                                    },
+                                ],
+                                tools=[{"type": "function", "function": function}],
+                                tool_choice={
+                                    "type": "function",
+                                    "function": {"name": function["name"]},
+                                },
+                                response_format={
+                                    "type": "json_schema",
+                                    "json_schema": {
+                                        "name": "fact",
+                                        "strict": True,
+                                        "schema": function["parameters"],
+                                    },
+                                },
+                                max_completion_tokens=32,
+                            )
+                        result = client.post(
+                            direct_url, headers=headers, json=direct_body
+                        )
+                        assert result.status_code == 200, result.text
+                        assert result.json() == {
+                            "caller_tool_call": direct_body["tools"][0]
+                        }
+                        assert peers.direct_requests[-1] == (
+                            "/v1/" + endpoint,
+                            {
+                                **direct_body,
+                                "model": config["llms"]["main"]["model_name"],
+                                "store": False,
+                            },
+                        )
+                        for rejected in (
+                            {"previous_response_id": "foreign"},
+                            {"store": True},
+                            {"tools": [{"type": "web_search"}]},
+                            {"input": [{"type": "item_reference", "id": "foreign"}]},
+                            {
+                                "messages": [
+                                    {
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "file",
+                                                "file": {"file_id": "foreign"},
+                                            }
+                                        ],
+                                    }
+                                ]
+                            },
+                        ):
+                            before = len(peers.direct_requests)
+                            result = client.post(
+                                direct_url,
+                                headers=headers,
+                                json={**direct_body, **rejected},
+                            )
+                            assert result.status_code == 400
+                            assert len(peers.direct_requests) == before
+                        result = client.post(
+                            direct_url,
+                            headers=headers,
+                            json={**direct_body, "stream": True},
+                        )
+                        assert result.status_code == 200
+                        assert result.text.endswith("data: [DONE]\n\n")
+                        assert '"finish_reason":"length"' in result.text
+                        result = client.post(
+                            direct_url,
+                            headers=headers,
+                            json={
+                                **direct_body,
+                                "metadata": {
+                                    "direct_contract": "true",
+                                    "ignore_controls": "true",
+                                },
+                            },
+                        )
+                        assert result.status_code == 502
+                        assert "ignored request controls" in result.text
+                    assert (
+                        not peers.calls
+                    ), "Direct inference must not execute internal tools"
 
                 def chat(
                     scenario,

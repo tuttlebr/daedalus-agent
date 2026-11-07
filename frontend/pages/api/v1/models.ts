@@ -1,7 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { authenticateCompatRequest } from '@/server/compat/auth';
-import { COMPAT_MODEL_ALIAS, isCompatApiEnabled } from '@/server/compat/config';
+import {
+  COMPAT_MODEL_ALIAS,
+  COMPAT_DIRECT_MODEL_ALIAS,
+  isCompatApiEnabled,
+  isCompatModelEnabled,
+} from '@/server/compat/config';
 import { CompatError } from '@/server/compat/errors';
 import {
   anthropicErrorBody,
@@ -13,8 +18,8 @@ const ALIAS_CREATED_AT = '2026-11-06T00:00:00Z';
 
 /**
  * The agent alias in the shape each SDK expects: Anthropic clients send
- * `anthropic-version`, OpenAI clients do not. Only `daedalus` is advertised;
- * it selects the existing automatic model policy.
+ * `anthropic-version`, OpenAI clients do not. The direct model alias is
+ * advertised only to OpenAI clients when enabled.
  */
 export default async function handler(
   req: NextApiRequest,
@@ -68,6 +73,16 @@ export default async function handler(
         created: Math.floor(Date.parse(ALIAS_CREATED_AT) / 1000),
         owned_by: 'daedalus',
       },
+      ...(isCompatModelEnabled()
+        ? [
+            {
+              id: COMPAT_DIRECT_MODEL_ALIAS,
+              object: 'model',
+              created: Math.floor(Date.parse(ALIAS_CREATED_AT) / 1000),
+              owned_by: 'daedalus',
+            },
+          ]
+        : []),
     ],
   });
 }

@@ -58,6 +58,7 @@ mod milvus_search;
 mod milvus_serialization;
 mod milvus_timestamps;
 mod milvus_writer;
+mod model_endpoint;
 mod nv_ingest;
 mod nvidia_docs;
 mod nws_weather;
@@ -708,6 +709,14 @@ fn router(app: App) -> Router {
         .route(
             "/v1/chat/completions",
             post(chat).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route(
+            "/internal/model/chat/completions",
+            post(model_endpoint::chat).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route(
+            "/internal/model/responses",
+            post(model_endpoint::responses).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
         )
         .route(
             "/v1/runs/{run_id}/control",
