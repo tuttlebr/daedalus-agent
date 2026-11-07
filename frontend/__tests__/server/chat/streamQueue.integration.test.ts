@@ -200,9 +200,10 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     expect(await client.exists(queue.streamBackendStartedKey(jobId))).toBe(0);
   });
 
-  it.each(['default', 'deep', 'deep_max', undefined])(
+  it.each(['max', 'xhigh', 'high', 'medium', 'low', 'instant', undefined])(
     'retains requested profile %s in the durable job through queue claim',
     async (modelProfile) => {
+      await queue.ensureStreamConsumerGroup(client);
       const { jsonSetWithExpiry, jsonGet, sessionKey } = await import(
         '@/server/session/redis'
       );
@@ -246,6 +247,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
           additionalProps,
         );
       } finally {
+        await guards.releaseUserJobGuard('testuser', selectedJob, client);
         await client.del(requestKey, queue.streamPayloadKey(selectedJob));
       }
     },

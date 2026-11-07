@@ -184,7 +184,7 @@ class ToolService:
             if autonomous:
                 model = autonomous.model_dump()
                 model["api_key"] = autonomous.api_key.get_secret_value()
-                selection = ModelSelection(requested="default")
+                selection = ModelSelection(source="autonomous")
         model["model_name"] = selection.alias(self.routing, model["model_name"])
         model["request_timeout"] = float(model.get("request_timeout", 60))
         model["max_retries"] = int(model.get("max_retries", 3))

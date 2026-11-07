@@ -3,13 +3,19 @@
 from typing import Literal
 
 ModelProfile = Literal[
-    "default",
-    "deep",
-    "deep_max",
+    "max",
+    "xhigh",
+    "high",
+    "medium",
+    "low",
+    "instant",
 ]
 
 MODEL_PROFILES: tuple[ModelProfile, ...] = (
-    "default",
-    "deep",
-    "deep_max",
+    "max",
+    "xhigh",
+    "high",
+    "medium",
+    "low",
+    "instant",
 )

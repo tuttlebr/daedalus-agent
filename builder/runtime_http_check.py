@@ -830,7 +830,7 @@ class Peers:
                         )
                         assert "Loaded skill evidence 雪🌲" in text
                         assert "resource.txt" in text
-                        assert body["model"] == "fixture/deep"
+                        assert body["model"] == "fixture/high"
                     if scenario.startswith("SANDBOX_"):
                         result = next(
                             item["output"]
@@ -1238,11 +1238,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
             "briefing_renderer_tool",
             "fixture_mcp",
         ]
+        levels = ("max", "xhigh", "high", "medium", "low", "instant")
         config["workflow"]["model_routes"] = {
-            "deep": "fixture/deep",
-            "deep_max": "fixture/max",
+            level: f"fixture/{level}" for level in levels
         }
-        config["workflow"]["skill_model_profiles"] = {"fixture-skill": "deep"}
+        config["workflow"]["skill_model_profiles"] = {"fixture-skill": "high"}
         path = root / "config.yaml"
         path.write_text(yaml.safe_dump(config))
         path.chmod(0o644)
@@ -1626,10 +1626,17 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     "Model response did not complete" in gateway_incomplete
                 ), gateway_incomplete
                 assert "Function Start:" not in gateway_incomplete
+                for retired in ("default", "deep", "deep_max", "none"):
+                    before = len(peers.requests)
+                    rejected = chat(
+                        "SKILL_ROUTE", "retired-" + retired, {"model_profile": retired}
+                    )
+                    assert '"finish_reason":"error"' in rejected
+                    assert "Function Start:" not in rejected
+                    assert len(peers.requests) == before
                 for profile, expected in [
-                    (None, ["fixture", "fixture/deep"]),
-                    ("default", ["fixture", "fixture"]),
-                    ("deep_max", ["fixture/max", "fixture/max"]),
+                    (None, ["fixture", "fixture/high"]),
+                    *[(level, [f"fixture/{level}"] * 2) for level in levels],
                 ]:
                     before = len(peers.requests)
                     assert "The real datetime tool completed" in chat(
@@ -1640,7 +1647,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert [
                         request["model"] for request in peers.requests[before:]
                     ] == expected
-                for profile in (None, "deep_max"):
+                for profile in (None, "max"):
                     before = len(peers.requests)
                     response = chat(
                         "SKILL_ROUTE",

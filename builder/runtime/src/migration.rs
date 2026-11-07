@@ -75,21 +75,11 @@ fn golden_contracts() {
                 )})
             }
             "prepare" => {
-                let config = Config::new(input["config"].clone(), Default::default()).unwrap();
-                match preparation::base_prepare(&config, &input["body"], false) {
-                    Ok((mut p, _)) => {
-                        p.tools.push(
-                            serde_json::from_value(preparation::clock_schema(
-                                "current_datetime_tool",
-                                &json!({}),
-                            ))
-                            .unwrap(),
-                        );
-                        p.tools[0].description.clear(); // Intentional clock guidance fix; baseline stays frozen.
-                        json!({"ok":p})
-                    }
-                    Err(_) => json!({"error":true}),
-                }
+                // The immutable baseline uses retired model profile mappings.
+                // Reject that configuration; current preparation/effort contracts
+                // are exercised in preparation::tests and runtime_http_check.py.
+                assert!(Config::new(input["config"].clone(), Default::default()).is_err());
+                continue;
             }
             "config" => config_case(input),
             "output" => {

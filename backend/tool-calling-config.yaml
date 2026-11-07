@@ -953,15 +953,14 @@ llms:
 workflow:
   _type: daedalus_rust_agent
   llm_name: tool_calling_llm
+  # Omit model_profile for automatic routing; the gateway owns tier selection.
   model_routes:
-    deep: ${DAEDALUS_LLM_DEEP_MODEL:-daedalus/deep}
-    deep_max: ${DAEDALUS_LLM_DEEP_MAX_MODEL:-daedalus/max}
-  request_model_profiles:
-    daily_summary: deep
-  skill_model_profiles:
-    daily-summary: deep
-    fantasy-football-recap: deep
-    kubernetes-specialist: deep
+    max: ${DAEDALUS_LLM_MAX_MODEL:-daedalus/max}
+    xhigh: ${DAEDALUS_LLM_XHIGH_MODEL:-daedalus/xhigh}
+    high: ${DAEDALUS_LLM_HIGH_MODEL:-daedalus/high}
+    medium: ${DAEDALUS_LLM_MEDIUM_MODEL:-daedalus/medium}
+    low: ${DAEDALUS_LLM_LOW_MODEL:-daedalus/low}
+    instant: ${DAEDALUS_LLM_INSTANT_MODEL:-daedalus/instant}
   max_iterations: 264
   loop_guard:
     enabled: true

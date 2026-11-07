@@ -122,18 +122,18 @@ def test_invalid_model_profiles_are_rejected_with_python_optimization(
     [
         (
             None,
-            ["default", "deep", "deep_max", "abcde"],
+            ["instant", "high", "medium", "abcdefg"],
             {
                 "frontend/types/modelProfile.ts": "export const MODEL_PROFILES = "
-                "['default', 'deep', 'deep_max', 'abcde'] as const;"
+                "['instant', 'high', 'medium', 'abcdefg'] as const;"
             },
         ),
         (
             None,
-            ["default", "deep", "deep_max", "abcdef"],
+            ["instant", "high", "medium", "abcdefgh"],
             {
                 "frontend/types/modelProfile.ts": "export const MODEL_PROFILES = [\n"
-                "  'default',\n  'deep',\n  'deep_max',\n  'abcdef',\n] as const;"
+                "  'instant',\n  'high',\n  'medium',\n  'abcdefgh',\n] as const;"
             },
         ),
         (

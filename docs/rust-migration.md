@@ -135,6 +135,12 @@ script (`export_baseline.py` writes `contracts.json`); each file records the
 change, from that script, and review the resulting diff as a behavior change
 rather than accepting a candidate's output as the new expectation.
 
+Retired model-profile preparation fixtures remain frozen as historical evidence;
+the Rust migration test asserts their configuration is rejected. Current effort
+selection is covered by preparation unit tests and `runtime_http_check.py`.
+Comparisons with the retained baseline omit explicit profiles and route mappings;
+the baseline cannot validate the current six-level contract.
+
 Run benchmarks after builds and CPU-intensive checks finish. Preserve source and
 image digests with results. Existing reports for earlier revisions establish
 historical behavior only; rerun affected checks on the final candidate.

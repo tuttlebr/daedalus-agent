@@ -147,7 +147,13 @@ pub fn routing(span: &mut RunSpan, selection: &crate::preparation::ModelSelectio
                 .clone()
                 .unwrap_or_else(|| "automatic".into()),
         ),
-        KeyValue::new("effective_model_profile", selection.effective.clone()),
+        KeyValue::new(
+            "effective_model_profile",
+            selection
+                .effective
+                .clone()
+                .unwrap_or_else(|| "automatic".into()),
+        ),
         KeyValue::new("model_selection_source", selection.source),
         KeyValue::new("model_promotion_count", selection.promotion_count),
     ];
@@ -312,7 +318,7 @@ mod tests {
             // duplicate routing keys and silently lose every terminal metric.
             for call in 0..100 {
                 if call == 50 {
-                    selection.effective = "deep".into();
+                    selection.effective = Some("high".into());
                     selection.source = "skill_load";
                     selection.promotion_count = 1;
                     selection.triggering_skill = Some("research".into());
@@ -356,7 +362,7 @@ mod tests {
                             ("input_tokens", Value::IntValue(1201211)),
                             ("output_tokens", Value::IntValue(72607)),
                             ("reported_usage_calls", Value::IntValue(9)),
-                            ("effective_model_profile", Value::StringValue("deep".into())),
+                            ("effective_model_profile", Value::StringValue("high".into())),
                             (
                                 "model_selection_source",
                                 Value::StringValue("skill_load".into()),

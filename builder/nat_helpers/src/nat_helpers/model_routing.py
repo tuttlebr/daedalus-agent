@@ -6,8 +6,6 @@ from typing import Annotated, Literal, cast
 from nat_helpers.model_profile_types import MODEL_PROFILES, ModelProfile
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-AutomaticProfile = Literal["default", "deep"]
-RouteProfile = Literal["deep", "deep_max"]
 RouteAlias = Annotated[
     str,
     StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=256),
@@ -15,23 +13,20 @@ RouteAlias = Annotated[
 
 
 class ModelRoutingConfig(BaseModel):
-    model_routes: dict[RouteProfile, RouteAlias] = Field(default_factory=dict)
-    request_model_profiles: dict[Literal["daily_summary"], AutomaticProfile] = Field(
+    model_routes: dict[ModelProfile, RouteAlias] = Field(default_factory=dict)
+    request_model_profiles: dict[Literal["daily_summary"], ModelProfile] = Field(
         default_factory=dict
     )
-    skill_model_profiles: dict[str, AutomaticProfile] = Field(default_factory=dict)
+    skill_model_profiles: dict[str, ModelProfile] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_model_mappings(self):
-        if (
-            "deep"
-            in (
-                *self.request_model_profiles.values(),
-                *self.skill_model_profiles.values(),
-            )
-            and "deep" not in self.model_routes
+        for profile in (
+            *self.request_model_profiles.values(),
+            *self.skill_model_profiles.values(),
         ):
-            raise ValueError("Automatic deep mappings require model_routes.deep")
+            if profile not in self.model_routes:
+                raise ValueError(f"Model mapping requires model_routes.{profile}")
         return self
 
 
@@ -44,15 +39,17 @@ def requested_profile(additional_props: object) -> ModelProfile | None:
         return None
     value = additional_props["model_profile"]
     if not isinstance(value, str) or value not in MODEL_PROFILES:
-        raise ValueError("model_profile must be default, deep, or deep_max")
+        raise ValueError("model_profile must be one of: " + ", ".join(MODEL_PROFILES))
     return cast(ModelProfile, value)
 
 
 @dataclass
 class ModelSelection:
     requested: ModelProfile | None = None
-    effective: ModelProfile = "default"
-    source: Literal["default", "explicit", "request_profile", "skill_load"] = "default"
+    effective: ModelProfile | None = None
+    source: Literal[
+        "automatic", "explicit", "request_profile", "skill_load", "autonomous"
+    ] = "automatic"
     promotion_count: int = 0
     triggering_skill: str | None = None
 
@@ -62,30 +59,30 @@ class ModelSelection:
     ):
         requested = requested_profile(additional_props)
         if requested is not None:
-            if requested != "default" and requested not in config.model_routes:
+            if requested not in config.model_routes:
                 raise ValueError(f"model_profile '{requested}' is not configured")
             return cls(requested=requested, effective=requested, source="explicit")
         mapped = config.request_model_profiles.get(request_profile)
         return cls(
-            effective=mapped or "default",
-            source="request_profile" if mapped else "default",
+            effective=mapped,
+            source="request_profile" if mapped else "automatic",
         )
 
     @property
     def explicit(self) -> bool:
-        return self.requested is not None
+        return self.requested is not None or self.source == "autonomous"
 
     def skill_loaded(self, event, config: ModelRoutingConfig) -> None:
         # There is no await in this transition: sibling tool tasks share this
         # invocation's object and converge before the graph's next model round.
         if (
             self.explicit
-            or self.effective != "default"
+            or self.effective is not None
             or event.operation != "load_skill"
         ):
             return
-        if config.skill_model_profiles.get(event.skill_name) == "deep":
-            self.effective = "deep"
+        if mapped := config.skill_model_profiles.get(event.skill_name):
+            self.effective = mapped
             self.source = "skill_load"
             self.promotion_count += 1
             self.triggering_skill = event.skill_name
@@ -93,14 +90,14 @@ class ModelSelection:
     def alias(self, config: ModelRoutingConfig, default_alias: str) -> str:
         return (
             default_alias
-            if self.effective == "default"
+            if self.effective is None
             else config.model_routes[self.effective]
         )
 
     def metadata(self) -> dict:
         return {
             "requested_model_profile": self.requested or "automatic",
-            "effective_model_profile": self.effective,
+            "effective_model_profile": self.effective or "automatic",
             "model_selection_source": self.source,
             "model_promotion_count": self.promotion_count,
             "model_triggering_skill": self.triggering_skill,

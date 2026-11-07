@@ -237,7 +237,7 @@ def startup_checks(args, profiles, root, skills):
                 if case != "unselected-tool":
                     config["workflow"]["tools"].append("skills")
                 config["workflow"]["skill_model_profiles"] = {
-                    "missing" if case == "unknown-skill" else "synthetic": "deep"
+                    "missing" if case == "unknown-skill" else "synthetic": "high"
                 }
 
             try:
@@ -479,7 +479,7 @@ def main(args):
                         "bundled": {"_type": "agent_skills"},
                     }
                     config["workflow"]["tools"] = list(config["functions"])
-                    config["workflow"]["skill_model_profiles"] = {"synthetic": "deep"}
+                    config["workflow"]["skill_model_profiles"] = {"synthetic": "high"}
                     config["workflow"]["tool_output_compaction_enabled"] = False
 
                 with environment(
@@ -552,7 +552,7 @@ def main(args):
                         ]
                         if case["name"] in {"load-and-promote", "load-cached"}:
                             require(
-                                result["models"] == ["fixture", "fixture/deep"],
+                                result["models"] == ["fixture", "fixture/high"],
                                 "Main instructions did not promote the model exactly once",
                             )
                         else:

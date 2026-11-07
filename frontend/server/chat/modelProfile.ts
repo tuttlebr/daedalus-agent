@@ -13,5 +13,5 @@ export function validateModelProfile(additionalProps: unknown): string | null {
   return typeof profile === 'string' &&
     MODEL_PROFILES.some((candidate) => candidate === profile)
     ? null
-    : 'model_profile must be default, deep, or deep_max';
+    : `model_profile must be one of: ${MODEL_PROFILES.join(', ')}`;
 }

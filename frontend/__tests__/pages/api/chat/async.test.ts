@@ -2647,7 +2647,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     });
   });
 
-  it.each(['default', 'deep', 'deep_max', undefined])(
+  it.each(['max', 'xhigh', 'high', 'medium', 'low', 'instant', undefined])(
     'preserves profile %s through submission, stored job and backend forwarding',
     async (profile) => {
       const additionalProps = {
@@ -2672,7 +2672,20 @@ describe('chat/async streaming + finalize (characterization)', () => {
     },
   );
 
-  it.each([null, '', 'automatic', 'daedalus/max', 1, true, {}, []])(
+  it.each([
+    null,
+    '',
+    'default',
+    'deep',
+    'deep_max',
+    'none',
+    'automatic',
+    'daedalus/max',
+    1,
+    true,
+    {},
+    [],
+  ])(
     'rejects invalid profile %j before storing or queuing a job',
     async (profile) => {
       const store = wireRedisStore();
@@ -2690,7 +2703,8 @@ describe('chat/async streaming + finalize (characterization)', () => {
       );
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
-        error: 'model_profile must be default, deep, or deep_max',
+        error:
+          'model_profile must be one of: max, xhigh, high, medium, low, instant',
       });
       expect(
         [...store.keys()].filter((key) => key.includes('async-job')),
@@ -3611,17 +3625,17 @@ describe('chat/async streaming + finalize (characterization)', () => {
         'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n',
         'data: [DONE]\n',
       ],
-      { additionalProps: { model_profile: 'deep_max' } },
+      { additionalProps: { model_profile: 'max' } },
     );
 
     expect(
       store.get(`daedalus:async-job-request:${jobId}`).additionalProps
         .model_profile,
-    ).toBe('deep_max');
+    ).toBe('max');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(
       JSON.parse(fetchSpy.mock.calls[0][1].body).additional_props.model_profile,
-    ).toBe('deep_max');
+    ).toBe('max');
 
     const streamingStatusEvents = publishedEvents()
       .filter((e) => e.channel === `job:${jobId}:status`)

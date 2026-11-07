@@ -149,7 +149,6 @@ async def run(client, case, rep):
                 json={
                     "stream": True,
                     "messages": case["messages"],
-                    "additional_props": {"model_profile": "default"},
                 },
             ) as response:
                 code = response.status_code

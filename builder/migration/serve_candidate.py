@@ -264,7 +264,7 @@ def configure(config, port, *_, skills_root):
         "skills_directory": str(skills_root),
     }
     config["workflow"]["tools"].append("agent_skills_tool")
-    config["workflow"]["skill_model_profiles"] = {"fixture-skill": "deep"}
+    config["workflow"]["skill_model_profiles"] = {"fixture-skill": "high"}
     config["functions"]["user_documents"] = {
         "_type": "nat_nv_ingest",
         "milvus_uri": "${MILVUS_URI}",

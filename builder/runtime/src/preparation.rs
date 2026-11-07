@@ -40,7 +40,7 @@ pub struct Preparation {
 
 pub struct ModelSelection {
     pub requested: Option<String>,
-    pub effective: String,
+    pub effective: Option<String>,
     pub source: &'static str,
     pub promotion_count: i64,
     pub triggering_skill: Option<String>,
@@ -48,7 +48,7 @@ pub struct ModelSelection {
 impl ModelSelection {
     pub fn new(config: &Config, body: &Value, daily: bool, autonomy: bool) -> Self {
         // A complete autonomous provider override resolves to the baseline's
-        // fixed default selection, including telemetry and disabled promotions.
+        // fixed autonomous selection, including telemetry and disabled promotions.
         if autonomy
             && !config
                 .variable("AUTONOMOUS_LLM_MODEL_MODEL", "")
@@ -56,9 +56,9 @@ impl ModelSelection {
                 .is_empty()
         {
             return Self {
-                requested: Some("default".into()),
-                effective: "default".into(),
-                source: "default",
+                requested: None,
+                effective: None,
+                source: "autonomous",
                 promotion_count: 0,
                 triggering_skill: None,
             };
@@ -70,13 +70,13 @@ impl ModelSelection {
             [if daily { "daily_summary" } else { "default" }]
         .as_str();
         Self {
-            effective: requested.as_deref().or(mapped).unwrap_or("default").into(),
+            effective: requested.as_deref().or(mapped).map(str::to_owned),
             source: if requested.is_some() {
                 "explicit"
             } else if mapped.is_some() {
                 "request_profile"
             } else {
-                "default"
+                "automatic"
             },
             requested,
             promotion_count: 0,
@@ -84,17 +84,19 @@ impl ModelSelection {
         }
     }
     pub fn skill_loaded(&mut self, config: &Config, skills: &[String]) -> Option<String> {
-        if self.requested.is_some() || self.effective != "default" {
+        if self.requested.is_some() || self.effective.is_some() || self.source == "autonomous" {
             return None;
         }
-        let skill = skills
-            .iter()
-            .find(|s| config.workflow()["skill_model_profiles"][s.as_str()] == "deep")?;
-        self.effective = "deep".into();
+        let (skill, mapped) = skills.iter().find_map(|skill| {
+            config.workflow()["skill_model_profiles"][skill.as_str()]
+                .as_str()
+                .map(|profile| (skill, profile))
+        })?;
+        self.effective = Some(mapped.into());
         self.source = "skill_load";
         self.promotion_count += 1;
         self.triggering_skill = Some(skill.clone());
-        Some(self.effective.clone())
+        self.effective.clone()
     }
 }
 
@@ -218,9 +220,8 @@ pub fn base_prepare(
         .unwrap_or_default();
     let effective = requested
         .and_then(Value::as_str)
-        .or_else(|| workflow["request_model_profiles"][request_profile].as_str())
-        .unwrap_or("default");
-    if effective != "default" && !routes.contains_key(effective) {
+        .or_else(|| workflow["request_model_profiles"][request_profile].as_str());
+    if effective.is_some_and(|profile| !routes.contains_key(profile)) {
         bail!("Requested model profile is not configured");
     }
     let mut model = config.main_model().clone();
@@ -251,8 +252,8 @@ pub fn base_prepare(
             autonomous_model = true;
         }
     }
-    if !autonomous_model && effective != "default" {
-        model["model_name"] = json!(routes[effective]);
+    if !autonomous_model && let Some(profile) = effective {
+        model["model_name"] = json!(routes[profile]);
     }
     let prepared = PreparedRun {
         model: ModelConfig {
@@ -631,6 +632,121 @@ mod tests {
                 ("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "30".into()),
             ].into(),
         ).unwrap()
+    }
+
+    fn routing_config(workflow: Value) -> Result<Config> {
+        let mut raw = json!({
+            "llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"daedalus"}},
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}
+        });
+        raw["workflow"]
+            .as_object_mut()
+            .unwrap()
+            .extend(workflow.as_object().unwrap().clone());
+        Config::new(raw, Default::default())
+    }
+
+    #[test]
+    fn canonical_efforts_preserve_explicit_selection() {
+        let levels = ["max", "xhigh", "high", "medium", "low", "instant"];
+        let routes: serde_json::Map<String, Value> = levels
+            .iter()
+            .map(|level| (level.to_string(), json!(format!("fixture/{level}"))))
+            .collect();
+        let config = routing_config(json!({
+            "model_routes":routes,
+            "request_model_profiles":{"daily_summary":"high"},
+            "skill_model_profiles":{"mapped":"max"}
+        }))
+        .unwrap();
+        for level in levels {
+            let body = json!({"messages":[{"role":"user","content":"daily summary"}],
+                "additional_props":{"model_profile":level}});
+            let (prepared, _) = base_prepare(&config, &body, false).unwrap();
+            assert_eq!(prepared.model.model_name, format!("fixture/{level}"));
+            assert!(prepared.explicit_model_profile);
+            let mut selection = ModelSelection::new(&config, &body, true, false);
+            assert_eq!(selection.effective.as_deref(), Some(level));
+            assert!(
+                selection
+                    .skill_loaded(&config, &["mapped".into()])
+                    .is_none()
+            );
+        }
+        for retired in ["default", "deep", "deep_max", "none"] {
+            let body = json!({"messages":[{"role":"user","content":"hello"}],
+                "additional_props":{"model_profile":retired}});
+            assert!(base_prepare(&config, &body, false).is_err());
+            assert!(routing_config(json!({"model_routes":{retired:"fixture"}})).is_err());
+            assert!(
+                routing_config(json!({"request_model_profiles":{"daily_summary":retired}}))
+                    .is_err()
+            );
+            assert!(routing_config(json!({"skill_model_profiles":{"mapped":retired}})).is_err());
+        }
+    }
+
+    #[test]
+    fn omission_uses_main_route_and_unconfigured_efforts_fail_before_invocation() {
+        let config = routing_config(json!({})).unwrap();
+        let body = json!({"messages":[{"role":"user","content":"daily summary"}]});
+        let (prepared, _) = base_prepare(&config, &body, false).unwrap();
+        assert_eq!(prepared.model.model_name, "daedalus");
+        assert!(!prepared.explicit_model_profile);
+        let mut selection = ModelSelection::new(&config, &body, true, false);
+        assert!(selection.effective.is_none());
+        assert_eq!(selection.source, "automatic");
+        assert!(
+            selection
+                .skill_loaded(&config, &["mapped".into()])
+                .is_none()
+        );
+        for level in ["max", "xhigh", "high", "medium", "low", "instant"] {
+            let mut explicit = body.clone();
+            explicit["additional_props"] = json!({"model_profile":level});
+            assert!(base_prepare(&config, &explicit, false).is_err());
+            assert!(routing_config(json!({"skill_model_profiles":{"mapped":level}})).is_err());
+        }
+    }
+
+    #[test]
+    fn configured_skill_selection_is_once_per_run_and_autonomy_stays_fixed() {
+        let mut config = routing_config(json!({
+            "model_routes":{"medium":"fixture/medium", "max":"fixture/max"},
+            "skill_model_profiles":{"mapped":"medium", "later":"max"}
+        }))
+        .unwrap();
+        let body = json!({"messages":[{"role":"user","content":"hello"}]});
+        let mut selection = ModelSelection::new(&config, &body, false, false);
+        assert_eq!(
+            selection
+                .skill_loaded(&config, &["mapped".into()])
+                .as_deref(),
+            Some("medium")
+        );
+        assert!(selection.skill_loaded(&config, &["later".into()]).is_none());
+        assert_eq!(selection.promotion_count, 1);
+        config.env.insert(
+            "AUTONOMOUS_LLM_MODEL_MODEL".into(),
+            "fixture/autonomy".into(),
+        );
+        config.env.insert(
+            "AUTONOMOUS_LLM_MODEL_BASE_URL".into(),
+            "http://model.invalid/v1".into(),
+        );
+        config
+            .env
+            .insert("AUTONOMOUS_LLM_MODEL_API_KEY".into(), "synthetic".into());
+        let (prepared, _) = base_prepare(&config, &body, true).unwrap();
+        assert_eq!(prepared.model.model_name, "fixture/autonomy");
+        assert!(prepared.explicit_model_profile);
+        let mut selection = ModelSelection::new(&config, &body, false, true);
+        assert_eq!(selection.source, "autonomous");
+        assert!(
+            selection
+                .skill_loaded(&config, &["mapped".into()])
+                .is_none()
+        );
     }
 
     #[tokio::test]

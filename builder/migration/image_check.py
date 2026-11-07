@@ -223,6 +223,7 @@ def environment(
     fixture_files=None,
     redis_json=False,
     fixture_mounts=(),
+    profiles=True,
     namespace_factory=None,
 ):
     peers = peers or MemoryPeers()
@@ -259,12 +260,14 @@ def environment(
                 "_type": "daedalus_rust_agent",
                 "llm_name": "main",
                 "tools": ["current_datetime_tool"],
-                "model_routes": {"deep": "fixture/deep", "deep_max": "fixture/max"},
+                "model_routes": {"high": "fixture/high", "max": "fixture/max"},
                 "max_history": 8,
                 "max_history_tokens": 2000,
                 "instructions": "Synthetic fixture instructions.",
             },
         }
+        if not profiles:
+            config["workflow"].pop("model_routes")
         config["llms"]["main"]["api_type"] = api_type
         if configure:
             configure(config, server.server_port, runtime_port)
@@ -501,8 +504,8 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def check(image, redis_image, minimal=True, rollback_image=None):
-    with environment(image, redis_image, minimal=minimal) as fixture:
+def check(image, redis_image, minimal=True, rollback_image=None, profiles=True):
+    with environment(image, redis_image, minimal=minimal, profiles=profiles) as fixture:
         client, base, headers, peers = (
             fixture[key] for key in ("client", "base", "headers", "peers")
         )
@@ -520,7 +523,7 @@ def check(image, redis_image, minimal=True, rollback_image=None):
         )
         observations = []
         memory_observations = {}
-        for profile in (None, "default", "deep", "deep_max"):
+        for profile in (None, "high", "max") if profiles else (None,):
             before = len(peers.requests)
             memory_before = len(peers.memory_requests)
             conversation = f"profile-{profile}"
@@ -547,7 +550,7 @@ def check(image, redis_image, minimal=True, rollback_image=None):
             request = peers.requests[before]
             require(
                 request["model"]
-                == {"deep": "fixture/deep", "deep_max": "fixture/max"}.get(
+                == {"high": "fixture/high", "max": "fixture/max"}.get(
                     profile, "fixture"
                 ),
                 "Route changed",
@@ -855,18 +858,26 @@ if __name__ == "__main__":
         args.redis_image,
         minimal=not args.baseline,
         rollback_image=args.rollback_image,
+        profiles=not (args.baseline or args.compare_image),
     )
     if args.report:
         args.report.write_text(json.dumps(result, indent=2) + "\n")
     if args.compare_image:
-        baseline = check(args.compare_image, args.redis_image, minimal=False)
+        baseline = check(
+            args.compare_image, args.redis_image, minimal=False, profiles=False
+        )
         if args.report:
             args.report.with_suffix(".baseline.json").write_text(
                 json.dumps(baseline, indent=2) + "\n"
             )
         current = None
         if args.current_python_image:
-            current = check(args.current_python_image, args.redis_image, minimal=False)
+            current = check(
+                args.current_python_image,
+                args.redis_image,
+                minimal=False,
+                profiles=False,
+            )
             if args.report:
                 args.report.with_suffix(".current-python.json").write_text(
                     json.dumps(current, indent=2) + "\n"

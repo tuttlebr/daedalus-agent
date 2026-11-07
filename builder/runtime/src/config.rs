@@ -465,7 +465,7 @@ impl Config {
             .as_object()
             .ok_or_else(|| anyhow!("Invalid model_routes"))?;
         for (key, value) in routes {
-            if !["deep", "deep_max"].contains(&key.as_str())
+            if serde_json::from_value::<crate::protocol::ModelProfile>(json!(key)).is_err()
                 || value
                     .as_str()
                     .is_none_or(|s| s.trim().is_empty() || s.trim().chars().count() > 256)
@@ -481,8 +481,11 @@ impl Config {
                 .ok_or_else(|| anyhow!("Invalid model profiles"))?;
             for (key, value) in mappings {
                 if (field == "request_model_profiles" && key != "daily_summary")
-                    || !["default", "deep"].iter().any(|s| value == s)
-                    || (value == "deep" && !routes.contains_key("deep"))
+                    || serde_json::from_value::<crate::protocol::ModelProfile>(value.clone())
+                        .is_err()
+                    || value
+                        .as_str()
+                        .is_none_or(|profile| !routes.contains_key(profile))
                 {
                     bail!("Invalid automatic model mapping");
                 }

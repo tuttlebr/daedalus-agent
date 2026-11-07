@@ -88,8 +88,8 @@ def request(base, key, route, history, *, streaming, tool_choice):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True, help="Gateway URL ending in /v1")
-    parser.add_argument("--default", default="daedalus")
-    parser.add_argument("--deep", default="daedalus/deep")
+    parser.add_argument("--automatic", default="daedalus")
+    parser.add_argument("--high", default="daedalus/high")
     parser.add_argument("--maximum", default="daedalus/max")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -97,10 +97,10 @@ def main():
     results = []
     for streaming in (False, True):
         for first, second, with_image in (
-            (args.default, args.deep, False),
-            (args.deep, args.deep, False),
+            (args.automatic, args.high, False),
+            (args.high, args.high, False),
             (args.maximum, args.maximum, False),
-            (args.default, args.deep, True),
+            (args.automatic, args.high, True),
         ):
             content = [
                 {

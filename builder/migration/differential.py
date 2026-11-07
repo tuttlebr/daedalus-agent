@@ -3,7 +3,7 @@
 
 The retained image predates required-tool enforcement and batch/decode recovery.
 Those current safety contracts run against both candidate profiles, while the
-legacy comparison uses a fixed text/clock/profile workload supported by all three.
+legacy comparison uses a fixed text/clock workload with no explicit profile.
 No live providers or production Redis are contacted.
 """
 
@@ -44,14 +44,14 @@ def requests_by_conversation(report):
 
 
 def compatibility_check(image, redis_image, *, preparation):
-    """Version 1: complete model requests for text/clock across four profiles."""
+    """Compare text/clock requests without the retired baseline profile contract."""
     with environment(
-        image, redis_image, minimal=preparation == "rust", memory=False
+        image, redis_image, minimal=preparation == "rust", memory=False, profiles=False
     ) as fixture:
         client, base, headers, peers = (
             fixture[key] for key in ("client", "base", "headers", "peers")
         )
-        for profile in (None, "default", "deep", "deep_max"):
+        for profile in (None,):
             for scenario in ("TEXT_ONLY", "BASIC"):
                 run = f"compat-v1-{profile}-{scenario}"
                 response = client.post(
