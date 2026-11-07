@@ -377,3 +377,4 @@ ingress:
 
 compatibilityApi:
   enabled: true
+  publicUrl: https://daedalus.ddns.me
