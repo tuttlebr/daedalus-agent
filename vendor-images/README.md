@@ -6,6 +6,10 @@ rebuilds run only in Compose and disposable browser fixtures. The Helm nginx
 rebuild is a release image: it is built, scanned, signed and published with the
 backend, frontend and Redis images and deployed as the chart's `images.nginx`.
 
+All three runtime rebuilds install signed Alpine musl and musl-utils 1.2.6-r3
+to fix [CVE-2026-107891](https://security.alpinelinux.org/vuln/CVE-2026-107891).
+The frontend image also requires at least these patched package versions.
+
 - Helm nginx (`nginx-unprivileged/`, Compose service `nginx-helm` in the
   release-only profile) retains the unprivileged 1.31.6 Alpine slim image and
   installs signed Alpine zlib 1.4-r0, fixing CVE-2026-85091 and CVE-2026-4738.

@@ -10,5 +10,5 @@ ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -buildvcs=false -ldflags '-extldflags -static -X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=d997fba-security' -o /weed ./weed
 
 FROM mirror.gcr.io/chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
-RUN apk add --no-cache 'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0' 'zlib=1.4-r0'
+RUN apk add --no-cache 'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0' 'musl=1.2.6-r3' 'musl-utils=1.2.6-r3' 'zlib=1.4-r0'
 COPY --from=builder /weed /usr/bin/weed
