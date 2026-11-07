@@ -71,7 +71,21 @@ pub fn stream_decode_error(error: &ProviderError) -> bool {
 }
 
 #[derive(Clone)]
-pub struct CompatibleOpenAi(pub OpenAiWire, pub Option<http::HeaderValue>);
+pub struct CompatibleOpenAi(
+    pub OpenAiWire,
+    pub Option<http::HeaderValue>,
+    pub Option<http::HeaderValue>,
+);
+
+/// Opaque per-attempt identifier, independent of conversation/cache affinity.
+pub fn model_call_id(run_id: &str, model_call: u64) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"daedalus-model-call-v1");
+    hash.update((run_id.len() as u64).to_be_bytes());
+    hash.update(run_id.as_bytes());
+    hash.update(model_call.to_be_bytes());
+    format!("dc-{:x}", hash.finalize())
+}
 
 impl CompatibleOpenAi {
     /// Routing affinity is scoped like provider cache affinity, but sent as a
@@ -81,7 +95,16 @@ impl CompatibleOpenAi {
         Self(
             wire,
             Some(key.parse().expect("SHA-256 hex is a valid header")),
+            None,
         )
+    }
+    pub fn with_call_id(mut self, call_id: &str) -> Self {
+        self.2 = Some(
+            call_id
+                .parse()
+                .expect("generated call ID is a valid header"),
+        );
+        self
     }
 }
 
@@ -102,6 +125,16 @@ impl Wire for CompatibleOpenAi {
                 .request
                 .headers_mut()
                 .insert("x-switchyard-session-id", session.clone());
+        }
+        if let Some(call_id) = &self.2 {
+            encoded
+                .request
+                .headers_mut()
+                .insert("x-request-id", call_id.clone());
+            encoded
+                .request
+                .headers_mut()
+                .insert("x-switchyard-request-id", call_id.clone());
         }
         Ok(encoded)
     }
@@ -300,6 +333,7 @@ mod tests {
                 "fixture",
             ),
             None,
+            None,
         )
     }
 
@@ -321,13 +355,22 @@ mod tests {
                     user,
                     conversation,
                     run,
-                );
+                )
+                .with_call_id(&model_call_id(run, 1));
                 for mode in [Mode::Streaming, Mode::Unary] {
                     let encoded = wire
                         .encode(CompletionRequest::new("fixture"), mode)
                         .unwrap();
                     assert_eq!(encoded.request.headers()["x-switchyard-session-id"], key);
                     assert_eq!(encoded.request.headers()["authorization"], "Bearer fixture");
+                    assert_eq!(
+                        encoded.request.headers()["x-request-id"],
+                        model_call_id(run, 1)
+                    );
+                    assert_eq!(
+                        encoded.request.headers()["x-switchyard-request-id"],
+                        model_call_id(run, 1)
+                    );
                 }
                 if run == "run-2" && !conversation.is_empty() {
                     assert_eq!(previous, Some(key.clone()));
@@ -337,6 +380,14 @@ mod tests {
                 previous = Some(key);
             }
         }
+    }
+
+    #[test]
+    fn model_call_ids_distinguish_attempts_and_runs() {
+        assert_ne!(model_call_id("one", 1), model_call_id("one", 2));
+        assert_ne!(model_call_id("one", 1), model_call_id("two", 1));
+        assert_eq!(model_call_id("one", 1), model_call_id("one", 1));
+        assert_eq!(model_call_id("private\nrun", 1).len(), 67);
     }
 
     #[test]

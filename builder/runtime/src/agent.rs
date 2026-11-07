@@ -482,6 +482,7 @@ impl Agent {
                 .model_calls
                 .fetch_add(1, Ordering::Relaxed)
                 + 1;
+            let correlation_id = crate::provider::model_call_id(&self.events.run_id, model_call);
             let model_started = Instant::now();
             // request_timeout bounds inactivity: time to the first stream item
             // and between items. A healthy long response keeps streaming; the
@@ -507,6 +508,7 @@ impl Agent {
             }
             tracing::info!(
                 event = "model_call_started",
+                correlation_id = %correlation_id,
                 catalog_digest = catalog_digest.as_ref().map(|(_, digest)| digest.as_str()),
                 final_only = response_policy.final_only(),
                 model_call,
@@ -525,7 +527,8 @@ impl Agent {
                     &self.handle.user,
                     &self.handle.conversation,
                     &self.events.run_id,
-                ),
+                )
+                .with_call_id(&correlation_id),
                 model.transport,
             );
             let mut stream = model.stream(request).context(Phase("model_request"))?;
