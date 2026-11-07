@@ -10,8 +10,17 @@ including in stored jobs; remove or replace them before resubmission. No legacy
 profile aliases or environment variables are translated silently.
 
 An explicit level must exist in `workflow.model_routes` and remains fixed across
-skill loads. The shipped workflow configures the six existing Switchyard aliases
-and leaves request/skill promotion unset, so the gateway owns automatic selection.
+skill loads. The shipped DeepSeek workflow configures four distinct Switchyard profiles:
+`instant`, `low`, `high`, and `max`. It leaves request/skill promotion unset, so
+the gateway owns automatic selection. The generic schema retains `medium` and
+`xhigh` for other providers, but they are unconfigured in the shipped workflow.
+For this workflow, migrate explicit `medium`/`xhigh` requests to `high`, or omit
+`model_profile` to use automatic routing. Replace matching custom request/skill
+mappings as well. Direct custom gateway callers must likewise replace
+`daedalus/medium` and `daedalus/xhigh` with `daedalus/high`. Deploy the matching
+agent workflow and gateway routes together; the old gateway accepts `high`, but
+its old DeepSeek default was incorrectly `low`, so do not claim the new effort
+semantics until the gateway route configuration is updated.
 An unconfigured level fails before model invocation.
 Operators may map requests/skills to configured canonical levels; omission from
 those maps preserves automatic routing. A successful mapped skill load selects

@@ -236,7 +236,10 @@ def test_shipped_workflow_leaves_automatic_routing_to_gateway():
             if key in workflow
         }
     )
-    assert set(config.model_routes) == set(MODEL_PROFILES)
+    assert set(config.model_routes) == {"instant", "low", "high", "max"}
+    for unavailable in ("medium", "xhigh"):
+        with pytest.raises(ValueError, match="not configured"):
+            ModelSelection.resolve(config, {"model_profile": unavailable}, "default")
     assert not config.request_model_profiles
     assert not config.skill_model_profiles
     selection = ModelSelection.resolve(config, {}, "daily_summary")

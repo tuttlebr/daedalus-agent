@@ -953,12 +953,12 @@ llms:
 workflow:
   _type: daedalus_rust_agent
   llm_name: tool_calling_llm
-  # Omit model_profile for automatic routing; the gateway owns tier selection.
+  # Default custom gateway exposes four distinct DeepSeek settings.
+  # Omit model_profile for automatic routing; the gateway owns task classification.
+  # Other provider configurations may explicitly add medium/xhigh model_routes.
   model_routes:
     max: ${DAEDALUS_LLM_MAX_MODEL:-daedalus/max}
-    xhigh: ${DAEDALUS_LLM_XHIGH_MODEL:-daedalus/xhigh}
     high: ${DAEDALUS_LLM_HIGH_MODEL:-daedalus/high}
-    medium: ${DAEDALUS_LLM_MEDIUM_MODEL:-daedalus/medium}
     low: ${DAEDALUS_LLM_LOW_MODEL:-daedalus/low}
     instant: ${DAEDALUS_LLM_INSTANT_MODEL:-daedalus/instant}
   max_iterations: 264
