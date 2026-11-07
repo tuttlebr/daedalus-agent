@@ -405,9 +405,10 @@ nginx:
     type: ClusterIP
     exposeHttp: true
 
-# OpenAI Chat Completions and Anthropic Messages compatible agent API
+# OpenAI Chat Completions/Responses and Anthropic Messages compatible agent API
 # (docs/compatibility-api.md). Opt-in. When enabled, nginx routes exactly
-# POST /v1/chat/completions, POST /v1/messages and GET /v1/models to the
+# POST /v1/chat/completions, POST /v1/responses, POST /v1/messages and
+# GET /v1/models to the
 # frontend, which authenticates per-user API keys and runs the same agent,
 # queue and limits as the web application. Requires nginx restricted mode.
 # Setting enabled: false removes the routes and disables the handlers.

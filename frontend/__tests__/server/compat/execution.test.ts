@@ -195,10 +195,10 @@ describe('compatibility chat execution', () => {
     expect(res.headers['x-daedalus-conversation-id']).toBeUndefined();
   });
 
-  it('rejects unsupported input and bad keys before any job exists', async () => {
+  it('rejects invalid input and bad keys before any job exists', async () => {
     const unsupported = response();
     await handleCompatChat(
-      request(chat({ tools: [{ type: 'function' }] })),
+      request(chat({ messages: [{ role: 'invalid', content: 'x' }] })),
       unsupported,
       openaiRoute,
     );
@@ -528,3 +528,68 @@ function anthropic(extra: Record<string, unknown> = {}) {
     ...extra,
   };
 }
+
+describe('Responses route and cache-only admission', () => {
+  it('uses the actual Responses handler and drops external state before queueing', async () => {
+    const { default: handler } = await import('@/pages/api/v1/responses');
+    const res = response();
+    await handler(
+      request({
+        model: 'gpt-4o',
+        input: 'Hello',
+        instructions: 'Be brief',
+        previous_response_id: 'external',
+        conversation: 'external',
+        background: true,
+        tools: [{ type: 'mcp', server_url: 'https://external.invalid' }],
+      }),
+      res,
+    );
+    expect(res.body.object).toBe('response');
+    expect(res.body.output[0].content[0].text).toBe('It is noon.');
+    expect(res.headers['x-daedalus-ignored-parameters']).toContain(
+      'previous_response_id',
+    );
+    expect(mocks.submit).toHaveBeenCalledOnce();
+    const input = mocks.submit.mock.calls[0][1];
+    expect(input.conversationId).toBeNull();
+    expect(input.callerInstructions).toBe('Be brief');
+    expect(input.responseMode).toBe('final_only');
+    expect(JSON.stringify(input)).not.toContain('external');
+    expect(input.messages.map((m: { content: string }) => m.content)).toEqual([
+      'Hello',
+    ]);
+  });
+
+  it('keeps Responses disabled with the operator switch', async () => {
+    delete process.env.DAEDALUS_COMPAT_API_ENABLED;
+    const { default: handler } = await import('@/pages/api/v1/responses');
+    const res = response();
+    await handler(request({ input: 'Hello' }), res);
+    expect(res.statusCode).toBe(404);
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'does not run tools for Anthropic max_tokens: 0 (stream=%s)',
+    async (stream) => {
+      const res = response();
+      await handleCompatChat(
+        request({
+          model: 'daedalus',
+          max_tokens: 0,
+          messages: [{ role: 'user', content: 'Do something' }],
+          stream,
+        }),
+        res,
+        anthropicRoute,
+      );
+      expect(res.statusCode).toBe(200);
+      expect(mocks.authenticate).toHaveBeenCalledOnce();
+      expect(mocks.submit).not.toHaveBeenCalled();
+      expect(mocks.wait).not.toHaveBeenCalled();
+      if (stream) expect(res.chunks.join('')).toContain('message_stop');
+      else expect(res.body.content).toEqual([]);
+    },
+  );
+});

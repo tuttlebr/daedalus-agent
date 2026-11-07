@@ -37,6 +37,7 @@ const nextConfig = {
         source: '/v1/chat/completions',
         destination: '/api/v1/chat/completions',
       },
+      { source: '/v1/responses', destination: '/api/v1/responses' },
       { source: '/v1/messages', destination: '/api/v1/messages' },
       { source: '/v1/models', destination: '/api/v1/models' },
     ];

@@ -1,19 +1,23 @@
 # OpenAI and Anthropic compatible API
 
-Daedalus can serve applications that speak the OpenAI Chat Completions or
-Anthropic Messages API. A request runs the full Daedalus agent as the API key's
+Daedalus can serve applications that speak the OpenAI Chat Completions, OpenAI
+Responses, or Anthropic Messages API. A request runs the full Daedalus agent as the API key's
 owner: the same Rust agent loop, authorized server-side tools, memory,
 retrieval, skills and connected services as the web application, through the
 same queue, per-user limits, conversation locks and finalization.
 
-The API is a supported subset of both vendor APIs, documented below. It does
-not promise compatibility with every application that uses them.
+The endpoints accept the vendors’ create-request schemas and return their JSON
+and SSE response shapes. Provider-specific controls are advisory: they are
+accepted, dropped, and reported in `X-Daedalus-Ignored-Parameters`. This is
+wire-format compatibility with the Daedalus agent, not vendor feature parity.
+Clients that require a particular ignored feature must account for that limit.
 
 ## How a request runs
 
 ```mermaid
 flowchart LR
     O[OpenAI client] -->|POST /v1/chat/completions| N[nginx exact routes]
+    RSP[Responses client] -->|POST /v1/responses| N
     A[Anthropic client] -->|POST /v1/messages| N
     N --> F[Frontend: API key, validation, idempotency]
     F --> S[submitChatJob: shared with the web app]
@@ -33,22 +37,22 @@ flowchart LR
 4. The adapter reads the finalized job status and encodes the final answer, or
    an error, in the caller's protocol.
 
-| Area                             | Entry points                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Routes                           | `frontend/pages/api/v1/chat/completions.ts`, `messages.ts`, `models.ts` (public paths are rewritten from `/v1/*`) |
-| Validation                       | `frontend/server/compat/openaiRequest.ts`, `anthropicRequest.ts`, `request.ts`                                    |
-| Execution, idempotency, encoding | `frontend/server/compat/execution.ts`, `idempotency.ts`, `runObserver.ts`, `responders.ts`                        |
-| Keys                             | `frontend/server/apiKeys.ts`, `frontend/pages/api/api-keys/`, `frontend/components/connections/ApiKeysPanel.tsx`  |
-| Shared services                  | `frontend/server/chat/submission.ts`, `cancellation.ts`, `finalization.ts`                                        |
-| Run usage                        | `builder/runtime/src/events.rs` (`usage` event), `frontend/server/chat/streamReader.ts`                           |
-| Routing                          | `helm/daedalus/templates/config-nginx.yaml`, `compatibilityApi` in `helm/daedalus/values.yaml`                    |
+| Area                             | Entry points                                                                                                                      |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Routes                           | `frontend/pages/api/v1/chat/completions.ts`, `responses.ts`, `messages.ts`, `models.ts` (public paths are rewritten from `/v1/*`) |
+| Validation                       | `frontend/server/compat/openaiRequest.ts`, `responsesRequest.ts`, `anthropicRequest.ts`, `content.ts`, `request.ts`               |
+| Execution, idempotency, encoding | `frontend/server/compat/execution.ts`, `idempotency.ts`, `runObserver.ts`, `responders.ts`                                        |
+| Keys                             | `frontend/server/apiKeys.ts`, `frontend/pages/api/api-keys/`, `frontend/components/connections/ApiKeysPanel.tsx`                  |
+| Shared services                  | `frontend/server/chat/submission.ts`, `cancellation.ts`, `finalization.ts`                                                        |
+| Run usage                        | `builder/runtime/src/events.rs` (`usage` event), `frontend/server/chat/streamReader.ts`                                           |
+| Routing                          | `helm/daedalus/templates/config-nginx.yaml`, `compatibilityApi` in `helm/daedalus/values.yaml`                                    |
 
 ## Enable and roll back
 
 The API is off by default. `compatibilityApi.enabled: true` in the chart:
 
-- adds exact nginx routes for `POST /v1/chat/completions`, `POST /v1/messages`
-  and `GET /v1/models` to the frontend. Every other `/v1` path stays blocked by
+- adds exact nginx routes for `POST /v1/chat/completions`, `POST /v1/responses`,
+  `POST /v1/messages` and `GET /v1/models` to the frontend. Every other `/v1` path stays blocked by
   restricted mode, which the chart requires for this setting;
 - sets `DAEDALUS_COMPAT_API_ENABLED=true` on the frontend. Without it, the
   handlers answer 404 even when reached directly;
@@ -123,6 +127,13 @@ stream = client.chat.completions.create(
 )
 ```
 
+The same OpenAI client can use Responses:
+
+```python
+response = client.responses.create(model="daedalus", input="What time is it?")
+print(response.output_text)
+```
+
 ```python
 from anthropic import Anthropic
 
@@ -138,58 +149,73 @@ Other applications are not claimed as supported until tested.
 
 ## Compatibility matrix
 
-`model` must be `daedalus`; it uses the existing automatic model-selection
-policy. Other names return 404. `GET /v1/models` lists only `daedalus`, in the
-OpenAI shape, or the Anthropic shape when `anthropic-version` is present.
+`GET /v1/models` advertises `daedalus`. A vendor model name in a create
+request is accepted as an alias for the agent and reported as ignored; the
+response identifies the actual model as `daedalus`. It uses automatic model
+selection. Caller model names never select a provider or grant permissions.
 
-Parameters fall into three groups. **Supported** parameters change behavior.
-**Advisory** parameters are validated and accepted but cannot affect the
-agent; the response lists them in `X-Daedalus-Ignored-Parameters`. Everything
-else is **rejected** with a 400 before any job exists. Unknown fields are
-rejected too.
+All documented top-level create parameters are recognized. Text, caller
+instructions, streaming, and final-answer budgets affect behavior. Other
+parameters are accepted and reported in `X-Daedalus-Ignored-Parameters`.
+Malformed core fields, unknown top-level fields, and oversized requests still
+fail before execution. Histories are bounded to 500 input entries, 2 MiB of
+retained text and 32 KiB of caller instructions; the HTTP body limit also
+applies to data that will be dropped.
 
 ### OpenAI Chat Completions
 
-| Input                                                                                                                                                       | Contract                                                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `messages`                                                                                                                                                  | Required, 1–500 entries, at most 2 MiB of text; the last must be a `user` message with text                                                                 |
-| `user`, `assistant` content                                                                                                                                 | String or an array of `{"type":"text"}` parts; assistant `refusal`, empty `tool_calls`, `null` `audio`/`function_call` and empty `annotations` are accepted |
-| `system`, `developer`                                                                                                                                       | Combined, in order, into caller instructions (at most 32 KiB)                                                                                               |
-| `stream`                                                                                                                                                    | Optional, default `false`                                                                                                                                   |
-| `stream_options.include_usage`                                                                                                                              | Supported with `stream: true`                                                                                                                               |
-| `max_completion_tokens`, `max_tokens`                                                                                                                       | Final-answer budget; setting both is rejected                                                                                                               |
-| `n`                                                                                                                                                         | Only `1`                                                                                                                                                    |
-| `tool_choice`                                                                                                                                               | Only `none` or `auto`, with no tools                                                                                                                        |
-| `response_format`                                                                                                                                           | Only `{"type":"text"}`                                                                                                                                      |
-| `modalities`                                                                                                                                                | Only `["text"]`                                                                                                                                             |
-| `store`, `logprobs`                                                                                                                                         | Only `false`                                                                                                                                                |
-| `service_tier`                                                                                                                                              | Only `auto` or `default`                                                                                                                                    |
-| `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `seed`, `user`, `metadata`, `prompt_cache_key`, `safety_identifier`, `parallel_tool_calls` | Advisory                                                                                                                                                    |
-| `tools`, `functions` (non-empty), `tool`/`function` roles, assistant tool calls                                                                             | Rejected: Daedalus runs its own server-side tools                                                                                                           |
-| Image, audio and file parts, message `name`                                                                                                                 | Rejected                                                                                                                                                    |
-| `stop`, `logit_bias`, `top_logprobs`, `audio`, `prediction`, `reasoning_effort`, `verbosity`, `web_search_options`                                          | Rejected                                                                                                                                                    |
+`POST /v1/chat/completions` accepts `messages`, including system/developer
+instructions, participant names, assistant refusals and tool history. Text
+content is retained. Supplied tool/function results become untrusted user
+conversation text; tool calls are never executed from the request. Non-text
+parts (images, audio and files) and message metadata are accepted and dropped.
+An assistant-ending history gets an explicit continuation turn for the agent.
 
-Responses contain `id` (`chatcmpl-<run id>`), `object`, `created`, `model`,
-`system_fingerprint: null`, one choice with `message.content`, `refusal: null`
-and `annotations: []`, and `finish_reason` `stop` or `length`. Streams send a
-role chunk, content chunks, a finish chunk, the usage chunk when requested and
-available, then `data: [DONE]`.
+`stream_options.include_usage` controls the usage chunk. `max_completion_tokens`
+takes precedence over deprecated `max_tokens` when both are supplied, with
+`max_tokens` reported as ignored. Other options—including `n`, stop sequences,
+structured output, tool definitions/selection, audio, sampling, logprobs,
+reasoning effort, prediction, storage, cache and service-tier controls—are
+advisory. Daedalus returns one text answer, even when `n` requests more.
+
+Responses are `chat.completion` objects with one assistant choice and
+`finish_reason` `stop` or `length`. Streams use `chat.completion.chunk` objects,
+an optional usage chunk and the final `[DONE]` marker.
+
+### OpenAI Responses
+
+`POST /v1/responses` accepts string `input` or an input-item array, plus optional
+`instructions`. Message text (`input_text`, `output_text` and refusals),
+system/developer messages, and inline function/custom-tool outputs are retained.
+Tool outputs are untrusted conversation text. Other items, including reasoning,
+compaction data, hosted tool calls and item references, are accepted and dropped.
+`max_output_tokens` bounds the final answer and `stream` selects SSE delivery.
+
+`previous_response_id`, `conversation`, `prompt`, `store`, `background`, hosted
+tools, file/vector-store IDs, remote MCP definitions, multimodal content, and
+all other provider controls are advisory. No vendor resource is retrieved or
+modified. `background: true` still waits for the request-bound run. Resend text
+history or use `X-Daedalus-Conversation-ID` for Daedalus conversation state.
+Vendor database operations (stored-response/completion retrieval, listing,
+updates, deletion and cancellation by vendor ID) are not exposed.
+
+Responses have `object: response`, `resp_` IDs, an assistant output message
+with `output_text` content, and `status: completed` or `incomplete`. Truncation
+sets `incomplete_details.reason: max_output_tokens`. Streaming sends numbered
+`response.created`, `response.in_progress`, output-item/content-part lifecycle
+and text-delta events, then `response.completed` or `response.incomplete`.
+Failures send `response.failed` and an `error` event. The official SDK's
+`responses.create()` and `responses.stream().finalResponse()` expose
+`output_text` from these messages.
 
 ### Anthropic Messages
 
-| Input                                                                                                                                                                               | Contract                                                                                                             |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `anthropic-version` header                                                                                                                                                          | Required: `2023-06-01` or `2026-10-21`                                                                               |
-| `anthropic-beta` header                                                                                                                                                             | Rejected when present                                                                                                |
-| `max_tokens`                                                                                                                                                                        | Required positive integer: the final-answer budget                                                                   |
-| `messages`                                                                                                                                                                          | Required, 1–500 entries of `user`/`assistant` with string or `text` block content; the last must be a `user` message |
-| `system`                                                                                                                                                                            | String or `text` blocks; becomes caller instructions                                                                 |
-| `stream`                                                                                                                                                                            | Optional, default `false`                                                                                            |
-| `cache_control` on text blocks, `metadata.user_id`, `service_tier` (`auto`, `standard_only`)                                                                                        | Advisory                                                                                                             |
-| `temperature`, `top_p`, `top_k`                                                                                                                                                     | Advisory under `2023-06-01`; rejected under `2026-10-21`, as that version does                                       |
-| `tool_choice`                                                                                                                                                                       | Only `auto` or `none`, with no tools                                                                                 |
-| `thinking`                                                                                                                                                                          | Only `{"type":"disabled"}`                                                                                           |
-| `tools` (non-empty), non-text blocks (images, documents, tool use and results, thinking), non-empty `citations`, `stop_sequences`, `container`, `mcp_servers`, `context_management` | Rejected                                                                                                             |
+`POST /v1/messages` accepts `messages`, string or text-block `system`, `stream`,
+and required `max_tokens`. Text blocks and inline tool-result text are retained;
+images, documents, thinking, tool-use blocks, citations and cache markers are
+accepted and dropped. Tool definitions, tool choice, stop sequences, thinking
+settings, output configuration, sampling, metadata, service tiers, containers,
+MCP and other provider controls are advisory.
 
 Responses are `message` objects (`msg_<run id>`) with one `text` block,
 `stop_reason` `end_turn` or `max_tokens`, and `null` `stop_sequence`,
@@ -197,17 +223,28 @@ Responses are `message` objects (`msg_<run id>`) with one `text` block,
 `ping` keepalives, one text content block, `message_delta` with the stop
 reason and usage, then `message_stop`.
 
+The version header is optional. The pinned SDK's current and legacy versions
+are recognized; other date-shaped versions and beta/workspace/profile selectors
+are accepted as advisory and never change identity or permissions. Sampling
+fields from older clients remain advisory under newer version headers.
+`max_tokens: 0` returns an empty message without running the agent or its tools;
+it does not populate a vendor prompt cache.
+
+For all three APIs, a request whose content is entirely dropped is accepted
+with a synthetic turn asking for usable text. External references are never
+resolved to reconstruct missing text.
+
 ### Headers
 
-| Header                                            | Direction | Meaning                                                                            |
-| ------------------------------------------------- | --------- | ---------------------------------------------------------------------------------- |
-| `Idempotency-Key`                                 | Request   | 1–255 printable ASCII characters; see [Retries](#retries-and-idempotency)          |
-| `X-Daedalus-Conversation-ID`                      | Both      | Continue a saved conversation; returned when used                                  |
-| `X-Daedalus-Run-ID`, `x-request-id`, `request-id` | Response  | The run's job ID, for correlation with logs and the web app                        |
-| `X-Daedalus-Ignored-Parameters`                   | Response  | Advisory parameters this request carried                                           |
-| `X-Daedalus-Usage`                                | Response  | Anthropic non-streaming usage completeness: `complete`, `partial` or `unavailable` |
-| `X-Daedalus-Idempotent-Replay`                    | Response  | `true` when the response describes an earlier run                                  |
-| `x-should-retry`                                  | Response  | Whether the official SDKs may retry this error                                     |
+| Header                                            | Direction | Meaning                                                                                     |
+| ------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `Idempotency-Key`                                 | Request   | 1–255 printable ASCII characters; see [Retries](#retries-and-idempotency)                   |
+| `X-Daedalus-Conversation-ID`                      | Both      | Continue a saved conversation; returned when used                                           |
+| `X-Daedalus-Run-ID`, `x-request-id`, `request-id` | Response  | The run's job ID, for correlation with logs and the web app                                 |
+| `X-Daedalus-Ignored-Parameters`                   | Response  | Advisory parameters this request carried                                                    |
+| `X-Daedalus-Usage`                                | Response  | Messages/Responses non-streaming usage completeness: `complete`, `partial` or `unavailable` |
+| `X-Daedalus-Idempotent-Replay`                    | Response  | `true` when the response describes an earlier run                                           |
+| `x-should-retry`                                  | Response  | Whether the official SDKs may retry this error                                              |
 
 ## Behavior
 
@@ -224,12 +261,13 @@ browser session; no filesystem paths or internal hosts are returned.
 
 ### Output budget
 
-`max_tokens` and `max_completion_tokens` bound the returned answer only. The
+`max_tokens`, `max_completion_tokens`, and `max_output_tokens` bound the returned answer only. The
 agent's internal model and tool work has its own bounds: the workflow's
 iteration limit and the 30-minute run deadline. Because one run may use
 providers with different tokenizers, the answer is measured with one estimator,
 one token per four UTF-8 bytes, and truncated at a character boundary with
-`finish_reason: length` or `stop_reason: max_tokens`.
+`finish_reason: length`, `stop_reason: max_tokens`, or Responses
+`status: incomplete`.
 
 ### Usage
 
@@ -238,9 +276,14 @@ not cover model calls made inside tools (such as image or vision tools), the
 gateway's routing judge, or automatic memory retention. The Rust runtime
 reports it in a content-free `usage` event before its terminal event.
 
-- OpenAI: `usage` and the streaming usage chunk appear only when every model
+- Chat Completions: `usage` and the streaming usage chunk appear only when every model
   call reported usage. They are omitted otherwise, never estimated.
   `prompt_tokens_details.cached_tokens` reports cache reads when known.
+- Responses: `usage` is `null` unless all model calls reported totals. When
+  present it contains `input_tokens`, `output_tokens`, `total_tokens`, and the
+  required detail objects. Unmeasured cache-write/reasoning breakdowns use zero
+  as a lower bound, not a claim of measured zero. Cache reads use measured
+  values when available, otherwise the same zero lower bound.
 - Anthropic: the schema requires numbers. When some call did not report
   usage, the values are the measured lower bounds from calls that did, and
   `X-Daedalus-Usage` says `partial` or `unavailable` on non-streaming
@@ -322,7 +365,7 @@ not send `Idempotency-Key` themselves; set it per request.
 
 Runs are bound to their request. A client that disconnects stops the run
 through the web app's Stop path: completed output is kept, completed actions
-are not undone, and the slot is released. Release 1 has no detached
+are not undone, and the slot is released. There is no detached
 background execution and no resume of an interrupted run.
 
 The frontend waits up to 40 minutes for a run (the runtime's 30-minute run
@@ -374,5 +417,6 @@ is also the job ID used in [runtime logs](operations.md#runtime-logs).
 ## References
 
 - [OpenAI Chat Completions streaming](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)
+- [OpenAI Responses](https://developers.openai.com/api/reference/resources/responses)
 - [Anthropic Messages](https://platform.claude.com/docs/en/api/messages) and [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
 - [Anthropic API versions](https://platform.claude.com/docs/en/api/versioning)

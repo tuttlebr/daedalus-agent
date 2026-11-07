@@ -62,7 +62,7 @@ export const CONVERSATION_HEADER = 'x-daedalus-conversation-id';
 export interface CompatRoute {
   protocol: CompatProtocol;
   /** Idempotency scope and metrics label. */
-  name: 'chat.completions' | 'messages';
+  name: 'chat.completions' | 'messages' | 'responses';
   validateHeaders?: (headers: NextApiRequest['headers']) => void;
   parse: (
     body: unknown,
@@ -575,6 +575,16 @@ export async function handleCompatChat(
       'x-daedalus-ignored-parameters',
       [...new Set(request.ignoredParameters)].join(','),
     );
+  }
+  // Anthropic cache-only requests must never execute tools or create a job.
+  // Daedalus has no provider prompt cache to populate.
+  if (request.maxOutputTokens === 0) {
+    const completion = { text: '', truncated: true };
+    if (responder.streaming) {
+      responder.startStream();
+      responder.finishStream(completion);
+    } else responder.sendCompletion(completion);
+    return;
   }
   const shared = { req, res, responder, principal, request, route, startedAt };
 

@@ -64,15 +64,6 @@ export function invalidRequest(
   return new CompatError('invalid_request', message, { param, code });
 }
 
-export function unsupported(param: string, message?: string): CompatError {
-  return new CompatError(
-    'invalid_request',
-    message ??
-      `Unsupported parameter: '${param}' is not supported by the Daedalus agent API.`,
-    { param, code: 'unsupported_parameter' },
-  );
-}
-
 /** The `daedalus` extension object carried inside vendor error bodies. */
 export function errorExtension(
   details: CompatErrorDetails | undefined,

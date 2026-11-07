@@ -354,7 +354,8 @@ They retain backend authentication requirements. Set
 `nginx.config.restrictedMode=true` to disable these direct backend routes.
 
 With `compatibilityApi.enabled=true` (restricted mode only), nginx sends exactly
-`POST /v1/chat/completions`, `POST /v1/messages` and `GET /v1/models` to the
+`POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages`
+and `GET /v1/models` to the
 frontend, which authenticates per-user API keys and runs the normal chat
 pipeline. Other `/v1` paths remain blocked. Disabling the value removes the
 routes and the handlers. See [compatibility API](../../docs/compatibility-api.md).

@@ -40,7 +40,7 @@ transition reports execution progress; it does not imply the first answer
 token has arrived. Backend selection runs at most three health probes at a
 time per submission and cancels the remaining probes when a healthy pod responds.
 
-Applications that speak the OpenAI Chat Completions or Anthropic Messages API
+Applications that speak OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages
 enter the same path through opt-in, API-key-authenticated `/v1` routes on the
 frontend. They share step 1's submission service, limits and queue; see the
 [compatibility API](compatibility-api.md).

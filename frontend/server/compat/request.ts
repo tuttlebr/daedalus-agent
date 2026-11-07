@@ -42,17 +42,7 @@ export function requireModel(value: unknown): string {
   if (typeof value !== 'string' || !value) {
     throw invalidRequest('model is required.', 'model', 'missing_required');
   }
-  if (value !== COMPAT_MODEL_ALIAS) {
-    throw new CompatError(
-      'not_found',
-      `The model '${value.slice(
-        0,
-        128,
-      )}' does not exist. Use '${COMPAT_MODEL_ALIAS}'.`,
-      { param: 'model', code: 'model_not_found' },
-    );
-  }
-  return value;
+  return COMPAT_MODEL_ALIAS;
 }
 
 export function optionalBoolean(
@@ -115,23 +105,6 @@ export function advisoryNumber(
   ignored.push(key);
 }
 
-export function advisoryString(
-  body: Record<string, unknown>,
-  key: string,
-  ignored: string[],
-  maxLength = 512,
-): void {
-  const value = body[key];
-  if (value === undefined || value === null) return;
-  if (typeof value !== 'string' || value.length > maxLength) {
-    throw invalidRequest(
-      `'${key}' must be a string of at most ${maxLength} characters.`,
-      key,
-    );
-  }
-  ignored.push(key);
-}
-
 /** Reject keys outside the documented set, as the vendor APIs do. */
 export function rejectUnknownKeys(
   value: Record<string, unknown>,
@@ -151,7 +124,7 @@ export function rejectUnknownKeys(
   }
 }
 
-/** Check the bounded history and the final user turn shared by both APIs. */
+/** Check the bounded, normalized history before submitting to the runtime. */
 export function validateConversation(
   messages: NormalizedMessage[],
   instructions: string | null,

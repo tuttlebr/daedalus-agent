@@ -145,6 +145,33 @@ test.describe('OpenAI and Anthropic compatible API', () => {
     expect((final.content[0] as { text: string }).text).toContain('👋');
     expect(final.usage).toMatchObject({ input_tokens: 300, output_tokens: 45 });
 
+    const response = await openai()
+      .responses.create({
+        model: 'daedalus',
+        input: `${marker} responses`,
+        instructions: 'Be terse.',
+        store: true,
+      })
+      .withResponse();
+    expect(response.data.output_text).toContain('café ✓ 👋');
+    expect(response.data.status).toBe('completed');
+    expect(response.data.usage).toMatchObject({
+      input_tokens: 321,
+      output_tokens: 45,
+      total_tokens: 366,
+    });
+    expect(
+      response.response.headers.get('x-daedalus-ignored-parameters'),
+    ).toContain('store');
+    const responseFinal = await openai()
+      .responses.stream({
+        model: 'daedalus',
+        input: `${marker} responses stream`,
+      })
+      .finalResponse();
+    expect(responseFinal.output_text).toContain('café ✓ 👋');
+    expect(responseFinal.status).toBe('completed');
+
     const openaiModels = await openai().models.list();
     expect(openaiModels.data.map((model) => model.id)).toEqual(['daedalus']);
     const anthropicModels = await anthropic().models.list();
@@ -153,7 +180,7 @@ test.describe('OpenAI and Anthropic compatible API', () => {
     // The backend saw the key owner, final-only presentation, and caller
     // instructions placed after Daedalus identity, in isolated run scopes.
     const seen = await ledger(marker);
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(6);
     for (const entry of seen) {
       expect(entry.userId).toBe('e2e-user');
       expect(entry.responseMode).toBe('final_only');
@@ -164,7 +191,7 @@ test.describe('OpenAI and Anthropic compatible API', () => {
     }
     expect(
       seen.filter((entry) => entry.tags.includes('[CALLER_INSTRUCTIONS]')),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   test('quiet periods, truncation, and failures after partial output', async () => {
@@ -216,52 +243,100 @@ test.describe('OpenAI and Anthropic compatible API', () => {
     expect(await ledger(streamedFailure)).toHaveLength(1);
   });
 
-  test('unsupported input fails before any execution', async () => {
+  test('vendor features are accepted, reported and dropped before execution', async () => {
     const marker = `E2E_COMPAT_ANSWER ${randomUUID()}`;
-    const attempts = [
-      openai().chat.completions.create({
-        model: 'daedalus',
-        messages: [{ role: 'user', content: marker }],
-        tools: [
-          {
-            type: 'function',
-            function: { name: 'client_tool', parameters: { type: 'object' } },
-          },
-        ],
-      }),
-      openai().chat.completions.create({
-        model: 'daedalus',
+    const chat = await openai()
+      .chat.completions.create({
+        model: 'gpt-4o',
         messages: [
           {
             role: 'user',
             content: [
-              { type: 'image_url', image_url: { url: 'https://e.com/x.png' } },
+              { type: 'text', text: marker },
+              {
+                type: 'image_url',
+                image_url: { url: 'https://external.invalid/image.png' },
+              },
             ],
           },
         ],
-      }),
-      anthropic({
-        defaultHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
-      }).messages.create({
-        model: 'daedalus',
-        max_tokens: 10,
+        tools: [
+          {
+            type: 'function',
+            function: { name: 'external_tool', parameters: { type: 'object' } },
+          },
+        ],
+        response_format: { type: 'json_object' },
+        store: true,
+      })
+      .withResponse();
+    expect(chat.data.choices[0].message.content).toContain('Compat answer');
+    expect(
+      chat.response.headers.get('x-daedalus-ignored-parameters'),
+    ).toContain('tools');
+    const message = await anthropic({
+      defaultHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+    })
+      .messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 256,
         messages: [{ role: 'user', content: marker }],
-      }),
-      openai().chat.completions.create({
+        tools: [{ name: 'external_tool', input_schema: { type: 'object' } }],
+      })
+      .withResponse();
+    expect(
+      message.response.headers.get('x-daedalus-ignored-parameters'),
+    ).toContain('anthropic-beta');
+    const response = await openai()
+      .responses.create({
         model: 'gpt-4o',
-        messages: [{ role: 'user', content: marker }],
-      }),
-    ];
-    const statuses = await Promise.all(
-      attempts.map((attempt) =>
-        attempt.then(
-          () => 200,
-          (error) => error.status,
-        ),
-      ),
-    );
-    expect(statuses).toEqual([400, 400, 400, 404]);
-    expect(await ledger(marker)).toHaveLength(0);
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: marker },
+              { type: 'input_file', file_id: 'file_external' },
+            ],
+          },
+        ],
+        previous_response_id: 'resp_external',
+        tools: [{ type: 'file_search', vector_store_ids: ['vs_external'] }],
+        background: true,
+      })
+      .withResponse();
+    expect(response.data.output_text).toContain('Compat answer');
+    expect(
+      response.response.headers.get('x-daedalus-ignored-parameters'),
+    ).toContain('previous_response_id');
+    const seen = await ledger(marker);
+    expect(seen).toHaveLength(3);
+    for (const entry of seen) {
+      expect(entry.prompt).not.toContain('external.invalid');
+      expect(entry.prompt).not.toContain('file_external');
+      expect(entry.prompt).not.toContain('external_tool');
+      expect(entry.userId).toBe('e2e-user');
+      expect(entry.responseMode).toBe('final_only');
+    }
+  });
+
+  test('Responses handles idempotency, truncation and streaming failures', async () => {
+    const marker = `E2E_COMPAT_ANSWER ${randomUUID()}`;
+    const options = { headers: { 'Idempotency-Key': randomUUID() } };
+    const body = { model: 'daedalus', input: marker, max_output_tokens: 2 };
+    const first = await openai().responses.create(body, options);
+    const second = await openai().responses.create(body, options);
+    expect(second.id).toBe(first.id);
+    expect(second.output_text).toBe('Compat a');
+    expect(second.status).toBe('incomplete');
+    expect(second.incomplete_details?.reason).toBe('max_output_tokens');
+    expect(await ledger(marker)).toHaveLength(1);
+    const failure = `E2E_LATE_ERROR ${randomUUID()}`;
+    await expect(
+      openai()
+        .responses.stream({ model: 'daedalus', input: failure })
+        .finalResponse(),
+    ).rejects.toThrow();
+    expect(await ledger(failure)).toHaveLength(1);
   });
 
   test('keys, identity headers, and conversation ownership are enforced', async () => {

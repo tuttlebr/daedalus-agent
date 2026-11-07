@@ -431,3 +431,171 @@ export function createAnthropicResponder(
     },
   };
 }
+
+// ── OpenAI Responses ──────────────────────────────────────────────────
+
+/** Responses has its own envelope and SSE lifecycle (not Chat chunks). */
+export function createResponsesResponder(
+  res: NextApiResponse,
+  options: ResponderOptions,
+): CompatResponder {
+  const id = `resp_${options.runId}`;
+  const itemId = `msg_${options.runId}`;
+  const created = options.created ?? Math.floor(Date.now() / 1000);
+  let sequence = 0;
+  const event = (type: string, data: Record<string, unknown>) => {
+    write(
+      res,
+      `event: ${type}\ndata: ${JSON.stringify({
+        type,
+        sequence_number: sequence++,
+        ...data,
+      })}\n\n`,
+    );
+  };
+  const content = (text: string) => ({
+    type: 'output_text',
+    text,
+    annotations: [],
+    logprobs: [],
+  });
+  const item = (text: string, status: string) => ({
+    id: itemId,
+    type: 'message',
+    role: 'assistant',
+    status,
+    content: [content(text)],
+  });
+  const response = (result?: CompatCompletion, failure?: CompatError) => {
+    const usage = result?.usage;
+    const completeUsage =
+      usage && usage.inputTokens !== null && usage.outputTokens !== null;
+    return {
+      id,
+      object: 'response',
+      created_at: created,
+      model: options.model,
+      access_programs: null,
+      status: failure
+        ? 'failed'
+        : !result
+        ? 'in_progress'
+        : result.truncated
+        ? 'incomplete'
+        : 'completed',
+      completed_at:
+        result && !result.truncated ? Math.floor(Date.now() / 1000) : null,
+      error: failure
+        ? { code: 'server_error', message: failure.message }
+        : null,
+      incomplete_details: result?.truncated
+        ? { reason: 'max_output_tokens' }
+        : null,
+      output: result
+        ? [item(result.text, result.truncated ? 'incomplete' : 'completed')]
+        : [],
+      instructions: null,
+      metadata: {},
+      tools: [],
+      tool_choice: 'auto',
+      parallel_tool_calls: false,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: null,
+      max_tool_calls: null,
+      previous_response_id: null,
+      reasoning: { effort: null, summary: null },
+      text: { format: { type: 'text' } },
+      truncation: 'disabled',
+      store: false,
+      background: false,
+      service_tier: 'default',
+      user: null,
+      safety_identifier: null,
+      prompt_cache_key: null,
+      usage: completeUsage
+        ? {
+            input_tokens: usage.inputTokens,
+            input_tokens_details: {
+              cached_tokens: usage.cachedTokens ?? 0,
+              cache_write_tokens: 0,
+            },
+            output_tokens: usage.outputTokens,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: usage.inputTokens! + usage.outputTokens!,
+          }
+        : null,
+    };
+  };
+  return {
+    streaming: options.stream,
+    sendError(error) {
+      const { status, body } = openAIErrorBody(error);
+      writeJsonError(res, status, error, body);
+    },
+    sendCompletion(result) {
+      res.setHeader('x-daedalus-usage', usageCompleteness(result.usage));
+      res.status(200).json(response(result));
+    },
+    startStream() {
+      startEventStream(res);
+      event('response.created', { response: response() });
+      event('response.in_progress', { response: response() });
+    },
+    keepalive() {
+      write(res, ': keepalive\n\n');
+    },
+    finishStream(result) {
+      event('response.output_item.added', {
+        output_index: 0,
+        item: { ...item('', 'in_progress'), content: [] },
+      });
+      event('response.content_part.added', {
+        item_id: itemId,
+        output_index: 0,
+        content_index: 0,
+        part: content(''),
+      });
+      for (const delta of chunks(result.text)) {
+        event('response.output_text.delta', {
+          item_id: itemId,
+          output_index: 0,
+          content_index: 0,
+          delta,
+          logprobs: [],
+        });
+      }
+      event('response.output_text.done', {
+        item_id: itemId,
+        output_index: 0,
+        content_index: 0,
+        text: result.text,
+        logprobs: [],
+      });
+      event('response.content_part.done', {
+        item_id: itemId,
+        output_index: 0,
+        content_index: 0,
+        part: content(result.text),
+      });
+      event('response.output_item.done', {
+        output_index: 0,
+        item: item(result.text, result.truncated ? 'incomplete' : 'completed'),
+      });
+      event(result.truncated ? 'response.incomplete' : 'response.completed', {
+        response: response(result),
+      });
+      end(res);
+    },
+    failStream(error) {
+      event('response.failed', { response: response(undefined, error) });
+      event('error', {
+        code: error.code ?? 'server_error',
+        message: error.message,
+        param: error.param ?? null,
+        ...(error.details ? { daedalus: errorExtension(error.details) } : {}),
+      });
+      end(res);
+    },
+  };
+}

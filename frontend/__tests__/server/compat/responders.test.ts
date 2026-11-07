@@ -458,3 +458,153 @@ describe('run outcome mapping', () => {
     });
   });
 });
+
+describe('Responses responder with the official SDK', () => {
+  async function clientFor(
+    result: { text: string; truncated: boolean; usage?: RunUsage },
+    streaming: boolean,
+  ) {
+    const { default: OpenAI } = await import('openai');
+    const { createResponsesResponder } = await import(
+      '@/server/compat/responders'
+    );
+    const res = fakeResponse();
+    const responder = createResponsesResponder(res, {
+      runId: 'response-1',
+      model: 'daedalus',
+      stream: streaming,
+      includeUsage: true,
+      created: 1,
+    });
+    if (streaming) {
+      responder.startStream();
+      responder.keepalive();
+      responder.finishStream(result);
+    } else responder.sendCompletion(result);
+    const client = new OpenAI({
+      apiKey: 'test-only',
+      baseURL: 'http://compat.invalid/v1',
+      fetch: async () =>
+        streaming ? sseResponse(res.chunks.join('')) : Response.json(res.body),
+    });
+    return { client, res };
+  }
+
+  it('returns a Responses envelope and SDK output_text with measured usage', async () => {
+    const { client, res } = await clientFor(
+      { text: 'Hello ✓', truncated: false, usage },
+      false,
+    );
+    const result = await client.responses.create({
+      model: 'daedalus',
+      input: 'Hi',
+    });
+    expect(result.output_text).toBe('Hello ✓');
+    expect(result).toMatchObject({
+      object: 'response',
+      status: 'completed',
+      access_programs: null,
+      error: null,
+      incomplete_details: null,
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'Hello ✓', annotations: [] }],
+        },
+      ],
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 80,
+        total_tokens: 1280,
+        input_tokens_details: { cached_tokens: 200, cache_write_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      },
+    });
+    expect(res.headers['x-daedalus-usage']).toBe('complete');
+  });
+
+  it.each([false, true])(
+    'accumulates a streamed response (truncated=%s)',
+    async (truncated) => {
+      const text = 'a'.repeat(4095) + '👋 café ✓';
+      const { client, res } = await clientFor({ text, truncated, usage }, true);
+      const stream = client.responses.stream({
+        model: 'daedalus',
+        input: 'Hi',
+      });
+      const deltas: string[] = [];
+      stream.on('response.output_text.delta', (event) =>
+        deltas.push(event.delta),
+      );
+      const final = await stream.finalResponse();
+      expect(final.output_text).toBe(text);
+      expect(deltas.join('')).toBe(text);
+      expect(final.status).toBe(truncated ? 'incomplete' : 'completed');
+      expect(final.incomplete_details).toEqual(
+        truncated ? { reason: 'max_output_tokens' } : null,
+      );
+      const events = res.chunks
+        .filter((frame: string) => frame.startsWith('event:'))
+        .map((frame: string) => JSON.parse(frame.split('\ndata: ')[1]));
+      expect(events.map((event: any) => event.sequence_number)).toEqual(
+        events.map((_: any, index: number) => index),
+      );
+      expect(events.map((event: any) => event.type)).toEqual([
+        'response.created',
+        'response.in_progress',
+        'response.output_item.added',
+        'response.content_part.added',
+        'response.output_text.delta',
+        'response.output_text.delta',
+        'response.output_text.done',
+        'response.content_part.done',
+        'response.output_item.done',
+        truncated ? 'response.incomplete' : 'response.completed',
+      ]);
+    },
+  );
+
+  it('reports missing or partial usage as null', async () => {
+    const { client } = await clientFor(
+      { text: '', truncated: false, usage: partialUsage },
+      false,
+    );
+    expect((await client.responses.create({ input: 'Hi' })).usage).toBeNull();
+  });
+
+  it('raises the official SDK error after an in-stream failure', async () => {
+    const { default: OpenAI } = await import('openai');
+    const { createResponsesResponder } = await import(
+      '@/server/compat/responders'
+    );
+    const res = fakeResponse();
+    const responder = createResponsesResponder(res, {
+      runId: 'failed',
+      model: 'daedalus',
+      stream: true,
+      includeUsage: true,
+    });
+    responder.startStream();
+    responder.failStream(
+      new CompatError('authorization_required', 'Approval required', {
+        code: 'approval_required',
+        details: {
+          runId: 'failed',
+          actionUrl: 'https://d/?conversation=c',
+          requirement: 'mcp_approval',
+        },
+      }),
+    );
+    const client = new OpenAI({
+      apiKey: 'test-only',
+      fetch: async () => sseResponse(res.chunks.join('')),
+    });
+    await expect(
+      client.responses.stream({ input: 'Hi' }).finalResponse(),
+    ).rejects.toThrow('Approval required');
+    expect(res.chunks.join('')).toContain('https://d/?conversation=c');
+    expect(res.chunks.join('')).not.toContain('response.completed');
+  });
+});

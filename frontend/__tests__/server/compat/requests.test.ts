@@ -5,379 +5,408 @@ import {
 } from '@/server/compat/anthropicRequest';
 import { CompatError } from '@/server/compat/errors';
 import { parseOpenAIChatRequest } from '@/server/compat/openaiRequest';
+import { parseResponsesRequest } from '@/server/compat/responsesRequest';
 import { describe, expect, it } from 'vitest';
 
-function rejection(fn: () => unknown): CompatError {
-  try {
-    fn();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CompatError);
-    return error as CompatError;
-  }
-  throw new Error('expected a CompatError');
+// Request fields from the official create schemas (2026-11-07). Each advisory
+// fixture must be accepted and explicitly reported, without entering agent input.
+const chatAdvisory = {
+  audio: { format: 'wav', voice: 'alloy' },
+  frequency_penalty: 1,
+  function_call: { name: 'weather' },
+  functions: [{ name: 'weather', parameters: { type: 'object' } }],
+  logit_bias: { '42': 1 },
+  logprobs: true,
+  top_logprobs: 5,
+  metadata: { caller: 'test' },
+  modalities: ['text', 'audio'],
+  moderation: { model: 'omni-moderation-latest' },
+  n: 3,
+  parallel_tool_calls: true,
+  prediction: { type: 'content', content: 'predicted' },
+  presence_penalty: 1,
+  prompt_cache_key: 'key',
+  prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+  prompt_cache_retention: '24h',
+  reasoning_effort: 'high',
+  response_format: {
+    type: 'json_schema',
+    json_schema: { name: 'answer', schema: { type: 'object' } },
+  },
+  safety_identifier: 'caller',
+  seed: 123,
+  service_tier: 'priority',
+  stop: ['END'],
+  store: true,
+  temperature: 0.5,
+  tool_choice: 'required',
+  tools: [
+    {
+      type: 'function',
+      function: { name: 'weather', parameters: { type: 'object' } },
+    },
+  ],
+  top_p: 0.5,
+  user: 'user',
+  verbosity: 'high',
+  web_search_options: { search_context_size: 'medium' },
+};
+const responsesAdvisory = {
+  access_programs: { cyber: 'standard' },
+  background: true,
+  context_management: [{ type: 'compaction', compact_threshold: 1000 }],
+  conversation: { id: 'conv_external' },
+  image: { context_compression: 'auto' },
+  include: ['file_search_call.results'],
+  max_tool_calls: 5,
+  metadata: { caller: 'test' },
+  moderation: { model: 'omni-moderation-latest' },
+  parallel_tool_calls: false,
+  previous_response_id: 'resp_external',
+  prompt: { id: 'pmpt_external', variables: { topic: 'test' } },
+  prompt_cache_key: 'key',
+  prompt_cache_options: { mode: 'explicit', ttl: '30m', prewarm: true },
+  prompt_cache_retention: '24h',
+  reasoning: { effort: 'high', summary: 'auto' },
+  safety_identifier: 'caller',
+  service_tier: 'flex',
+  store: true,
+  stream_options: { include_obfuscation: true },
+  temperature: 0.5,
+  text: { format: { type: 'json_object' }, verbosity: 'low' },
+  tool_choice: 'required',
+  tools: [{ type: 'file_search', vector_store_ids: ['vs_external'] }],
+  top_logprobs: 5,
+  top_p: 0.5,
+  truncation: 'auto',
+  user: 'caller',
+};
+const anthropicAdvisory = {
+  cache_control: { type: 'ephemeral' },
+  container: { id: 'external' },
+  diagnostics: { previous_message_id: 'msg_external' },
+  inference_geo: 'us',
+  metadata: { user_id: 'caller' },
+  output_config: {
+    format: { type: 'json_schema', schema: { type: 'object' } },
+  },
+  service_tier: 'standard_only',
+  speed: 'fast',
+  stop_sequences: ['END'],
+  thinking: { type: 'enabled', budget_tokens: 1024 },
+  tool_choice: { type: 'any' },
+  tools: [{ name: 'weather', input_schema: { type: 'object' } }],
+  temperature: 0.5,
+  top_p: 0.5,
+  top_k: 5,
+  mcp_servers: [
+    { type: 'url', name: 'remote', url: 'https://external.invalid/mcp' },
+  ],
+  context_management: { edits: [{ type: 'clear_tool_uses_20250919' }] },
+  output_format: { type: 'json_schema', schema: { type: 'object' } },
+};
+const chat = {
+  model: 'daedalus',
+  messages: [{ role: 'user', content: 'Hello' }],
+};
+const responses = { model: 'daedalus', input: 'Hello' };
+const anthropic = { ...chat, max_tokens: 256 };
+
+for (const [name, parse, base, advisory] of [
+  ['Chat Completions', parseOpenAIChatRequest, chat, chatAdvisory],
+  ['Responses', parseResponsesRequest, responses, responsesAdvisory],
+  ['Messages', parseAnthropicMessagesRequest, anthropic, anthropicAdvisory],
+] as const) {
+  describe(name, () => {
+    it.each(Object.entries(advisory))('accepts and drops %s', (key, value) => {
+      const normalized = parse({ ...base, [key]: value });
+      expect(normalized.ignoredParameters).toContain(key);
+      expect(normalized.messages).toEqual([{ role: 'user', content: 'Hello' }]);
+      expect(normalized.instructions).toBeNull();
+    });
+    it('accepts the complete parameter set together', () => {
+      const normalized = parse({ ...base, ...advisory, stream: true });
+      expect(normalized.stream).toBe(true);
+      expect(normalized.ignoredParameters.sort()).toEqual(
+        Object.keys(advisory).sort(),
+      );
+    });
+    it('maps vendor model names to the agent without selecting a provider', () => {
+      const normalized = parse({ ...base, model: 'vendor-model' });
+      expect(normalized.model).toBe('daedalus');
+      expect(normalized.ignoredParameters).toContain('model');
+    });
+    it('rejects malformed envelopes and unknown top-level parameters', () => {
+      for (const body of [
+        [],
+        null,
+        { ...base, stream: 'yes' },
+        { ...base, unexpected: true },
+      ]) {
+        expect(() => parse(body)).toThrow(CompatError);
+      }
+    });
+    it('bounds retained text before admission', () => {
+      const body =
+        name === 'Responses'
+          ? { ...base, input: 'x'.repeat(2 * 1024 * 1024 + 1) }
+          : {
+              ...base,
+              messages: [
+                { role: 'user', content: 'x'.repeat(2 * 1024 * 1024 + 1) },
+              ],
+            };
+      expect(() => parse(body)).toThrow(CompatError);
+    });
+  });
 }
 
-const openai = (extra: Record<string, unknown> = {}) => ({
-  model: 'daedalus',
-  messages: [{ role: 'user', content: 'Hello' }],
-  ...extra,
-});
-
-const anthropic = (extra: Record<string, unknown> = {}) => ({
-  model: 'daedalus',
-  max_tokens: 256,
-  messages: [{ role: 'user', content: 'Hello' }],
-  ...extra,
-});
-
-describe('OpenAI Chat Completions request contract', () => {
-  it('normalizes history, text parts, and system/developer instructions', () => {
-    const request = parseOpenAIChatRequest(
-      openai({
-        messages: [
-          { role: 'system', content: 'Be brief.' },
-          { role: 'user', content: [{ type: 'text', text: 'First' }] },
-          {
-            role: 'assistant',
-            content: 'Answer',
-            refusal: null,
-            tool_calls: [],
-            annotations: [],
-          },
-          {
-            role: 'developer',
-            content: [{ type: 'text', text: 'Use bullets.' }],
-          },
-          { role: 'user', content: 'Résumé ✓ 👋' },
-        ],
-        stream: true,
-        stream_options: { include_usage: true },
-        max_completion_tokens: 50,
-        temperature: 0.2,
-        user: 'client-user',
-      }),
-    );
-    expect(request).toEqual({
-      protocol: 'openai',
-      model: 'daedalus',
+describe('conversation normalization', () => {
+  it('preserves Chat text, instructions, refusals, tool results and participant names', () => {
+    const result = parseOpenAIChatRequest({
+      ...chat,
       messages: [
-        { role: 'user', content: 'First' },
-        { role: 'assistant', content: 'Answer' },
-        { role: 'user', content: 'Résumé ✓ 👋' },
+        { role: 'system', content: 'Brief.' },
+        { role: 'developer', content: 'Bullets.' },
+        {
+          role: 'user',
+          name: 'caller',
+          content: [
+            { type: 'text', text: 'Hello' },
+            {
+              type: 'image_url',
+              image_url: { url: 'https://external.invalid/image' },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call',
+              type: 'function',
+              function: { name: 'weather', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'call', content: 'Sunny' },
+        {
+          role: 'assistant',
+          content: [{ type: 'refusal', refusal: 'Cannot do that' }],
+        },
       ],
-      instructions: 'Be brief.\n\nUse bullets.',
       stream: true,
-      includeUsage: true,
-      maxOutputTokens: 50,
-      ignoredParameters: ['temperature', 'user'],
+      stream_options: { include_usage: true, include_obfuscation: true },
+      max_tokens: 9,
+      max_completion_tokens: 12,
     });
-  });
-
-  it('defaults to a non-streaming request without an output limit', () => {
-    const request = parseOpenAIChatRequest(openai({ max_tokens: 9 }));
-    expect(request.stream).toBe(false);
-    expect(request.includeUsage).toBe(false);
-    expect(request.maxOutputTokens).toBe(9);
-    expect(parseOpenAIChatRequest(openai()).maxOutputTokens).toBeNull();
-  });
-
-  it.each([
-    ['unknown model', openai({ model: 'gpt-4o' }), 'not_found', 'model'],
-    ['missing model', openai({ model: undefined }), 'invalid_request', 'model'],
-    ['empty messages', openai({ messages: [] }), 'invalid_request', 'messages'],
-    [
-      'client tools',
-      openai({ tools: [{ type: 'function', function: { name: 'x' } }] }),
-      'invalid_request',
-      'tools',
-    ],
-    [
-      'tool role',
-      openai({
-        messages: [
-          { role: 'user', content: 'x' },
-          { role: 'tool', content: 'y', tool_call_id: 'c' },
-        ],
-      }),
-      'invalid_request',
-      'messages[1].role',
-    ],
-    [
-      'assistant tool calls',
-      openai({
-        messages: [
-          { role: 'user', content: 'x' },
-          { role: 'assistant', content: null, tool_calls: [{ id: 'c' }] },
-          { role: 'user', content: 'y' },
-        ],
-      }),
-      'invalid_request',
-      'messages[1].tool_calls',
-    ],
-    [
-      'image content',
-      openai({
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'image_url', image_url: { url: 'x' } }],
-          },
-        ],
-      }),
-      'invalid_request',
-      'messages[0].content[0].type',
-    ],
-    [
-      'both output limits',
-      openai({ max_tokens: 1, max_completion_tokens: 1 }),
-      'invalid_request',
-      'max_tokens',
-    ],
-    [
-      'zero output limit',
-      openai({ max_tokens: 0 }),
-      'invalid_request',
-      'max_tokens',
-    ],
-    ['multiple choices', openai({ n: 2 }), 'invalid_request', 'n'],
-    ['stop sequences', openai({ stop: ['x'] }), 'invalid_request', 'stop'],
-    [
-      'json mode',
-      openai({ response_format: { type: 'json_object' } }),
-      'invalid_request',
-      'response_format',
-    ],
-    ['stored completions', openai({ store: true }), 'invalid_request', 'store'],
-    ['logprobs', openai({ logprobs: true }), 'invalid_request', 'logprobs'],
-    [
-      'reasoning effort',
-      openai({ reasoning_effort: 'high' }),
-      'invalid_request',
-      'reasoning_effort',
-    ],
-    [
-      'unknown field',
-      openai({ frobnicate: 1 }),
-      'invalid_request',
-      'frobnicate',
-    ],
-    [
-      'stream options without stream',
-      openai({ stream_options: { include_usage: true } }),
-      'invalid_request',
-      'stream_options',
-    ],
-    [
-      'out-of-range advisory',
-      openai({ temperature: 5 }),
-      'invalid_request',
-      'temperature',
-    ],
-    [
-      'participant names',
-      openai({ messages: [{ role: 'user', content: 'x', name: 'n' }] }),
-      'invalid_request',
-      'messages[0].name',
-    ],
-    [
-      'assistant prefill',
-      openai({
-        messages: [
-          { role: 'user', content: 'x' },
-          { role: 'assistant', content: 'partial' },
-        ],
-      }),
-      'invalid_request',
-      'messages',
-    ],
-    [
-      'only instructions',
-      openai({ messages: [{ role: 'system', content: 'x' }] }),
-      'invalid_request',
-      'messages',
-    ],
-  ])('rejects %s before admission', (_name, body, kind, param) => {
-    const error = rejection(() => parseOpenAIChatRequest(body));
-    expect(error.kind).toBe(kind);
-    expect(error.param).toBe(param);
-  });
-
-  it('accepts no-op tool settings and the text response format', () => {
-    const request = parseOpenAIChatRequest(
-      openai({
-        tools: [],
-        tool_choice: 'none',
-        response_format: { type: 'text' },
-        modalities: ['text'],
-        n: 1,
-        store: false,
-        logprobs: false,
-        parallel_tool_calls: false,
-      }),
+    expect(result.instructions).toBe('Brief.\n\nBullets.');
+    expect(result.messages.map((m) => m.content)).toEqual([
+      'Hello',
+      'Sunny',
+      'Cannot do that',
+      'Continue the preceding assistant response.',
+    ]);
+    expect(result.includeUsage).toBe(true);
+    expect(result.maxOutputTokens).toBe(12);
+    expect(result.ignoredParameters).toEqual(
+      expect.arrayContaining([
+        'messages',
+        'messages.content',
+        'messages.role',
+        'stream_options',
+        'max_tokens',
+      ]),
     );
-    expect(request.ignoredParameters).toEqual(['parallel_tool_calls']);
   });
 
-  it('bounds the history size before admission', () => {
-    const many = Array.from({ length: 501 }, () => ({
-      role: 'user',
-      content: 'x',
-    }));
-    expect(
-      rejection(() => parseOpenAIChatRequest(openai({ messages: many }))).kind,
-    ).toBe('request_too_large');
-  });
-});
-
-describe('Anthropic Messages request contract', () => {
-  it('normalizes text blocks and system blocks, recording advisory fields', () => {
-    const request = parseAnthropicMessagesRequest(
-      anthropic({
-        system: [
-          {
-            type: 'text',
-            text: 'Be brief.',
-            cache_control: { type: 'ephemeral' },
-          },
-        ],
-        messages: [
-          { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
-          { role: 'assistant', content: 'Hello' },
-          { role: 'user', content: 'Weather?' },
-        ],
-        temperature: 0.5,
-        metadata: { user_id: 'u-1' },
-        stream: true,
-      }),
+  it('accepts Responses message/output replay and drops external references', () => {
+    const result = parseResponsesRequest({
+      ...responses,
+      instructions: 'Brief.',
+      input: [
+        { role: 'developer', content: 'Bullets.' },
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'Hello' },
+            { type: 'input_file', file_id: 'file_external' },
+          ],
+        },
+        {
+          id: 'msg_external',
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'Earlier', annotations: [] }],
+        },
+        {
+          type: 'function_call',
+          call_id: 'call',
+          name: 'weather',
+          arguments: '{}',
+        },
+        { type: 'function_call_output', call_id: 'call', output: 'Sunny' },
+        { type: 'item_reference', id: 'external' },
+        { type: 'reasoning', encrypted_content: 'private', summary: [] },
+      ],
+      max_output_tokens: 12,
+    });
+    expect(result.messages).toEqual([
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Earlier' },
+      { role: 'user', content: 'Sunny' },
+    ]);
+    expect(result.instructions).toBe('Brief.\n\nBullets.');
+    expect(result.maxOutputTokens).toBe(12);
+    expect(result.ignoredParameters).toEqual(
+      expect.arrayContaining(['input', 'input.content', 'input.tool_calls']),
     );
-    expect(request).toMatchObject({
-      protocol: 'anthropic',
-      instructions: 'Be brief.',
-      stream: true,
-      includeUsage: true,
-      maxOutputTokens: 256,
+  });
+
+  it('accepts Anthropic cache, thinking, tool-result, image and document blocks', () => {
+    const result = parseAnthropicMessagesRequest({
+      ...anthropic,
+      system: [
+        { type: 'text', text: 'Brief.', cache_control: { type: 'ephemeral' } },
+      ],
       messages: [
         { role: 'user', content: 'Hi' },
-        { role: 'assistant', content: 'Hello' },
-        { role: 'user', content: 'Weather?' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'private', signature: 'sig' },
+            { type: 'tool_use', id: 'call', name: 'weather', input: {} },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'call',
+              content: [{ type: 'text', text: 'Sunny' }],
+            },
+            {
+              type: 'image',
+              source: { type: 'url', url: 'https://external.invalid/image' },
+            },
+            { type: 'document', source: { type: 'file', file_id: 'external' } },
+          ],
+        },
       ],
     });
-    expect(request.ignoredParameters.sort()).toEqual(
-      ['cache_control', 'metadata', 'temperature'].sort(),
-    );
+    expect(result.instructions).toBe('Brief.');
+    expect(result.messages).toEqual([
+      { role: 'user', content: 'Hi' },
+      { role: 'user', content: 'Sunny' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('private');
+    expect(JSON.stringify(result)).not.toContain('external.invalid');
   });
 
-  it.each([
-    ['missing max_tokens', anthropic({ max_tokens: undefined }), 'max_tokens'],
-    ['fractional max_tokens', anthropic({ max_tokens: 1.5 }), 'max_tokens'],
-    ['tools', anthropic({ tools: [{ name: 't', input_schema: {} }] }), 'tools'],
-    [
-      'forced tool choice',
-      anthropic({ tool_choice: { type: 'any' } }),
-      'tool_choice',
-    ],
-    [
-      'thinking',
-      anthropic({ thinking: { type: 'enabled', budget_tokens: 1024 } }),
-      'thinking',
-    ],
-    ['stop sequences', anthropic({ stop_sequences: ['x'] }), 'stop_sequences'],
-    [
-      'tool results',
-      anthropic({
+  it('accepts textless and reference-only requests without resolving references', () => {
+    for (const result of [
+      parseResponsesRequest({ prompt: { id: 'external' } }),
+      parseResponsesRequest({ input: [] }),
+      parseOpenAIChatRequest({
+        ...chat,
         messages: [
           {
             role: 'user',
-            content: [{ type: 'tool_result', tool_use_id: 't', content: 'x' }],
+            content: [
+              {
+                type: 'input_audio',
+                input_audio: { data: 'base64', format: 'wav' },
+              },
+            ],
           },
         ],
       }),
-      'messages.0.content.0.type',
-    ],
-    [
-      'images',
-      anthropic({
+      parseAnthropicMessagesRequest({
+        ...anthropic,
         messages: [
           {
             role: 'user',
-            content: [{ type: 'image', source: { type: 'url', url: 'x' } }],
+            content: [
+              {
+                type: 'image',
+                source: { type: 'url', url: 'https://external.invalid/image' },
+              },
+            ],
           },
         ],
       }),
-      'messages.0.content.0.type',
-    ],
-    [
-      'system role',
-      anthropic({ messages: [{ role: 'system', content: 'x' }] }),
-      'messages.0.role',
-    ],
-    ['mcp servers', anthropic({ mcp_servers: [{ url: 'x' }] }), 'mcp_servers'],
-    ['unknown field', anthropic({ unknown: true }), 'unknown'],
-  ])('rejects %s', (_name, body, param) => {
-    const error = rejection(() => parseAnthropicMessagesRequest(body));
-    expect(error.kind).toBe('invalid_request');
-    expect(error.param).toBe(param);
-  });
-
-  it('accepts disabled thinking and an automatic tool choice without tools', () => {
-    expect(() =>
-      parseAnthropicMessagesRequest(
-        anthropic({
-          thinking: { type: 'disabled' },
-          tool_choice: { type: 'auto' },
-          tools: [],
-          stop_sequences: [],
-        }),
-      ),
-    ).not.toThrow();
-  });
-
-  it('applies the sampling-parameter contract of each supported version', () => {
-    const sampled = anthropic({ temperature: 1, top_k: 5 });
-    expect(
-      parseAnthropicMessagesRequest(sampled, {
-        'anthropic-version': '2023-06-01',
-      }).ignoredParameters.sort(),
-    ).toEqual(['temperature', 'top_k']);
-    const error = rejection(() =>
-      parseAnthropicMessagesRequest(sampled, {
-        'anthropic-version': '2026-10-21',
-      }),
-    );
-    expect(error.param).toBe('temperature');
-    expect(error.kind).toBe('invalid_request');
-    expect(() =>
-      parseAnthropicMessagesRequest(anthropic(), {
-        'anthropic-version': '2026-10-21',
-      }),
-    ).not.toThrow();
-  });
-
-  it('requires a supported version header and refuses beta features', () => {
-    for (const version of ['2023-06-01', '2026-10-21']) {
-      expect(() =>
-        validateAnthropicHeaders({ 'anthropic-version': version }),
-      ).not.toThrow();
+    ]) {
+      expect(result.messages.at(-1)?.content).toContain(
+        'Ask the caller to provide text',
+      );
     }
-    expect(rejection(() => validateAnthropicHeaders({})).param).toBe(
-      'anthropic-version',
-    );
-    expect(
-      rejection(() =>
-        validateAnthropicHeaders({ 'anthropic-version': '2099-01-01' }),
-      ).param,
-    ).toBe('anthropic-version');
-    expect(
-      rejection(() =>
-        validateAnthropicHeaders({
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'prompt-caching-2024-07-31',
+  });
+
+  it('does not put arbitrary content keys in HTTP headers', () => {
+    const result = parseOpenAIChatRequest({
+      ...chat,
+      messages: [
+        {
+          role: 'user',
+          'bad\r\nheader': true,
+          content: [{ type: 'text', text: 'Hi', 'bad\r\nheader': true }],
+        },
+      ],
+    });
+    expect(result.ignoredParameters.join(',')).not.toMatch(/[\r\n]/);
+  });
+
+  it('rejects invalid message roles, token limits, and excessive histories', () => {
+    for (const parse of [
+      parseOpenAIChatRequest,
+      parseAnthropicMessagesRequest,
+    ]) {
+      expect(() =>
+        parse({ ...anthropic, messages: [{ role: 'invalid', content: 'Hi' }] }),
+      ).toThrow(CompatError);
+      expect(() =>
+        parse({
+          ...anthropic,
+          messages: Array.from({ length: 501 }, () => chat.messages[0]),
         }),
-      ).param,
-    ).toBe('anthropic-beta');
+      ).toThrow(CompatError);
+    }
+    expect(() => parseOpenAIChatRequest({ ...chat, max_tokens: 0 })).toThrow(
+      CompatError,
+    );
+    expect(() => parseAnthropicMessagesRequest(chat)).toThrow(CompatError);
+    expect(() =>
+      parseResponsesRequest({ ...responses, max_output_tokens: -1 }),
+    ).toThrow(CompatError);
+    expect(
+      parseAnthropicMessagesRequest({ ...anthropic, max_tokens: 0 })
+        .maxOutputTokens,
+    ).toBe(0);
+  });
+
+  it('accepts current, legacy and beta Anthropic headers as advisory', () => {
+    for (const version of ['2023-06-01', '2026-10-21', '2099-01-01']) {
+      const headers = {
+        'anthropic-version': version,
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+      };
+      expect(() => validateAnthropicHeaders(headers)).not.toThrow();
+      expect(
+        parseAnthropicMessagesRequest(
+          { ...anthropic, temperature: 0.5 },
+          headers,
+        ).ignoredParameters,
+      ).toContain('anthropic-beta');
+    }
+    expect(() => validateAnthropicHeaders({})).not.toThrow();
+    expect(() =>
+      validateAnthropicHeaders({ 'anthropic-version': 'invalid' }),
+    ).toThrow(CompatError);
   });
 });
-
 describe('caller instruction placement', () => {
   it('sits directly before the final user turn so history selection keeps it', async () => {
     const { withCallerInstructions } = await import(
