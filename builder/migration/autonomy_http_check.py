@@ -13,7 +13,9 @@ import shlex
 import time
 import uuid
 
-from autonomous_agent.prompt import output_schema
+from autonomous_agent.charter import CharterConfig
+from autonomous_agent.prompt import build_messages, output_schema
+from autonomous_agent.scheduling import action, empty_state
 from image_check import environment, require
 from leaf_check import measure
 from runtime_http_check import Peers
@@ -348,13 +350,31 @@ def main(image, redis_image, preparation):
 
         def execute(kind, plan, user="synthetic-alice", budget=40):
             peers.plan, peers.remote, peers.requests = plan, [], []
+            timestamp = int(time.time() * 1000)
+            task = action(kind, f"fixture:{uuid.uuid4().hex}", timestamp)
+            if kind == "calendar_event":
+                task["payload"] = {
+                    "sourceKey": "fixture-event",
+                    "sourceUrl": "https://example.org/event",
+                    "title": "Fixture event",
+                    "applicability": "Synthetic integration check.",
+                    "allDay": True,
+                    "start": "2099-11-09",
+                    "end": "2099-11-10",
+                }
             result = measure(
                 fixture,
                 user=user,
                 extra_headers={"x-daedalus-execution-scope": "autonomy"},
                 request_fields={
+                    "messages": build_messages(
+                        config=CharterConfig(maxToolCalls=budget),
+                        task=task,
+                        state=empty_state(),
+                        timestamp=timestamp,
+                    ),
                     "autonomy_task": {
-                        "id": f"fixture:{uuid.uuid4().hex}",
+                        "id": task["id"],
                         "kind": kind,
                         "max_tool_calls": budget,
                     },

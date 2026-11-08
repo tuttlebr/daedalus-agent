@@ -246,7 +246,9 @@ def build_messages(
     }
     return [
         {
-            "role": "system",
+            # The authenticated API accepts user/assistant transcript entries;
+            # server-owned workflow instructions remain the system prompt.
+            "role": "user",
             "content": f"{RULES}\n\n{COMMUNICATION_STYLE_GUIDANCE}\n\n{TASKS[kind]}",
         },
         {"role": "user", "content": json.dumps(context, ensure_ascii=False)},

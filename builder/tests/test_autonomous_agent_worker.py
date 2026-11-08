@@ -38,6 +38,7 @@ def test_model_notes_cannot_replace_charter_instructions():
     assert "Do not delete persistent data" in messages[0]["content"]
     assert "ordinary clients" in messages[0]["content"]
     assert "durable source" in messages[0]["content"]
+    assert all(message["role"] == "user" for message in messages)
 
 
 def test_calendar_prompt_uses_connected_oauth_and_exact_date_only_times():
