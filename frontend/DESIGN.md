@@ -41,7 +41,7 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
 - Text uses title-style capitalization for headers, tabs and section labels;
   nothing is set in all capitals. Code and diagrams use the monospace face,
   while a code block's language label and buttons are interface text.
-- Text, including the Autonomy feed, prefers SF Pro for regular, italic, and
+- Text, including Autonomy summaries, prefers SF Pro for regular, italic, and
   bold styles. Code, inline code, and diagrams prefer SF Mono. Shared CSS font
   variables also drive Tailwind and syntax highlighting. These are device-local
   font stacks: Apple system aliases and generic system fallbacks apply when the

@@ -1597,6 +1597,20 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             "additional_props": props or {},
                             "messages": [{"role": "user", "content": scenario}],
                             **(
+                                {
+                                    "autonomy_task": {
+                                        "id": run,
+                                        "kind": "calendar_discovery",
+                                        "max_tool_calls": 40,
+                                    }
+                                }
+                                if (extra_headers or {}).get(
+                                    "x-daedalus-execution-scope"
+                                )
+                                == "autonomy"
+                                else {}
+                            ),
+                            **(
                                 {"autonomy_output_schema": autonomy_output_schema}
                                 if autonomy_output_schema is not None
                                 else {}

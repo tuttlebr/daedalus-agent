@@ -16,7 +16,13 @@ export default async function handler(
   }
 
   if (req.method === 'PUT') {
-    return res.status(200).json(await saveConfig(userId, req.body || {}));
+    try {
+      return res.status(200).json(await saveConfig(userId, req.body));
+    } catch {
+      return res.status(400).json({
+        error: 'Invalid autonomy settings. Check the values and try again.',
+      });
+    }
   }
 
   res.setHeader('Allow', ['GET', 'PUT']);

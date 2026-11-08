@@ -1,659 +1,173 @@
-"""Long-running autonomous worker entrypoint."""
+"""Execute the user's charter with durable intent, bounded runs and daily reports."""
 
 from __future__ import annotations
 
 import contextlib
 import os
-import re
 import signal
-import sys
 import threading
 import time
 from typing import Any
 
-from .backend_client import (
-    ApprovalRequiredError,
-    BackendClient,
-    OAuthRequiredError,
-    RunAbortedError,
-)
-from .exploration import build_exploration_context
-from .models import new_run, now_ms
-from .prompt import (
-    build_messages,
-    feed_items_from_output,
-    load_workspace,
-    parse_structured_output,
-    workspace_key,
-)
-from .store import RedisStore, WorkerLeaseLost
+from .backend_client import BackendClient, RunAbortedError
+from .charter import ActionOutcome, CharterConfig, CharterOutput, task_enabled
+from .prompt import build_messages, parse_structured_output
+from .store import RedisStore, WorkerLeaseLost, now_ms
+from .summary import publish_daily_summary
 
-STOP = False
-# Set with STOP on SIGTERM/SIGINT. The lease heartbeat observes it and aborts
-# the open backend request, so a rollout records the run as aborted instead of
-# being SIGKILLed mid-stream with a record left "running".
 SHUTDOWN = threading.Event()
-_CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
-
-# Hard ceiling on a single autonomous run. A worker blocked on one backend
-# request cannot drain its queue, and the run outlives any operator's ability
-# to reason about it. Configuration above this fails at worker startup rather
-# than wedging the single replica for hours.
-MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = 6900
-# Upper bound on the delay between a dashboard cancellation and the abort of
-# the open backend request.
 CANCEL_POLL_SECONDS = 1.0
 
 
-class _InterruptedBeforeDispatch(Exception):
-    """The run was stopped before its backend request was fenced as started."""
-
-
 def log(message: str) -> None:
-    print(f"[autonomy] {time.strftime('%Y-%m-%d %H:%M:%S')} {message}", flush=True)
+    print(f"[autonomy] {message}", flush=True)
 
 
-def _request_summary(request: dict[str, Any] | None) -> str:
-    if not request:
-        return "none"
-    return (
-        f"id={request.get('id') or 'unknown'} "
-        f"trigger={request.get('trigger') or 'manual'} "
-        f"createdAt={request.get('createdAt') or 'unknown'}"
-    )
-
-
-def start_queue_monitor(
-    store: RedisStore,
-    user_id: str,
-    *,
-    interval_seconds: int = 30,
-) -> threading.Thread:
-    """Log queue visibility even while the worker is blocked in a run."""
-
-    def monitor() -> None:
-        last_depth: int | None = None
-        while not STOP:
-            try:
-                depth = store.queue_length(user_id)
-                if depth != last_depth or depth > 0:
-                    next_request = store.queue_snapshot(user_id, limit=1)
-                    next_summary = _request_summary(
-                        next_request[0] if next_request else None
-                    )
-                    log(f"queue status: depth={depth} next={next_summary}")
-                    last_depth = depth
-            except Exception as exc:
-                log(f"queue monitor error: {type(exc).__name__}")
-            time.sleep(interval_seconds)
-
-    thread = threading.Thread(
-        target=monitor,
-        name="autonomy-queue-monitor",
-        daemon=True,
-    )
-    thread.start()
-    return thread
-
-
-def _handle_signal(signum: int, _frame: Any) -> None:
-    global STOP
-    log(f"received signal {signum}; stopping after current operation")
-    STOP = True
+def _handle_signal(_signum: int, _frame: Any) -> None:
     SHUTDOWN.set()
 
 
-def apply_workspace_updates(
-    store: RedisStore,
-    user_id: str,
-    output: dict[str, Any],
-    *,
-    require_lease: bool = False,
-) -> list[str]:
-    updates = output.get("workspace_updates")
-    if not isinstance(updates, dict):
-        return []
-
-    allowed = {"heartbeat", "interests", "user", "inner_state", "memory"}
-    changed: list[str] = []
-    for name, content in updates.items():
-        if name not in allowed:
-            continue
-        if not isinstance(content, str) or not content.strip():
-            continue
-        content = content.strip()
-        key = workspace_key(user_id, name)
-        if store.get_text(key) == content:
-            continue
-        store.set_text(key, content, lease_user=user_id if require_lease else None)
-        changed.append(name)
-    return changed
-
-
-def _goal_cadence_ms(goal: dict[str, Any]) -> int:
-    for tag in goal.get("tags") or []:
-        match = _CADENCE_TAG_RE.match(str(tag).strip())
-        if not match:
-            continue
-        value = max(1, int(match.group(1)))
-        hours = value * (24 if match.group(2).lower() == "d" else 1)
-        return hours * 3_600_000
-    return 24 * 3_600_000
-
-
-def select_scheduled_goal(
-    goals: list[dict[str, Any]], *, timestamp: int
-) -> dict[str, Any] | None:
-    """Pick a never-run or due active goal, leaving quiet slots for discovery."""
-
-    active = [
-        (index, goal)
-        for index, goal in enumerate(goals)
-        if isinstance(goal, dict) and goal.get("status", "active") == "active"
-    ]
-    if not active:
-        return None
-
-    def rank(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float, int]:
-        index, goal = item
-        last_run = goal.get("lastRunAt")
-        try:
-            priority = float(goal.get("priority"))
-        except (TypeError, ValueError):
-            priority = 3.0
-        if not isinstance(last_run, (int, float)) or last_run <= 0:
-            return (1.0, 0.0, -priority, -index)
-        overdue = (timestamp - float(last_run)) / _goal_cadence_ms(goal)
-        return (0.0, overdue, -priority, -index)
-
-    selected = max(active, key=rank)
-    never_run, overdue, _priority, _index = rank(selected)
-    return selected[1] if never_run or overdue >= 1 else None
+def make_backend(user_id: str, config: CharterConfig) -> BackendClient:
+    return BackendClient(
+        base_url=os.getenv("BACKEND_BASE_URL", "http://daedalus-backend-default:8000"),
+        api_path=os.getenv("BACKEND_API_PATH", "/v1/chat/completions"),
+        user_id=user_id,
+        request_timeout=config.maxRunSeconds,
+    )
 
 
 def run_once(
     *,
     store: RedisStore,
-    backend: BackendClient,
     user_id: str,
-    request: dict[str, Any],
-    abort: threading.Event | None = None,
-    run_id_holder: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    request = dict(request)
-    requested_goal_id = request.get("goalId")
-    invalid_goal_id = requested_goal_id is not None and (
-        not isinstance(requested_goal_id, str) or not requested_goal_id.strip()
-    )
-    if isinstance(requested_goal_id, str):
-        request["goalId"] = requested_goal_id.strip()
-    goals_snapshot: list[dict[str, Any]] | None = None
-    if (
-        request.get("trigger", "scheduled") == "scheduled"
-        and not request.get("goalId")
-        and not invalid_goal_id
-    ):
-        goals_snapshot = store.list_goals(user_id)
-        selected_goal = select_scheduled_goal(goals_snapshot, timestamp=now_ms())
-        if selected_goal:
-            request["goalId"] = selected_goal.get("id")
-
-    run = new_run(
-        user_id=user_id,
-        trigger=str(request.get("trigger") or "manual"),
-        goal_id=request.get("goalId"),
-        prompt=str(request.get("prompt") or ""),
-        requested_by=str(request.get("requestedBy") or "worker"),
-    )
-
-    if run_id_holder is not None:
-        run_id_holder["id"] = run["id"]
-
-    run["status"] = "running"
-    run["startedAt"] = now_ms()
-    store.upsert_run(user_id, run)
-    store.log_event(user_id, run["id"], "run_started", "Autonomous run started.")
-    goal_id = str(run.get("goalId") or "").strip()
-    mark_goal_run = getattr(store, "mark_goal_run", None)
-
-    try:
-        config = store.get_config(user_id)
-        goals = (
-            goals_snapshot if goals_snapshot is not None else store.list_goals(user_id)
-        )
-        if invalid_goal_id or (
-            goal_id and not any(goal.get("id") == goal_id for goal in goals)
-        ):
-            raise ValueError("The selected goal is no longer available.")
-        workspace = load_workspace(store, user_id, require_lease=abort is not None)
-        recent_runs = [
-            existing
-            for existing in store.list_runs(user_id)
-            if existing.get("id") != run["id"]
-        ]
-        recent_feed = store.list_feed(user_id, limit=120)
-        exploration = build_exploration_context(
-            recent_runs=recent_runs,
-            recent_feed=recent_feed,
-            goal_id=request.get("goalId"),
-        )
-        run["metrics"]["explorationStep"] = exploration["step"]
-        run["metrics"]["explorationLane"] = exploration["preferred_lane"]
-        messages = build_messages(
-            user_id=user_id,
-            config=config,
-            workspace=workspace,
-            goals=goals,
-            recent_runs=recent_runs,
-            recent_feed=recent_feed,
-            request=request,
-            exploration=exploration,
-        )
-        execution_id = str(request.get("id") or run["id"])
-        if abort is not None and abort.is_set():
-            # Stop, shutdown or a lost lease arrived before dispatch. Leave the
-            # claim undispatched so recovery can prove it safe to run again.
-            raise _InterruptedBeforeDispatch
-        store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
-        # The fence is the no-replay guarantee for every caller, not only the
-        # lease-heartbeat path.
-        store.mark_backend_started(user_id)
-        # Goal bookkeeping follows the dispatch fence: a request requeued from
-        # before the fence must select this goal again, not skip it for a
-        # whole cadence because it was already marked as run. The prompt above
-        # was built with the previous lastRunAt, so freshness context is kept.
-        if goal_id and callable(mark_goal_run):
-            mark_goal_run(
-                user_id, goal_id, run["startedAt"], require_lease=abort is not None
-            )
-        response = backend.call(messages, execution_id=execution_id, abort=abort)
-        run["metrics"]["responseChars"] = len(response or "")
-
-        # A dashboard Stop also sets ``abort``. Classify it before a lost
-        # lease, as the RunAbortedError path does, so the dashboard preserves
-        # the user's Stop instead of reporting an infrastructure interruption.
-        if store.cancel_requested(user_id, run["id"]):
-            run["status"] = "cancelled"
-            run["completedAt"] = now_ms()
-            run["summary"] = "Run cancelled after backend returned."
-            store.upsert_run(user_id, run)
-            store.log_event(
-                user_id, run["id"], "run_cancelled", run["summary"], level="warn"
-            )
-            return run
-
-        # F-016: the lease was lost while this run was in flight, so another
-        # worker may now own this user. Abort before writing any shared state
-        # (feed / workspace) to avoid clobbering the new owner.
-        lease_lost = abort is not None and abort.is_set()
-        owns_lease = getattr(store, "owns_lease", None)
-        if abort is not None and callable(owns_lease):
-            try:
-                lease_lost = lease_lost or not bool(owns_lease(user_id))
-            except Exception:
-                lease_lost = True
-        if lease_lost:
-            run["status"] = "aborted"
-            run["completedAt"] = now_ms()
-            run["summary"] = "Run aborted after losing the worker lease."
-            store.upsert_run(user_id, run)
-            store.log_event(
-                user_id, run["id"], "run_aborted", run["summary"], level="warn"
-            )
-            return run
-
-        output = parse_structured_output(response)
-        changed = apply_workspace_updates(
-            store, user_id, output, require_lease=abort is not None
-        )
-        feed_items = feed_items_from_output(run["id"], output)
-        stored_items = store.append_feed_items(
-            user_id, feed_items, require_lease=abort is not None
-        )
-        deduped = max(0, len(feed_items) - len(stored_items))
-
-        run["status"] = "completed"
-        run["summary"] = str(
-            output.get("summary") or output.get("executive_summary") or ""
-        )
-        run["feedItemIds"] = [item["id"] for item in stored_items]
-        run["metrics"]["workspaceUpdated"] = changed
-        run["metrics"]["feedItemsStored"] = len(stored_items)
-        run["metrics"]["feedItemsDeduped"] = deduped
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(
+    task_id: str,
+    lease_ttl: int = 60,
+    backend: BackendClient | None = None,
+) -> dict | None:
+    claim = store.claim(user_id, task_id)
+    if claim is None:
+        return None
+    task, run = claim["task"], claim["run"]
+    config = CharterConfig.model_validate(claim["config"])
+    if task["kind"] == "daily_summary":
+        return store.update(
             user_id,
-            run["id"],
-            "run_completed",
-            "Autonomous run completed.",
-            data={
-                "feedItems": len(stored_items),
-                "feedItemsDeduped": deduped,
-                "workspaceUpdated": changed,
-            },
+            lambda state, current: publish_daily_summary(
+                state, state["actions"][task_id], current, now_ms()
+            ),
         )
-        return run
-    except _InterruptedBeforeDispatch:
-        if store.cancel_requested(user_id, run["id"]):
-            run["status"] = "cancelled"
-            run["summary"] = "Run cancelled before its request reached the backend."
-            event = "run_cancelled"
-        else:
-            # "aborted" keeps the claim in processing, where recovery finds it
-            # still undispatched and queues it again.
-            run["status"] = "aborted"
-            run["summary"] = (
-                "Run was interrupted before its request reached the backend. "
-                "The request will be queued again."
-            )
-            event = "run_aborted"
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(user_id, run["id"], event, run["summary"], level="warn")
-        return run
-    except WorkerLeaseLost:
-        run["status"] = "aborted"
-        run["completedAt"] = now_ms()
-        run["summary"] = "Run aborted after losing the worker lease."
-        store.upsert_run(user_id, run)
-        store.log_event(user_id, run["id"], "run_aborted", run["summary"], level="warn")
-        return run
-    except RunAbortedError as exc:
-        # The stream was stopped mid-flight. A user cancellation and a lost
-        # lease are both legitimate; anything else is a run that outran its
-        # wall-clock budget or response cap.
-        if store.cancel_requested(user_id, run["id"]):
-            run["status"] = "cancelled"
-            run["summary"] = "Run cancelled while the backend request was open."
-            event, level = "run_cancelled", "warn"
-        elif abort is not None and abort.is_set() and SHUTDOWN.is_set():
-            run["status"] = "aborted"
-            run["summary"] = (
-                "Run aborted because the worker was shutting down. Work that "
-                "may have reached the backend will not be retried automatically."
-            )
-            event, level = "run_aborted", "warn"
-        elif abort is not None and abort.is_set():
-            run["status"] = "aborted"
-            run["summary"] = "Run aborted after losing the worker lease."
-            event, level = "run_aborted", "warn"
-        else:
-            run["status"] = "failed"
-            run["error"] = str(exc)
-            run["summary"] = "Run stopped before the backend produced an answer."
-            event, level = "run_failed", "error"
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(user_id, run["id"], event, run["summary"], level=level)
-        return run
-    except ApprovalRequiredError:
-        # Autonomous work must be non-interactive. The backend gate refuses
-        # protected operations for background runs; if a run still ends at an
-        # approval boundary, record the refusal rather than an approval task.
-        run["status"] = "failed"
-        run["error"] = "Autonomous runs cannot request user approval."
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(
-            user_id,
-            run["id"],
-            "approval_blocked",
-            run["error"],
-            level="error",
-        )
-        return run
-    except OAuthRequiredError:
-        # OAuth always requires interactive browser state. Treat an attempted
-        # OAuth tool call as a bounded run failure rather than creating an
-        # approval loop that can never be autonomous.
-        run["status"] = "failed"
-        run["error"] = (
-            "Autonomous runs cannot use tools that require interactive OAuth."
-        )
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(
-            user_id,
-            run["id"],
-            "oauth_blocked",
-            run["error"],
-            level="error",
-        )
-        return run
-    except Exception as exc:  # pragma: no cover - exercised through tests with fakes
-        run["status"] = "failed"
-        run["error"] = str(exc)
-        run["completedAt"] = now_ms()
-        store.upsert_run(user_id, run)
-        store.log_event(
-            user_id,
-            run["id"],
-            "run_failed",
-            str(exc),
-            level="error",
-        )
-        return run
-
-
-def _request_timeout_seconds() -> int:
-    raw_timeout = os.getenv("REQUEST_TIMEOUT", "3600")
-    try:
-        request_timeout = int(raw_timeout)
-    except ValueError as exc:
-        raise ValueError(
-            "REQUEST_TIMEOUT must be an integer number of seconds"
-        ) from exc
-    if request_timeout <= 0:
-        raise ValueError("REQUEST_TIMEOUT must be greater than zero")
-    if request_timeout > MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS:
-        raise ValueError(
-            "REQUEST_TIMEOUT must be at most "
-            f"{MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS} seconds so one run "
-            "cannot wedge the worker queue"
-        )
-    return request_timeout
-
-
-def _worker_timing_seconds() -> tuple[int, int]:
-    """Validate queue polling against the lease it must not outlive.
-
-    ``dequeue`` blocks for the poll interval without a heartbeat, and Redis
-    treats a zero BRPOPLPUSH timeout as "block forever", which would also stop
-    scheduled runs. Fail at startup instead of losing the lease on every poll.
-    """
-
-    values = []
-    for name, default in (
-        ("AUTONOMY_WORKER_POLL_INTERVAL", "10"),
-        ("AUTONOMY_WORKER_LEASE_TTL", "60"),
-    ):
-        try:
-            values.append(int(os.getenv(name, default)))
-        except ValueError as exc:
-            raise ValueError(f"{name} must be an integer number of seconds") from exc
-    poll_interval, lease_ttl = values
-    if poll_interval <= 0:
-        raise ValueError("AUTONOMY_WORKER_POLL_INTERVAL must be greater than zero")
-    if lease_ttl <= poll_interval:
-        raise ValueError(
-            "AUTONOMY_WORKER_LEASE_TTL must be greater than "
-            "AUTONOMY_WORKER_POLL_INTERVAL so an idle poll keeps the lease"
-        )
-    return poll_interval, lease_ttl
-
-
-def make_backend(user_id: str) -> BackendClient:
-    return BackendClient(
-        base_url=os.getenv("BACKEND_BASE_URL", "http://daedalus-backend-default:8000"),
-        api_path=os.getenv("BACKEND_API_PATH", "/v1/chat/completions"),
-        user_id=user_id,
-        request_timeout=_request_timeout_seconds(),
-    )
-
-
-def run_with_lease_heartbeat(
-    *,
-    store: RedisStore,
-    backend: BackendClient,
-    user_id: str,
-    request: dict[str, Any],
-    lease_ttl: int,
-) -> dict[str, Any]:
-    stop = threading.Event()
-    # F-016: if the lease heartbeat fails the lease can expire and a second
-    # worker may start the same user concurrently, racing the non-atomic shared
-    # state. Signal the in-progress run to abort instead of ignoring the error.
     abort = threading.Event()
-    # run_once mints the run id, so the heartbeat learns it through this holder.
-    run_id_holder: dict[str, str] = {}
-    heartbeat_interval = max(1, min(20, lease_ttl // 3 or 1))
-    # A dashboard Stop must reach the open backend stream promptly: tools keep
-    # running until it closes. One flag read per poll is far cheaper than the
-    # lease refresh, which keeps its own interval.
-    poll_interval = min(heartbeat_interval, CANCEL_POLL_SECONDS)
+    stopped = threading.Event()
 
     def heartbeat() -> None:
-        next_refresh = time.monotonic() + heartbeat_interval
-        while not stop.wait(poll_interval):
-            if SHUTDOWN.is_set():
-                abort.set()
-                log("worker is shutting down; aborting current run")
-                return
-            if time.monotonic() >= next_refresh:
-                next_refresh = time.monotonic() + heartbeat_interval
-                try:
-                    if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
-                        abort.set()
-                        log("worker lease lost; aborting current run")
-                        return
-                except Exception as exc:
-                    log(
-                        "lease heartbeat failed; aborting current run: "
-                        f"{type(exc).__name__}"
-                    )
+        refresh_at = time.monotonic()
+        while not stopped.wait(CANCEL_POLL_SECONDS):
+            try:
+                if (
+                    SHUTDOWN.is_set()
+                    or store.cancel_requested(user_id, run["id"])
+                    or not task_enabled(store.get_config(user_id), task["kind"])
+                ):
                     abort.set()
                     return
-            # Cancellation used to be read only after the backend call
-            # returned, so cancelling a long run did nothing until it finished
-            # on its own. Poll here so the abort reaches the open stream.
-            run_id = run_id_holder.get("id") or ""
-            if run_id:
-                try:
-                    if store.cancel_requested(user_id, run_id):
+                if time.monotonic() >= refresh_at:
+                    if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
                         abort.set()
-                        log(f"cancellation requested; aborting run {run_id}")
                         return
-                except Exception as exc:
-                    log(f"cancellation check failed: {type(exc).__name__}")
+                    refresh_at = time.monotonic() + max(1, lease_ttl // 3)
+            except Exception:
+                abort.set()
+                return
 
-    if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
-        raise RuntimeError("worker lease was lost before the run started")
-    thread = threading.Thread(
-        target=heartbeat, name="autonomy-lease-heartbeat", daemon=True
-    )
+    thread = threading.Thread(target=heartbeat, name="charter-heartbeat", daemon=True)
     thread.start()
     try:
-        return run_once(
-            store=store,
-            backend=backend,
-            user_id=user_id,
-            request=request,
+        if SHUTDOWN.is_set() or not store.owns_lease(user_id):
+            raise RunAbortedError("Execution stopped before dispatch")
+        messages = build_messages(
+            config=config, task=task, state=claim["state"], timestamp=now_ms()
+        )
+        response = (backend or make_backend(user_id, config)).call(
+            messages,
+            execution_id=run["id"],
             abort=abort,
-            run_id_holder=run_id_holder,
+            charter_task={
+                "id": task_id,
+                "kind": task["kind"],
+                "max_tool_calls": config.maxToolCalls,
+            },
+        )
+        if abort.is_set() or store.cancel_requested(user_id, run["id"]):
+            raise RunAbortedError("Execution stopped before result commit")
+        output = parse_structured_output(response)
+    except Exception as exc:
+        # The model/transport may have changed remote state before failure.
+        # Never use arbitrary exception text (which can contain credentials or
+        # model text) or automatically retry an unverified mutation.
+        log(f"run interrupted: kind={task['kind']} error_class={type(exc).__name__}")
+        output = CharterOutput(
+            outcome=ActionOutcome(
+                status="uncertain",
+                mutationAttempted=True,
+                summary="Execution stopped without a verified result. Reconcile remote state before another action.",
+            )
         )
     finally:
-        stop.set()
-        thread.join(timeout=1)
+        stopped.set()
+        thread.join(timeout=2)
+    store.finish(user_id, task_id, run["id"], output)
+    return output.model_dump()
 
 
 def main() -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-
-    user_id = os.getenv("AUTONOMOUS_USER_ID", "default-user")
-    poll_interval, lease_ttl = _worker_timing_seconds()
-    run_once_only = os.getenv("AUTONOMY_RUN_ONCE", "false").lower() == "true"
-
+    user_id = os.getenv("AUTONOMOUS_USER_ID", "").strip()
+    if not user_id:
+        raise ValueError("AUTONOMOUS_USER_ID must identify the connected user")
+    poll = int(os.getenv("AUTONOMY_WORKER_POLL_INTERVAL", "10"))
+    lease_ttl = int(os.getenv("AUTONOMY_WORKER_LEASE_TTL", "60"))
+    if poll < 1 or lease_ttl < 6:
+        raise ValueError(
+            "Worker poll must be positive and lease must be at least six seconds"
+        )
     store = RedisStore()
     store.ping()
-    backend = make_backend(user_id)
-    start_queue_monitor(store, user_id)
-    log("worker starting")
-
-    # F-001: a transient Redis error must not kill the worker for every queued
-    # job. Log only the error class: exception messages can contain private
-    # requests or credentials. Release acquired leases and back off so a
-    # sustained outage does not spin into a tight error loop.
-    consecutive_errors = 0
-    max_backoff = max(poll_interval, 60)
-    while not STOP:
+    errors = 0
+    while not SHUTDOWN.is_set():
         acquired = False
+        had_work = False
         try:
             acquired = store.acquire_lease(user_id, ttl_seconds=lease_ttl)
-            if not acquired:
-                time.sleep(poll_interval)
-                continue
-            # Reclaim only after acquiring the per-user lease. A replacement pod
-            # cannot move a live owner's request during a rolling overlap.
-            reclaimed = store.reclaim_processing(user_id)
-            if reclaimed:
-                log(
-                    f"resolved {reclaimed} interrupted request(s) from a previous worker"
-                )
-            scheduled = store.maybe_enqueue_scheduled(user_id)
-            if scheduled:
-                log(f"scheduled request enqueued: {_request_summary(scheduled)}")
-            request = store.dequeue(user_id, timeout=poll_interval)
-            if request:
-                log(
-                    "dequeued request: "
-                    f"{_request_summary(request)} "
-                    f"queue_depth_after={store.queue_length(user_id)}"
-                )
-                run = run_with_lease_heartbeat(
-                    store=store,
-                    backend=backend,
-                    user_id=user_id,
-                    request=request,
-                    lease_ttl=lease_ttl,
-                )
-                log(
-                    "run finished: "
-                    f"id={run.get('id') or 'unknown'} "
-                    f"status={run.get('status') or 'unknown'}"
-                )
-                # F-013: the run has been recorded (incl. recorded failures), so
-                # remove it from the processing list. If the worker had crashed
-                # before reaching here, recovery drops dispatched work rather
-                # than repeating external actions with an uncertain outcome.
-                if run.get("status") != "aborted":
-                    store.complete(user_id)
-                if run_once_only:
-                    return 0
-            else:
-                if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
-                    raise RuntimeError("worker lease was lost while idle")
-            consecutive_errors = 0
+            if acquired:
+                task = store.prepare(user_id)
+                if task:
+                    had_work = True
+                    run_once(
+                        store=store,
+                        user_id=user_id,
+                        task_id=task["id"],
+                        lease_ttl=lease_ttl,
+                    )
+                    # Notification failure must not roll back or replay a result.
+                    with contextlib.suppress(Exception):
+                        store.publish(user_id)
+                    if os.getenv("AUTONOMY_RUN_ONCE", "false").lower() == "true":
+                        return 0
+                errors = 0
+        except WorkerLeaseLost:
+            log("worker lease lost; successor will reconcile unfinished work")
         except Exception as exc:
-            consecutive_errors += 1
-            log(
-                "worker loop error (continuing); "
-                f"consecutive_errors={consecutive_errors} "
-                f"error_class={type(exc).__name__}"
-            )
-            backoff = min(max_backoff, poll_interval * (2 ** (consecutive_errors - 1)))
-            time.sleep(backoff)
+            errors += 1
+            log(f"worker error: {type(exc).__name__}")
         finally:
-            # Always release the lease so a failed iteration cannot strand it,
-            # and never let a release error mask the original loop error.
             if acquired:
                 with contextlib.suppress(Exception):
                     store.release_lease(user_id)
-
-    log("worker stopped")
+        if errors or not had_work:
+            SHUTDOWN.wait(min(60, poll * 2 ** min(errors, 6)))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

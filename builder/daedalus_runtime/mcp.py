@@ -288,7 +288,12 @@ class MCPManager:
         if not separator or name not in self.groups:
             raise ValueError("Unknown MCP tool")
         async with self.locks.setdefault(self._key(name, user), asyncio.Lock()):
-            headers = await self._headers(name, user, emit)
+            background = (
+                trusted_request_header_from_context("x-daedalus-execution-scope") or ""
+            ).lower() == "autonomy"
+            headers = await self._headers(name, user, None if background else emit)
+            if headers is None:
+                raise RuntimeError("Existing user authorization is unavailable")
             connection = await self._connection(name, user, headers)
             schemas = self._schemas(name, connection)
             if tool_name == "connect":

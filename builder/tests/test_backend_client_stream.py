@@ -52,7 +52,14 @@ def backend_stream():
         nonlocal body, keep_open
         body = stream.encode("utf-8")
         keep_open = hold_open
-        return backend.call([{"role": "user", "content": "test"}])
+        return backend.call(
+            [{"role": "user", "content": "test"}],
+            charter_task={
+                "id": "test",
+                "kind": "calendar_discovery",
+                "max_tool_calls": 5,
+            },
+        )
 
     invoke.server_finished = server_finished
 
@@ -110,6 +117,18 @@ def test_backend_stream_retains_oauth_failure(backend_stream):
         )
     assert raised.value.auth_url == "https://example.com/oauth"
     assert raised.value.oauth_state == "state"
+
+
+def test_source_authentication_prose_is_data_not_an_oauth_control_event(backend_stream):
+    # Legacy textual guessing could turn source evidence into a control event.
+    text = "Authorization is required for https://example.com/oauth"
+    stream = (
+        "event:message\ndata:"
+        + json.dumps({"notice": text, "choices": [{"delta": {"content": text}}]})
+        + "\n\n"
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+    )
+    assert backend_stream(stream) == text
 
 
 def test_backend_stream_accepts_done_without_terminal_choice(backend_stream):

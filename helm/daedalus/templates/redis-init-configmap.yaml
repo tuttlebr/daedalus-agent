@@ -87,11 +87,10 @@ data:
           "${REDIS_STREAM_WORKER_PREVIOUS_PASSWORD:-}" \
           '~async-* ~conversation:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~generated:* ~image:* ~image-job:*' \
           '&job:*:status &user:*:chat:*:tokens &user:*:updates'
-        # The autonomous process owns only autonomy state, its persisted
-        # workspace notes, and its update topic.
+        # The autonomous process owns only charter state and its update topic.
         write_acl_user "$REDIS_AUTONOMOUS_USERNAME" "$REDIS_AUTONOMOUS_PASSWORD" \
           "${REDIS_AUTONOMOUS_PREVIOUS_PASSWORD:-}" \
-          '~autonomy:* ~autonomous:*:workspace:*' '&user:*:updates'
+          '~autonomy:*' '&user:*:updates'
       } >/tmp/users.acl
       AUTH_ARGS=(--aclfile /tmp/users.acl)
     fi
@@ -114,7 +113,7 @@ data:
     # rather than evicting. With replicas: 1 and strategy Recreate that is a
     # full outage plus an AOF replay. volatile-lru evicts only keys that carry
     # a TTL (job state, sessions, conversations, uploads); durable records such
-    # as autonomy goals and user accounts have none and are never evicted.
+    # as charter state and user accounts have none and are never evicted.
     redis-server \
       --dir /data \
       --save 60 1 \

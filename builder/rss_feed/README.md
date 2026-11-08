@@ -109,8 +109,9 @@ Failure results use the same JSON envelope with `success: false`:
 
 This tool is useful when you want a curated feed-specific research source
 inside an agent workflow. It complements the broader search and web-scraping
-tools rather than replacing them. The autonomous agent uses it to surface
-feed updates into the Autonomy dashboard.
+tools rather than replacing them. Charter tasks may use relevant feeds as
+evidence for a household responsibility; discoveries are not published as a
+separate autonomous news feed.
 
 ## Requirements
 

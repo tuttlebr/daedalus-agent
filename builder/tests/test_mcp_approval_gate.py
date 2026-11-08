@@ -246,12 +246,11 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     "server_name,tool_name,payload",
     [
         ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
-        ("calendar_mcp_server", "update_event", {"event_id": "event-1"}),
         ("calendar_mcp_server", "delete_event", {"event_id": "event-1"}),
         ("calendar_mcp_server", "respond_to_event", {"event_id": "event-1"}),
     ],
 )
-def test_docs_updates_and_existing_calendar_event_changes_require_exact_approval(
+def test_docs_updates_calendar_deletion_and_responses_require_exact_approval(
     server_name, tool_name, payload
 ):
     for qualified_tool_name in (tool_name, f"{server_name}.{tool_name}"):
@@ -277,11 +276,15 @@ def test_docs_updates_and_existing_calendar_event_changes_require_exact_approval
         "create_event",
         "calendar_mcp_server.create_event",
         "calendar_mcp_server::create_event",
+        "update_event",
+        "calendar_mcp_server.update_event",
     ],
 )
-def test_calendar_creation_skips_approval_storage(monkeypatch, server_name, tool_name):
+def test_calendar_reconciliation_skips_approval_storage(
+    monkeypatch, server_name, tool_name
+):
     def forbidden(**_kwargs):
-        pytest.fail("Calendar creation must not create a per-call approval")
+        pytest.fail("Calendar reconciliation must not create a per-call approval")
 
     monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", forbidden)
     assert mcp_patches._validate_mcp_approval(

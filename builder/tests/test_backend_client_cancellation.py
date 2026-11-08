@@ -40,7 +40,15 @@ def test_silent_backend_is_interruptible(send_headers, cancel):
 
     def invoke():
         try:
-            backend.call([{"role": "user", "content": "test"}], abort=abort)
+            backend.call(
+                [{"role": "user", "content": "test"}],
+                abort=abort,
+                charter_task={
+                    "id": "test",
+                    "kind": "calendar_discovery",
+                    "max_tool_calls": 5,
+                },
+            )
         except Exception as exc:
             result.append(exc)
 

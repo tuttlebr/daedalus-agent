@@ -7,9 +7,7 @@ export type SyncEventType =
   | 'conversation_deleted'
   | 'streaming_started'
   | 'streaming_ended'
-  | 'autonomy_status'
-  | 'autonomy_run_event'
-  | 'autonomy_feed_updated';
+  | 'autonomy_status';
 
 export interface SyncEvent {
   type: SyncEventType;

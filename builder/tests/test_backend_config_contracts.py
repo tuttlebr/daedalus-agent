@@ -1314,14 +1314,13 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
     }
     approval_required = {
         "calendar_mcp_server": {
-            "update_event",
             "delete_event",
             "respond_to_event",
         },
         "docs_mcp_server": {"update_doc"},
     }
     auto_approved = {
-        "calendar_mcp_server": {"create_event"},
+        "calendar_mcp_server": {"create_event", "update_event"},
         "k8s_mcp_server": allowlisted["k8s_mcp_server"],
     }
     for path in DEPLOYED_CONFIGS:
@@ -1638,7 +1637,7 @@ def test_redis_workloads_use_distinct_scoped_principals():
     assert "~nat:*" not in acl
     assert "~async-*" in acl
     assert "~autonomy:*" in acl
-    assert "~autonomy:* ~autonomous:*:workspace:*" in acl
+    assert "~autonomous:*:workspace:*" not in acl
 
 
 def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():

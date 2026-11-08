@@ -159,7 +159,10 @@ def test_static_headers_and_oauth_credentials_remain_scoped():
     asyncio.run(scenario())
 
 
-def test_deferred_catalogue_keeps_readiness_and_exposes_exact_allowed_schemas():
+def test_deferred_catalogue_keeps_readiness_and_exposes_exact_allowed_schemas(
+    monkeypatch,
+):
+    monkeypatch.setattr(mcp, "trusted_request_header_from_context", lambda name: "")
     config = {
         "function_groups": {
             "lighting": {
@@ -268,3 +271,32 @@ def test_exposure_filters_match_names_like_the_approval_policy():
         "fixture__read",
         "fixture__STRASSE",
     ]
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_background_calendar_reuses_grant_without_emitting_consent(
+    monkeypatch, background
+):
+    config = {
+        "authentication": {"google": {"_type": "mcp_oauth2"}},
+        "function_groups": {"calendar": {"server": {"auth_provider": "google"}}},
+    }
+    emit = AsyncMock()
+    token = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        mcp,
+        "trusted_request_header_from_context",
+        lambda name: "autonomy" if background else "",
+    )
+
+    async def scenario():
+        manager = mcp.MCPManager(config, SimpleNamespace(access_token=token))
+        manager._connection = AsyncMock()
+        with pytest.raises(RuntimeError, match="authorization is unavailable"):
+            await manager.call("calendar__connect", {}, "alice", emit)
+        token.assert_awaited_once_with(
+            "alice", config["authentication"]["google"], None if background else emit
+        )
+        manager._connection.assert_not_awaited()
+
+    asyncio.run(scenario())

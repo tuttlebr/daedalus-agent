@@ -513,8 +513,8 @@ redis:
     port: 6379
 
 autonomousAgent:
-  # Dedicated autonomous worker that curates memories, monitors news feeds,
-  # follows UI-managed goals, and publishes state to the Autonomy dashboard.
+  # Runs the household calendar, MSU lighting, cluster maintenance, and
+  # improvement charter; publishes daily summaries to the Autonomy dashboard.
   enabled: true
   # Set suspend: true to pause the worker Deployment without removing it.
   suspend: false
@@ -531,19 +531,15 @@ autonomousAgent:
     readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
-  # HTTP/poll timeout for a single autonomous backend run
-  requestTimeout: 3600
   # Use the already-loaded workflow over SSE.
   backendApiPath: '/v1/chat/completions'
   # User whose memory and conversation history the agent operates on
   userId: 'default-user'
   worker:
-    # Poll interval for queue and schedule checks
+    # Poll interval for charter schedule checks
     pollIntervalSeconds: 10
     # Lease TTL prevents multiple replicas from running the same user concurrently
     leaseTtlSeconds: 60
-    # Default autonomous run interval; can be changed later from the UI dashboard
-    intervalSeconds: 14400
   env:
     # Normally empty. The internal backend token and Redis credential are
     # injected directly. Never reuse the backend Secret here.

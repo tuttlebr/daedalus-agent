@@ -14,177 +14,72 @@ import { resolve } from 'node:path';
 
 test.use({ serviceWorkers: 'block' });
 
-const goals = Array.from({ length: 13 }, (_, index) => ({
-  id: `goal-${index}`,
-  title: `Goal ${index + 1}: Follow relevant project changes`,
-  description:
-    'Summarize useful changes and explain how they affect the project.',
-  status: 'active',
-}));
-
-async function openWorkspace(page: import('@playwright/test').Page) {
-  await openApp(page);
-  await page.route('**/api/autonomy/goals', (route) =>
-    route.fulfill({ json: goals }),
-  );
-  await navigate(page, 'Autonomy');
-  await page.getByRole('button', { name: 'Open workspace' }).click();
-  return page.getByRole('dialog', { name: 'Daedalus workspace' });
-}
-
-test('workspace has named fields, readable content, and access to every goal', async ({
+test('charter settings have named fields and remain usable with enlarged text', async ({
   page,
 }, testInfo) => {
-  const workspace = await openWorkspace(page);
+  await openApp(page);
+  await navigate(page, 'Autonomy');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await settleTransitions(page);
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
       .analyze();
-    expect(
-      result.violations.map((v) => ({
-        id: v.id,
-        nodes: v.nodes.map((n) => n.failureSummary),
-      })),
-    ).toEqual([]);
+    expect(result.violations).toEqual([]);
   }
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
-  await assertFits(page);
   for (const name of [
-    'Instructions (optional)',
-    'Goal name',
-    'Goal details (optional)',
+    'Local interests, area, and household applicability',
+    'Lighting scene',
+    'Non-node LAN verification source',
   ]) {
-    const field = workspace.getByRole('textbox', { name, exact: true });
+    const field = page.getByRole('textbox', { name, exact: true });
     await field.focus();
     await expect(field).toBeInViewport();
   }
-  const lastGoal = workspace.getByRole('button', {
-    name: `Delete goal: ${goals[12].title}`,
-  });
-  await lastGoal.scrollIntoViewIfNeeded();
-  await expect(lastGoal).toBeInViewport();
+  await assertFits(page);
   await page.screenshot({
-    path: testInfo.outputPath('workspace-large-text.png'),
+    path: testInfo.outputPath('charter-large-text.png'),
   });
-  await page.keyboard.press('Escape');
-  await expect(
-    page.getByRole('button', { name: 'Open workspace' }),
-  ).toBeFocused();
 });
 
-test('Autonomy preserves failed run and goal drafts, validates schedules, and confirms deletion', async ({
+test('charter preserves failed settings drafts and validates check intervals', async ({
   page,
 }) => {
-  const workspace = await openWorkspace(page);
-  let fail = true;
-  const requests: unknown[] = [];
-  await page.route('**/api/autonomy/runs', async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    requests.push(route.request().postDataJSON());
-    await route.fulfill({ status: fail ? 503 : 200, json: {} });
+  await openApp(page);
+  await navigate(page, 'Autonomy');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const preferences = page.getByRole('textbox', {
+    name: 'Local interests, area, and household applicability',
   });
-  const instruction = workspace.getByRole('textbox', {
-    name: 'Instructions (optional)',
+  await preferences.fill('Family festivals near Saline.');
+  let writes = 0;
+  await page.route('**/api/autonomy/config', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    writes++;
+    return route.fulfill({ status: 503, json: {} });
   });
-  await instruction.fill('Prepare a concise project update.');
-  await workspace.getByRole('button', { name: 'Send to Daedalus' }).click();
-  await expect(workspace.getByRole('alert')).toContainText('Could not queue');
-  await expect(instruction).toHaveValue('Prepare a concise project update.');
-  fail = false;
-  await workspace.getByRole('button', { name: 'Send to Daedalus' }).click();
-  await expect(instruction).toHaveValue('');
-  expect(requests).toHaveLength(2);
-  expect(requests[0]).toEqual(requests[1]);
-  await expect(workspace.getByRole('status')).toContainText('Run added');
-
-  let goalFail = true;
-  let deletes = 0;
-  const goalWrites: unknown[] = [];
-  await page.route('**/api/autonomy/goals*', async (route) => {
-    if (route.request().method() === 'GET')
-      return route.fulfill({ json: goals });
-    if (route.request().method() === 'DELETE') deletes++;
-    if (route.request().method() === 'POST')
-      goalWrites.push(route.request().postDataJSON());
-    await route.fulfill({ status: goalFail ? 503 : 200, json: {} });
-  });
-  const title = workspace.getByRole('textbox', { name: 'Goal name' });
-  await title.fill('Keep this goal draft');
-  await workspace
-    .getByRole('textbox', { name: 'Goal details (optional)' })
-    .fill('Keep these details too');
-  await workspace
-    .getByRole('button', { name: 'Add goal', exact: true })
-    .click();
-  await expect(workspace.getByRole('alert')).toContainText('Could not create');
-  await expect(title).toHaveValue('Keep this goal draft');
-  goalFail = false;
-  await workspace
-    .getByRole('button', { name: 'Add goal', exact: true })
-    .click();
-  await expect(title).toHaveValue('');
-  await expect(
-    workspace.getByRole('textbox', { name: 'Goal details (optional)' }),
-  ).toHaveValue('');
-  let scheduleRequests = 0;
-  await page.route('**/api/autonomy/config', (route) => {
-    scheduleRequests++;
-    return route.fulfill({ json: {} });
-  });
-  const interval = workspace.getByRole('spinbutton', {
-    name: 'Run every (hours)',
+  const interval = page.getByRole('spinbutton', {
+    name: 'Local calendar check interval (minutes)',
   });
   await interval.fill('0');
-  await workspace.getByRole('button', { name: 'Save schedule' }).click();
-  expect(scheduleRequests).toBe(0);
-  expect(
-    await interval.evaluate(
-      (el: HTMLInputElement) => el.validity.rangeUnderflow,
-    ),
-  ).toBe(true);
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await workspace
-    .getByRole('button', { name: `Delete goal: ${goals[0].title}` })
+  await page
+    .getByRole('button', { name: 'Save settings', exact: true })
     .click();
-  expect(deletes).toBe(0);
-  page.once('dialog', (dialog) => dialog.accept());
-  await workspace
-    .getByRole('button', { name: `Delete goal: ${goals[0].title}` })
+  expect(writes).toBe(0);
+  await interval.fill('60');
+  await page
+    .getByRole('button', { name: 'Save settings', exact: true })
     .click();
-  await expect.poll(() => deletes).toBe(1);
   await expect(
-    workspace.getByRole('button', { name: 'Import JSON', exact: true }),
-  ).toBeEnabled();
-  const importFile = {
-    name: 'goals.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify([{ title: 'Imported goal' }])),
-  };
-  const goalFileInput = workspace.locator('input[type="file"]').last();
-  const beforeImport = goalWrites.length;
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await goalFileInput.setInputFiles(importFile);
-  // Reading the file is asynchronous; wait for cancellation to finish before
-  // registering the next confirmation handler or selecting the same file.
-  await expect(goalFileInput).toHaveValue('');
-  expect(goalWrites).toHaveLength(beforeImport);
-  goalFail = true;
-  page.once('dialog', (dialog) => dialog.accept());
-  await goalFileInput.setInputFiles(importFile);
-  await expect(workspace.getByRole('alert')).toContainText(
-    'Could not import goals',
-  );
-  expect(goalWrites[goalWrites.length - 1]).toEqual({
-    mode: 'replace',
-    goals: [{ title: 'Imported goal' }],
-  });
-  await expect(
-    workspace.getByRole('button', { name: `Delete goal: ${goals[12].title}` }),
+    page
+      .getByRole('alert')
+      .filter({ hasText: /The request could not be completed/ }),
   ).toBeVisible();
+  await expect(preferences).toHaveValue('Family festivals near Saline.');
 });
 
 test('Memory search rejects stale results and offers a clear path back to all facts', async ({
@@ -543,39 +438,54 @@ test('Connections reflows populated services and recovers a failed refresh', asy
   ).toBeVisible();
 });
 
-test('Autonomy reports failed cancellation and stale activity inside the visible flow', async ({
+test('Autonomy reports failed cancellation and retains action evidence after refresh failure', async ({
   page,
 }) => {
   await openApp(page);
-  await page.route('**/api/autonomy/runs', (route) =>
-    route.fulfill({
-      json: [{ id: 'active', status: 'running', createdAt: Date.now() }],
-    }),
-  );
-  await page.route('**/api/autonomy/runs/active', (route) =>
-    route.fulfill({ json: { events: [] } }),
-  );
-  await page.route('**/api/autonomy/runs/active/cancel', (route) =>
-    route.fulfill({ status: 503, json: {} }),
-  );
+  await page.route('**/api/autonomy/state', (route) => {
+    if (route.request().method() === 'POST')
+      return route.fulfill({ status: 503, json: {} });
+    return route.fulfill({
+      json: {
+        version: 2,
+        actions: {
+          active: {
+            id: 'active',
+            kind: 'cluster_maintenance',
+            responsibility: 'cluster',
+            status: 'running',
+            dueAt: Date.now(),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            attempts: 1,
+            payload: {},
+            outcome: null,
+          },
+        },
+        summaries: [],
+        proposals: {},
+      },
+    });
+  });
   await navigate(page, 'Autonomy');
-  await page.getByRole('button', { name: 'Open workspace' }).click();
-  const workspace = page.getByRole('dialog', { name: 'Daedalus workspace' });
-  await workspace.getByRole('button', { name: 'Cancel active run' }).click();
-  await expect(workspace.getByRole('alert')).toContainText(
-    'Could not cancel the run',
-  );
+  await page.getByText(/Cluster maintenance · running/).click();
+  await page.getByRole('button', { name: 'Stop action', exact: true }).click();
   await expect(
-    workspace.getByRole('button', { name: 'Cancel active run' }),
+    page
+      .getByRole('alert')
+      .filter({ hasText: /The request could not be completed/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Stop action', exact: true }),
   ).toBeEnabled();
-  await page.keyboard.press('Escape');
-  await page.route('**/api/autonomy/feed', (route) =>
+  await page.route('**/api/autonomy/state', (route) =>
     route.fulfill({ status: 503, json: {} }),
   );
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText(
-    'Showing the last saved activity',
-  );
+  await expect(
+    page.getByRole('alert').filter({ hasText: /last saved activity/ }),
+  ).toBeVisible();
+  await expect(page.getByText(/Cluster maintenance · running/)).toBeVisible();
 });
 
 test('desktop image presets dismiss when keyboard focus leaves the popover', async ({
@@ -655,80 +565,6 @@ test('saved image history survives failed deletion and clearing', async ({
   page.once('dialog', (dialog) => dialog.accept());
   await history.getByRole('button', { name: 'Delete entry' }).click();
   await expect(saved).toHaveCount(0);
-});
-
-test('long workspace queue, history, and diagnostics remain readable at enlarged text', async ({
-  page,
-}, testInfo) => {
-  await openApp(page);
-  await page.route('**/api/autonomy/queue', (route) =>
-    route.fulfill({
-      json: [
-        {
-          id: 'request-with-a-long-identifier-for-a-scheduled-project-review',
-          trigger: 'manual',
-          position: 1,
-          requestedBy: 'Design Review',
-          createdAt: Date.now(),
-          prompt:
-            'Review the full project plan, summarize what changed, and explain which decisions require follow-up.',
-        },
-      ],
-    }),
-  );
-  await page.route('**/api/autonomy/runs', (route) =>
-    route.fulfill({
-      json: [
-        {
-          id: 'review-run',
-          status: 'completed',
-          createdAt: Date.now(),
-          summary:
-            'The project review completed with several findings that deserve further investigation.',
-        },
-      ],
-    }),
-  );
-  await page.route('**/api/autonomy/runs/review-run', (route) =>
-    route.fulfill({
-      json: {
-        events: [
-          {
-            id: 'event',
-            type: 'autonomy.request.completed.with.findings',
-            level: 'warn',
-            createdAt: Date.now(),
-            message:
-              'Review the reported findings before starting the next request.',
-          },
-        ],
-      },
-    }),
-  );
-  await navigate(page, 'Autonomy');
-  await page.getByRole('button', { name: 'Open workspace' }).click();
-  const workspace = page.getByRole('dialog', { name: 'Daedalus workspace' });
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = '200%';
-  });
-  for (const section of ['Queue', 'History', 'Diagnostics']) {
-    const summary = workspace.locator('summary').filter({ hasText: section });
-    if (
-      !(await summary.evaluate((el) => el.parentElement!.hasAttribute('open')))
-    )
-      await summary.click();
-    await summary.scrollIntoViewIfNeeded();
-    const details = summary.locator('..');
-    expect(
-      await details.evaluate((el) => el.scrollWidth - el.clientWidth),
-    ).toBeLessThanOrEqual(1);
-    await assertFits(page);
-    await page.screenshot({
-      path: testInfo.outputPath(
-        `workspace-${section.toLowerCase()}-large-text.png`,
-      ),
-    });
-  }
 });
 
 test('a delayed Memory detail never interrupts another destination', async ({

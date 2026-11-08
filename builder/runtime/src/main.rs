@@ -7,6 +7,7 @@ mod authorization_routes;
 #[cfg(test)]
 mod authorization_tests;
 mod autonomy_output;
+mod autonomy_policy;
 mod collection_api;
 mod collections;
 mod config;
@@ -248,6 +249,10 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     // admission and preparation rather than as a failed stream.
     if autonomy_output::definition(&body, autonomy).is_err() {
         return error(400, "Invalid autonomy_output_schema");
+    }
+    if !matches!(autonomy_policy::Task::parse(&body, autonomy), Ok(task) if !autonomy || task.is_some())
+    {
+        return error(400, "Invalid autonomous charter task");
     }
     let (commands, inbox) = mpsc::channel(32);
     let (sender, receiver) = mpsc::channel(128);
@@ -1356,7 +1361,11 @@ mod tests {
             "required":["summary"],"additionalProperties":false});
         // Interactive requests cannot enable the contract; a malformed schema
         // cannot either. Neither reaches preparation or a run slot.
-        for (scope, schema) in [("", schema), ("autonomy", json!({"type":"array"}))] {
+        for (scope, schema) in [
+            ("", schema.clone()),
+            ("autonomy", schema),
+            ("autonomy", json!({"type":"array"})),
+        ] {
             let app = memory_api::tests::peers::app("http://127.0.0.1:1", "redis://127.0.0.1:1");
             let response = app
                 .oneshot(

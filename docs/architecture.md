@@ -75,25 +75,22 @@ sends it afterwards with bounded retries, and neither completion nor the next
 turn waits for the memory service. Retention polling continues while all chat
 execution slots are occupied, with at most one retention poll in progress.
 
-The autonomous worker serves one configured account (`autonomousAgent` in the
-chart); the dashboard accepts requests for any signed-in user, but only that
-account's queue is processed.
-Autonomous requests record a durable dispatch phase separately from their
-expiring worker lease. Recovery requeues only requests marked as claimed but
-undispatched. Started requests and legacy claims without a known phase are
-removed from processing without another backend call; interrupted run records
-are marked aborted. This avoids replaying actions whose remote outcome is unknown.
-The worker sends its publication schema as `autonomy_output_schema` with the
-trusted autonomy scope. The runtime exposes `submit_autonomous_result` for that
-run, validates its arguments, and serializes them as the final JSON response.
-Completion must be submitted alone after research tools finish. If the model
-answers in prose or malformed JSON, the runtime withholds that text and allows
-only the completion tool next, preserving completed evidence without repeating
-research or actions. Completion keeps two model rounds of its own, a submission
-and one argument correction, even when research used the last allowed iteration;
-model retries do not spend them. The worker validates the result again before publishing;
-invalid results fail without exposing raw model text. Interactive requests cannot
-enable this background completion contract.
+The autonomous worker serves one configured account (`autonomousAgent.userId` in
+the chart). It schedules independent calendar, game lighting, cluster maintenance,
+and continual-improvement responsibilities in `autonomy:<user>:charter:*` Redis
+state. It never consumes the retired research queue, feed or workspace notes.
+A fenced transaction reserves each action before backend dispatch; unknown remote
+outcomes are recorded for reconciliation. Game activations are not replayed.
+The dashboard controls per-responsibility pause/interval settings and shows daily
+summaries plus action evidence. See [autonomous charter operations](autonomy.md).
+
+Autonomous requests carry the authenticated user identity, a task capability
+boundary, a tool budget and `autonomy_output_schema`. The Rust runtime exposes
+`submit_autonomous_result` for that run and validates the final arguments.
+Completion must be submitted alone after the action's tools finish. Invalid prose
+cannot be published as a result. The worker validates the result again before
+committing observations, outcomes or future work. Existing user Google MCP grants
+can be refreshed noninteractively; unavailable grants do not open consent flows.
 
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
@@ -169,7 +166,7 @@ and configuration-aware evaluation, including promotion criteria.
 | Chat submission, admission, queue leases and recovery                    | `frontend/server/chat/submission.ts`, `cancellation.ts`, `frontend/pages/api/chat/async.ts`, `streamQueue.ts`, `streamWorker.ts` |
 | OpenAI/Anthropic compatible API and API keys                             | `frontend/server/compat/`, `frontend/pages/api/v1/`, `frontend/server/apiKeys.ts`                                                |
 | SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                                                      |
-| Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                                                   |
+| Scheduled charter responsibilities and autonomous work                   | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                                                   |
 | Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh`                               |
 
 Add native Rust tools in preparation and dispatch, with shared schemas and

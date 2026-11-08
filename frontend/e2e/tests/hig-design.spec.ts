@@ -1487,87 +1487,65 @@ test('populated activity stays readable and supports keyboard search and details
   await expect(more).toBeFocused();
 });
 
-test('populated Autonomy groups support appearance, text scaling, and scoped keyboard navigation', async ({
+test('populated Autonomy summaries support appearance and text scaling', async ({
   page,
 }, testInfo) => {
   await openApp(page);
-  await page.route('**/api/autonomy/feed', (route) =>
+  await page.route('**/api/autonomy/state', (route) =>
     route.fulfill({
-      json: [
-        {
-          id: 'feed-1',
-          runId: 'run-1',
-          lane: 'known',
-          title: 'Make reading comfortable',
-          bluf: 'Text should remain legible in both appearances.',
-          body: 'Use semantic colors and text that scales with browser preferences.',
-          confidence: 'medium',
-          confidenceReason: 'Check on a physical device.',
-          createdAt: Date.now(),
-          sourceUrl:
-            'https://developer.apple.com/design/human-interface-guidelines/accessibility',
-        },
-      ],
+      json: {
+        version: 2,
+        actions: {},
+        proposals: {},
+        summaries: [
+          {
+            id: 'day-one',
+            date: '2026-11-07',
+            title: 'Daily summary',
+            message: '',
+            createdAt: Date.now(),
+            items: [
+              {
+                responsibility: 'lighting',
+                status: 'partial',
+                summary: 'Reachable lights changed.',
+                skipped: ['Offline lamp'],
+                evidence: [
+                  { description: 'Verified reachable device states.' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
     }),
   );
   await navigate(page, 'Autonomy');
-  const item = page.getByRole('article', { name: 'Make reading comfortable' });
-  const title = item.getByRole('button', { name: 'Make reading comfortable' });
-  await title.focus();
-  await title.press('Enter');
-  await expect(title).toHaveAttribute('aria-expanded', 'true');
+  const evidence = page.getByText('Verification evidence', { exact: true });
+  await evidence.focus();
+  await evidence.press('Enter');
   await expect(
-    item.getByText(
-      'Use semantic colors and text that scales with browser preferences.',
-    ),
+    page.getByText('Verified reachable device states.'),
   ).toBeVisible();
+  await expect(page.getByText('Skipped: Offline lamp')).toBeVisible();
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
-    await expect(page.locator('html')).toHaveClass(
-      colorScheme === 'dark' ? /dark/ : /^(?!.*dark)/,
-    );
     await settleTransitions(page);
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
       .analyze();
     expect(result.violations).toEqual([]);
     await page.screenshot({
-      path: testInfo.outputPath(`autonomy-populated-${colorScheme}.png`),
+      path: testInfo.outputPath(`autonomy-summary-${colorScheme}.png`),
     });
   }
-  const fontSize = await title.evaluate((el) =>
-    parseFloat(getComputedStyle(el).fontSize),
-  );
-  await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
-  await expect
-    .poll(() =>
-      title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    )
-    .toBe(fontSize * 2);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
   await assertFits(page);
   await page.screenshot({
-    path: testInfo.outputPath('autonomy-populated-large-text.png'),
+    path: testInfo.outputPath('autonomy-summary-large-text.png'),
   });
-  await page.evaluate(() => (document.documentElement.style.fontSize = ''));
-  const all = page.getByRole('radio', { name: 'All 1', exact: true });
-  await all.focus();
-  await all.press('End');
-  const scout = page.getByRole('radio', { name: 'Scout 0', exact: true });
-  await expect(scout).toHaveAttribute('aria-checked', 'true');
-  await scout.press('Home');
-  await expect(all).toHaveAttribute('aria-checked', 'true');
-  await title.press('j');
-  await expect(item).toBeFocused();
-  await navigate(page, 'Chat');
-  const chatNavigation =
-    page.viewportSize()!.width < 768
-      ? page
-          .getByRole('navigation', { name: 'Primary navigation' })
-          .getByRole('button', { name: 'Chat', exact: true })
-      : page.getByRole('tab', { name: 'Chat', exact: true });
-  await chatNavigation.focus();
-  await chatNavigation.press('j');
-  await expect(chatNavigation).toBeFocused();
 });
 
 test('memory save errors remain in the editor with the draft available to retry', async ({

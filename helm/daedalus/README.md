@@ -397,9 +397,9 @@ routes and the handlers. See [compatibility API](../../docs/compatibility-api.md
 - On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
 - Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.
 - The autonomous worker streams from the already-loaded backend workflow through `autonomousAgent.backendApiPath`, normally `/v1/chat/completions`.
-- The autonomous worker seeds first-run workspace context from built-in defaults in the `autonomous_agent` package.
-- The run cadence defaults to `autonomousAgent.worker.intervalSeconds` and can be changed from the Autonomy dashboard.
-- Scheduled runs rotate through active goals by their `cadence:<n>h` or `cadence:<n>d` tag (daily when omitted). Autonomous goals should use only non-interactive sources and must not depend on per-user OAuth.
+- The autonomous worker executes independently scheduled charter responsibilities and produces a daily summary in the Autonomy dashboard.
+- Configure each responsibility's interval, pause state, tool budget, and run deadline through the dashboard/API. Defaults and operating boundaries are documented in [autonomous charter operations](../../docs/autonomy.md).
+- Set `autonomousAgent.userId` to the account that owns the connected Google MCP grant. Background calendar work reuses that grant; expired authorization is reported without opening an interactive login.
 
 ## NFS Ownership Runbook
 

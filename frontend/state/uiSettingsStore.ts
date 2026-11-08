@@ -35,10 +35,6 @@ export interface UISettingsState {
 
   // Search
   searchTerm: string;
-
-  // Autonomy feed lane filter ('all' or a lane id); persisted so the
-  // selection survives reloads.
-  autonomyLaneFilter: string;
 }
 
 export interface UISettingsActions {
@@ -59,9 +55,6 @@ export interface UISettingsActions {
 
   // Search
   setSearchTerm: (term: string) => void;
-
-  // Autonomy
-  setAutonomyLaneFilter: (lane: string) => void;
 }
 
 export type UISettingsStore = UISettingsState & UISettingsActions;
@@ -78,7 +71,6 @@ const initialState: UISettingsState = {
   chatbarWidth: 280,
   enableIntermediateSteps: true,
   searchTerm: '',
-  autonomyLaneFilter: 'all',
 };
 
 // ============================================================================
@@ -129,12 +121,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
         // ======================================================================
 
         setSearchTerm: (term) => set({ searchTerm: term }),
-
-        // ======================================================================
-        // Autonomy
-        // ======================================================================
-
-        setAutonomyLaneFilter: (lane) => set({ autonomyLaneFilter: lane }),
       }),
       {
         name: 'ui-settings',
@@ -147,7 +133,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
           showChatbar: state.showChatbar,
           chatbarWidth: state.chatbarWidth,
           enableIntermediateSteps: state.enableIntermediateSteps,
-          autonomyLaneFilter: state.autonomyLaneFilter,
         }),
       },
     ),

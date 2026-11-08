@@ -21,7 +21,6 @@ import {
   Suspense,
 } from 'react';
 
-import { isAutonomousFeedHtmlMessage } from '@/utils/app/htmlResponse';
 import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
 
 import { Message } from '@/types/chat';
@@ -94,7 +93,6 @@ export const AssistantMessage = memo(
     const hasSteps =
       message.intermediateSteps && message.intermediateSteps.length > 0;
     const isAgent = message.role === 'agent';
-    const isAutonomousFeedHtml = isAutonomousFeedHtmlMessage(message);
     const mcpApproval = useMemo(
       () => parseMcpApprovalMarker(content),
       [content],
@@ -115,14 +113,13 @@ export const AssistantMessage = memo(
     // classifyResponseContent returns a fresh object literal, so without this
     // ResponseDocument's shallow memo never bails and re-renders per token.
     const responseDocument = useMemo(
-      () =>
-        classifyResponseContent(content, !isStreaming && !isAutonomousFeedHtml),
-      [content, isStreaming, isAutonomousFeedHtml],
+      () => classifyResponseContent(content, !isStreaming),
+      [content, isStreaming],
     );
 
     // After render, check if the actual rendered height exceeds the threshold
     useEffect(() => {
-      if (isStreaming || !contentRef.current || isAutonomousFeedHtml) {
+      if (isStreaming || !contentRef.current) {
         setNeedsCollapse(false);
         return;
       }
@@ -140,7 +137,7 @@ export const AssistantMessage = memo(
       const observer = new ResizeObserver(measure);
       observer.observe(element);
       return () => observer.disconnect();
-    }, [content, isStreaming, isAutonomousFeedHtml, responseDocument.kind]);
+    }, [content, isStreaming, responseDocument.kind]);
 
     const handleCopy = () => {
       navigator.clipboard.writeText(content);
@@ -148,7 +145,6 @@ export const AssistantMessage = memo(
       setTimeout(() => setCopied(false), 2000);
     };
 
-    const feedClasses = 'autonomous-feed-render max-w-none';
     const isHtmlDocument = !isStreaming && responseDocument.kind === 'html';
     // The icon matches the commands beside it in size and colour.
     const fullscreenButton = (iconSize: number) => (
@@ -233,12 +229,10 @@ export const AssistantMessage = memo(
                   aria-busy={isStreaming}
                   className={classNames(
                     'min-w-0 text-dark-text-primary text-sm',
-                    isAutonomousFeedHtml
-                      ? 'p-0'
-                      : [
-                          'px-5 py-4 rounded-3xl',
-                          'chat-bubble-assistant bg-chat-assistant border border-separator',
-                        ],
+                    [
+                      'px-5 py-4 rounded-3xl',
+                      'chat-bubble-assistant bg-chat-assistant border border-separator',
+                    ],
                     isStreaming && 'border-nvidia-green/20',
                   )}
                 >
@@ -264,11 +258,7 @@ export const AssistantMessage = memo(
                         messageIndex={messageIndex}
                         messageId={message.id}
                         isStreaming={isStreaming}
-                        className={
-                          isAutonomousFeedHtml
-                            ? feedClasses
-                            : RESPONSE_PROSE_CLASSES
-                        }
+                        className={RESPONSE_PROSE_CLASSES}
                         documentActions={
                           isHtmlDocument ? fullscreenButton(18) : undefined
                         }
@@ -344,7 +334,6 @@ export const AssistantMessage = memo(
             )
           )}
           {!mcpApproval &&
-            !isAutonomousFeedHtml &&
             (isStreaming ||
               ((hasSteps || message.metadata?.stopped) &&
                 enableIntermediateSteps)) && (

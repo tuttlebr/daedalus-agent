@@ -1,110 +1,120 @@
-import type { SourcePolicy } from './sourcePolicy';
-
-export type AutonomyRunStatus =
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-  | 'skipped'
-  | 'aborted';
-
-export type AutonomyTrigger = 'manual' | 'scheduled' | 'goal' | string;
-
-export interface AutonomyQueuedRequest {
-  id: string;
-  trigger: AutonomyTrigger;
-  goalId?: string | null;
-  prompt?: string;
-  requestedBy: string;
-  createdAt: number;
-  position: number;
-}
-
-export interface AutonomyConfig {
+export type Responsibility = 'calendar' | 'lighting' | 'cluster' | 'evolution';
+export type TaskKind =
+  | 'calendar_discovery'
+  | 'calendar_event'
+  | 'sports_discovery'
+  | 'game_lighting'
+  | 'cluster_maintenance'
+  | 'evolution'
+  | 'daily_summary';
+export interface ResponsibilityConfig {
   enabled: boolean;
-  userId: string;
-  mode: 'hybrid' | 'research_feed' | 'task_executor' | string;
-  runtime: 'dedicated_worker' | string;
-  actionPolicy:
-    | 'broad_autonomy'
-    | 'read_memory_only'
-    | 'low_risk_writes'
-    | string;
   intervalSeconds: number;
+}
+export interface AutonomyConfig {
+  version: 2;
+  enabled: boolean;
+  timezone: 'America/Detroit';
+  responsibilities: {
+    calendar: ResponsibilityConfig & {
+      calendarId: string;
+      sources: string[];
+      preferences: string;
+      reminderMinutes: number[];
+    };
+    lighting: ResponsibilityConfig & {
+      scene: string;
+      catchUpMinutes: number;
+      lightIds: string[];
+    };
+    cluster: ResponsibilityConfig & {
+      contexts: string[];
+      excludedNamespaces: string[];
+      configurationSource: 'cluster_managed';
+      lanVerificationSource: string;
+      maintenancePolicy: string;
+    };
+    evolution: ResponsibilityConfig;
+  };
+  summary: { time: string; destination: 'autonomy_dashboard' };
+  expansionPolicy: 'propose';
+  maxToolCalls: number;
+  maxRunSeconds: number;
+  maxAttempts: number;
+  maxPendingActions: number;
   maxRunsStored: number;
-  maxFeedItems: number;
-  /** Drop feed items that repeat something surfaced within the window. */
-  feedDedupeEnabled?: boolean;
-  /** Recency window (days) the worker dedupes new feed items against. */
-  feedDedupeWindowDays?: number;
-  sourcePolicy?: SourcePolicy;
-  lastScheduledRunAt?: number | null;
-  createdAt: number;
-  updatedAt: number;
+  maxSummariesStored: number;
 }
-
-export interface AutonomyGoal {
+export interface Outcome {
+  status: 'completed' | 'partial' | 'failed' | 'deferred' | 'uncertain';
+  summary: string;
+  mutationAttempted?: boolean;
+  evidence?: { description: string; reference?: string }[];
+  externalId?: string;
+  observedState?: Record<string, unknown>;
+  skipped?: string[];
+  recommendations?: string[];
+}
+export interface AutonomyAction {
   id: string;
-  title: string;
-  description: string;
-  status: 'active' | 'paused' | 'completed';
-  priority: number;
-  tags?: string[];
+  kind: TaskKind;
+  responsibility: Responsibility | 'summary';
+  status: string;
+  dueAt: number;
   createdAt: number;
   updatedAt: number;
-  lastRunAt?: number | null;
+  attempts: number;
+  runId?: string;
+  cancelledByUser?: boolean;
+  payload: Record<string, unknown>;
+  outcome: Outcome | null;
 }
-
 export interface AutonomyRun {
   id: string;
-  userId: string;
-  trigger: AutonomyTrigger;
-  goalId?: string | null;
-  prompt?: string;
-  requestedBy: string;
-  status: AutonomyRunStatus;
-  summary: string;
-  error?: string;
-  feedItemIds: string[];
-  metrics: Record<string, unknown>;
-  createdAt: number;
-  startedAt?: number | null;
-  completedAt?: number | null;
+  actionId: string;
+  kind: TaskKind;
+  responsibility: Responsibility | 'summary';
+  status: string;
+  startedAt: number;
+  completedAt: number | null;
+  outcome: Outcome | null;
+}
+export interface Proposal {
+  id: string;
+  title: string;
+  benefit: string;
+  trigger: string;
+  requiredAccess: string;
+  actions: string;
+  limits: string;
+  status: 'proposed' | 'accepted' | 'dismissed';
   updatedAt: number;
 }
-
-export interface AutonomyEvent {
+export interface DailySummary {
   id: string;
-  runId: string;
-  type: string;
-  level: 'info' | 'warn' | 'error' | string;
-  message: string;
-  data: Record<string, unknown>;
-  createdAt: number;
-}
-
-export interface AutonomyFeedItem {
-  id: string;
-  runId: string;
-  lane: 'known' | 'adjacent' | 'scout' | string;
+  date: string;
   title: string;
-  bluf: string;
-  body: string;
-  sourceUrl?: string;
-  confidence: 'high' | 'medium' | 'low' | string;
-  confidenceReason?: string;
-  /** Stable content fingerprint stamped by the worker for de-duplication. */
-  fingerprint?: string;
-  /** Stable source/topic key used to suppress repeats and link updates. */
-  threadKey?: string;
-  /** Model assertion that this item materially changes an existing thread. */
-  isUpdate?: boolean;
-  /** Sourced before/after change required before publishing a follow-up. */
-  changeSummary?: string;
-  /** Prior feed item this entry materially updates, when applicable. */
-  updateOfFeedItemId?: string;
-  updateOfTitle?: string;
-  updateReason?: string;
+  message: string;
   createdAt: number;
+  items: {
+    responsibility: string;
+    status: string;
+    summary?: string;
+    actionId?: string;
+    evidence?: Outcome['evidence'];
+    skipped?: string[];
+    recommendations?: string[];
+    proposal?: Proposal;
+  }[];
+}
+export interface AutonomyState {
+  version: 2;
+  actions: Record<string, AutonomyAction>;
+  schedules: Record<string, number | string>;
+  records: Record<string, unknown>;
+  proposals: Record<string, Proposal>;
+  notes: Record<string, string>;
+  runs: AutonomyRun[];
+  summaries: DailySummary[];
+  reported: Record<string, { signature: string; updatedAt: number }>;
 }

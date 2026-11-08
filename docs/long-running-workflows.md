@@ -61,11 +61,12 @@ rollout; extending timeouts alone cannot make runs restartable. If resumable
 execution becomes necessary, checkpoint tool receipts and unresolved mutations
 before designing replay or adoption.
 
-Autonomous-worker recovery follows the same no-replay boundary. A durable
-processing phase allows retry before dispatch; started work is interrupted
-without being queued again. During an upgrade, older processing entries without
-this phase are treated as uncertain and are not replayed. Review the aborted
-run and any external results before submitting it again.
+Autonomous charter recovery persists action intent before backend dispatch.
+Interrupted work becomes uncertain. Calendar reconciliation reads remote state
+before considering another write, and uncertain game lighting is not replayed.
+Cluster maintenance inspects fresh state before choosing another repair. The
+worker does not read the retired autonomous queue, feed, or configuration. See
+[Autonomous charter](autonomy.md) for scheduling and recovery contracts.
 
 ## Reproduce and validate
 

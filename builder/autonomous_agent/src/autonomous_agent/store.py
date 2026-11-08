@@ -1,829 +1,217 @@
-"""Redis-backed state store for autonomous runs."""
+"""Fenced Redis state for the autonomous charter; no retired queue/feed reads."""
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
+import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
-from .dedupe import dedupe_feed_items, stamp_feed_item, window_ms_for_days
-from .models import default_config, new_event, now_ms
+import redis
 
-# Returned by an ``atomic_update`` mutation that leaves the stored value as-is.
-UNCHANGED = object()
-
-
-class WorkerLeaseLost(RuntimeError):
-    """A state write was rejected because this worker no longer owns the user."""
+from .charter import CharterConfig, CharterOutput, task_enabled
+from .scheduling import empty_state, finish, recover, schedule, select_due
 
 
-# Mirror the dashboard's sanitizer (frontend/server/autonomy/store.ts): the
-# worker must not turn a legacy, direct, or environment-seeded value into a
-# degenerate scheduling loop that the UI itself would never accept.
-DEFAULT_SCHEDULE_INTERVAL_SECONDS = 14_400
-MIN_SCHEDULE_INTERVAL_SECONDS = 300
-MAX_SCHEDULE_INTERVAL_SECONDS = 7 * 24 * 60 * 60
-
-
-def _text(value: Any) -> str | None:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    return value if isinstance(value, str) else None
-
-
-def _bounded(value: Any, default: int, maximum: int) -> int:
-    """Clamp a stored list size as the frontend's config validation does."""
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(1, min(number, maximum))
+def now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 def key(user_id: str, name: str) -> str:
-    return f"autonomy:{user_id}:{name}"
+    return f"autonomy:{user_id}:charter:{name}"
 
 
-def schedule_interval_seconds(value: Any) -> int:
-    """Return the effective scheduled-run interval within the dashboard bounds."""
-
-    if isinstance(value, bool):
-        value = None
-    try:
-        interval = int(value)
-    except (TypeError, ValueError, OverflowError):
-        interval = DEFAULT_SCHEDULE_INTERVAL_SECONDS
-    if interval <= 0:
-        interval = DEFAULT_SCHEDULE_INTERVAL_SECONDS
-    return max(
-        MIN_SCHEDULE_INTERVAL_SECONDS, min(MAX_SCHEDULE_INTERVAL_SECONDS, interval)
-    )
+class WorkerLeaseLost(RuntimeError):
+    """The worker no longer owns execution or persistence for this account."""
 
 
 class RedisStore:
     def __init__(self, redis_url: str | None = None) -> None:
-        import redis
-
         self.redis = redis.from_url(
             redis_url or os.getenv("REDIS_URL", "redis://redis:6379"),
             decode_responses=True,
         )
-        watch_error_type = getattr(
-            getattr(redis, "exceptions", None), "WatchError", None
-        )
-        self._watch_error_type: type[Exception] | None = (
-            watch_error_type
-            if isinstance(watch_error_type, type)
-            and issubclass(watch_error_type, Exception)
-            else None
-        )
-        self._json_supported: bool | None = None
         self._lease_tokens: dict[str, str] = {}
-        self._lease_ttls: dict[str, int] = {}
-        # F-013: raw payload of the request currently being processed per user,
-        # so it can be removed from the reliable-queue processing list on completion.
-        self._inflight: dict[str, str] = {}
 
     def ping(self) -> None:
         self.redis.ping()
 
-    def _supports_json(self, redis_key: str) -> bool:
-        if self._json_supported is not None:
-            return self._json_supported
-        try:
-            # Probe the caller's authorized key. A global probe key is outside
-            # the worker ACL and can falsely disable RedisJSON for its lifetime.
-            self.redis.execute_command("JSON.GET", redis_key)
-            self._json_supported = True
-        except Exception as exc:
-            if self._is_wrong_type_error(exc):
-                # A legacy string key still proves that JSON.GET is available.
-                self._json_supported = True
-            elif "unknown command" in str(exc).lower():
-                self._json_supported = False
-            else:
-                # Permission and transport failures are not capability results.
-                # Keep them retryable and never turn valid JSON state into GETs.
-                raise
-        return self._json_supported
+    def get_config(self, user_id: str) -> CharterConfig:
+        raw = self.redis.get(key(user_id, "config"))
+        return CharterConfig.model_validate_json(raw) if raw else CharterConfig()
 
-    def json_get(self, redis_key: str, fallback: Any = None) -> Any:
-        if self._supports_json(redis_key):
-            try:
-                raw = self.redis.execute_command("JSON.GET", redis_key)
-            except Exception as exc:
-                if not self._is_wrong_type_error(exc):
-                    raise
-                # Older worker versions wrote these projections with SET even
-                # when RedisJSON was installed. Read that legacy JSON string
-                # instead of treating the valid value as absent.
-                raw = self.redis.get(redis_key)
-        else:
-            raw = self.redis.get(redis_key)
-        if not raw:
-            return fallback
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return fallback
-
-    def json_set(self, redis_key: str, value: Any) -> None:
-        serialized = json.dumps(value)
-        if self._supports_json(redis_key):
-            try:
-                self.redis.execute_command("JSON.SET", redis_key, ".", serialized)
-                return
-            except Exception as exc:
-                if not self._is_wrong_type_error(exc):
-                    raise
-        self.redis.set(redis_key, serialized)
+    def get_state(self, user_id: str) -> dict:
+        raw = self.redis.get(key(user_id, "state"))
+        return self._decode_state(raw)
 
     @staticmethod
-    def _redis_type_name(value: Any) -> str:
-        """Normalize Redis ``TYPE`` responses across client configurations."""
-
-        if isinstance(value, bytes):
-            value = value.decode("utf-8", errors="replace")
-        return str(value or "none").lower()
-
-    @staticmethod
-    def _is_wrong_type_error(exc: Exception) -> bool:
-        """Match both core Redis and RedisJSON wrong-type error messages."""
-
-        message = str(exc).lower()
-        return (
-            "wrongtype" in message
-            or "wrong redis type" in message
-            or "wrong kind of value" in message
-        )
-
-    @staticmethod
-    def _is_redis_json_type(redis_type: str) -> bool:
-        """Recognize RedisJSON's module type names across supported versions."""
-
-        return redis_type == "json" or "rejson" in redis_type
-
-    def atomic_update(
-        self,
-        redis_key: str,
-        mutate: Any,
-        *,
-        retries: int = 5,
-        empty: Any = list,
-        also: Any = None,
-        lease_user: str | None = None,
-    ) -> Any:
-        """Optimistically read-modify-write a JSON value under WATCH/MULTI.
-
-        F-016: shared per-user state (runs/feed/goals) is read-modify-written
-        from the worker, and a lease that expires lets a second worker run
-        concurrently. A plain ``json_get`` + ``json_set`` would then let one
-        writer clobber the other's update. ``atomic_update`` guards the key with
-        WATCH and retries on a concurrent change so updates compose instead of
-        racing. Both RedisJSON and plain-string JSON keys use commands matching
-        their storage type inside the transaction. ``mutate`` receives the
-        current decoded value (``empty()`` when missing or of another JSON type)
-        and returns ``(new_value, result)``; ``result`` is returned to the
-        caller. ``UNCHANGED`` as ``new_value`` writes nothing. ``also(client,
-        result)`` queues further commands that must commit atomically with the
-        write. Falls back to a plain read-modify-write only when the Redis client
-        does not expose ``pipeline`` (keeps non-transactional test fakes working).
-        When ``lease_user`` is provided, WATCH also covers that user's lease and
-        every attempt verifies its owner token. Expiry or transfer before EXEC
-        rejects the stale write, including retries after projection contention.
-        """
-        expected_type = type(empty())
-        lease_key = key(lease_user, "lease") if lease_user is not None else None
-        lease_token = self._lease_tokens.get(lease_user) if lease_key else None
-        if lease_key and not lease_token:
-            raise WorkerLeaseLost("Worker lease was lost before persisting output.")
-        pipeline_factory = getattr(self.redis, "pipeline", None)
-        if not callable(pipeline_factory):
-            if lease_key:
-                raise RuntimeError("Lease-fenced writes require Redis transactions")
-            current = self.json_get(redis_key)
-            new_value, result = mutate(
-                current if isinstance(current, expected_type) else empty()
+    def _decode_state(raw: str | None) -> dict:
+        if raw is None:
+            return empty_state()
+        value = json.loads(raw)
+        if not isinstance(value, dict) or value.get("version") != 2:
+            raise ValueError(
+                "Invalid charter state; refusing to replace persisted work"
             )
-            if new_value is not UNCHANGED:
-                self.json_set(redis_key, new_value)
-                if also is not None:
-                    also(self.redis, result)
-            return result
+        for name, default in empty_state().items():
+            if type(value.get(name)) is not type(default):
+                raise ValueError("Invalid charter state shape")
+        return value
 
-        json_supported = self._supports_json(redis_key)
-        attempts = max(1, retries)
-        last_watch_error: Exception | None = None
-        for _ in range(attempts):
-            pipe = pipeline_factory()
-            try:
-                pipe.watch(redis_key)
-                if lease_key:
-                    pipe.watch(lease_key)
-                    if pipe.get(lease_key) != lease_token:
-                        raise WorkerLeaseLost(
-                            "Worker lease was lost before persisting output."
-                        )
-                redis_type = self._redis_type_name(pipe.type(redis_key))
-                is_string = redis_type == "string"
-                is_json = self._is_redis_json_type(redis_type)
-                is_missing = redis_type == "none"
-                if not (is_string or is_json or is_missing):
-                    raise RuntimeError(
-                        f"Atomic JSON update for {redis_key!r} cannot use "
-                        f"Redis type {redis_type!r}"
-                    )
+    def update(self, user_id: str, mutate: Callable[[dict, CharterConfig], Any]) -> Any:
+        """Commit work and run records together, fenced by lease AND configuration.
 
-                # Existing keys retain their storage type. New keys use RedisJSON
-                # when the module is available, matching json_set and the frontend.
-                write_as_json = is_json or (is_missing and json_supported)
-                if is_json:
-                    raw = pipe.execute_command("JSON.GET", redis_key)
-                elif is_string:
-                    raw = pipe.get(redis_key)
-                else:
-                    raw = None
-                current: Any = empty()
-                if raw:
-                    try:
-                        decoded = json.loads(raw)
-                    except (json.JSONDecodeError, TypeError):
-                        decoded = None
-                    if isinstance(decoded, expected_type):
-                        current = decoded
-                new_value, result = mutate(current)
-                if new_value is UNCHANGED:
-                    return result
-                pipe.multi()
-                serialized = json.dumps(new_value)
-                if write_as_json:
-                    pipe.execute_command("JSON.SET", redis_key, ".", serialized)
-                else:
-                    pipe.set(redis_key, serialized)
-                if also is not None:
-                    also(pipe, result)
-                pipe.execute()
-                return result
-            except Exception as exc:
-                if self._watch_error_type is None or not isinstance(
-                    exc, self._watch_error_type
-                ):
-                    raise
-                last_watch_error = exc
-                continue
-            finally:
-                with contextlib.suppress(Exception):
-                    pipe.reset()
-
-        # Never degrade to a non-atomic write: under sustained contention it is
-        # safer for the caller to retry than to silently clobber another worker.
-        if last_watch_error is None:  # pragma: no cover - loop always sets this
-            raise RuntimeError(f"Atomic update for {redis_key!r} did not complete")
-        raise last_watch_error
-
-    def get_text(self, redis_key: str) -> str | None:
-        value = self.redis.get(redis_key)
-        return str(value) if value is not None else None
-
-    def set_text(
-        self, redis_key: str, value: str, *, lease_user: str | None = None
-    ) -> None:
-        if lease_user is None:
-            self.redis.set(redis_key, value)
-            return
-        token = self._lease_tokens.get(lease_user)
-        if not token or not self.redis.eval(
-            "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; "
-            "redis.call('SET', KEYS[2], ARGV[2]); return 1",
-            2,
-            key(lease_user, "lease"),
-            redis_key,
-            token,
-            value,
-        ):
-            raise WorkerLeaseLost("Worker lease was lost before persisting output.")
-
-    def publish(self, user_id: str, event_type: str, data: dict[str, Any]) -> None:
-        event = {"type": event_type, "timestamp": now_ms(), "data": data}
-        self.redis.publish(f"user:{user_id}:updates", json.dumps(event))
-
-    def get_config(self, user_id: str) -> dict[str, Any]:
-        config = self.json_get(key(user_id, "config"))
-        if isinstance(config, dict):
-            return {**default_config(user_id), **config}
-
-        def create(stored: dict[str, Any]):
-            # The dashboard can create the same record concurrently. Commit the
-            # default only if the key is still absent, never over its write.
-            if stored:
-                return UNCHANGED, stored
-            created = default_config(user_id)
-            interval = os.getenv("AUTONOMY_INTERVAL_SECONDS")
-            if interval and interval.isdigit():
-                created["intervalSeconds"] = schedule_interval_seconds(interval)
-            return created, created
-
-        stored = self.atomic_update(key(user_id, "config"), create, empty=dict)
-        return {**default_config(user_id), **stored}
-
-    def list_goals(self, user_id: str) -> list[dict[str, Any]]:
-        goals = self.json_get(key(user_id, "goals"), [])
-        return goals if isinstance(goals, list) else []
-
-    def mark_goal_run(
-        self, user_id: str, goal_id: str, timestamp: int, *, require_lease: bool = False
-    ) -> None:
-        """Record a goal attempt so scheduled runs can rotate across goals."""
-
-        def mutate(current: list[dict[str, Any]]):
-            goals = []
-            changed = False
-            for goal in current:
-                if isinstance(goal, dict) and goal.get("id") == goal_id:
-                    goal = {**goal, "lastRunAt": timestamp}
-                    changed = True
-                goals.append(goal)
-            return goals, changed
-
-        changed = self.atomic_update(
-            key(user_id, "goals"),
-            mutate,
-            lease_user=user_id if require_lease else None,
+        The frontend edits config separately. Watching it ensures a concurrent
+        pause/config change causes selection to be recomputed before dispatch.
+        An expired owner cannot overwrite a successor, even after a CAS retry.
+        """
+        token = self._lease_tokens.get(user_id)
+        if not token:
+            raise WorkerLeaseLost("No worker lease")
+        state_key, config_key, lease_key = (
+            key(user_id, name) for name in ("state", "config", "lease")
         )
-        if changed:
-            self.publish(user_id, "autonomy_status", {"goalsUpdated": True})
+        for _ in range(8):
+            with self.redis.pipeline() as pipe:
+                try:
+                    pipe.watch(state_key, config_key, lease_key)
+                    if pipe.get(lease_key) != token:
+                        raise WorkerLeaseLost("Worker lease expired or transferred")
+                    state = self._decode_state(pipe.get(state_key))
+                    raw_config = pipe.get(config_key)
+                    config = (
+                        CharterConfig.model_validate_json(raw_config)
+                        if raw_config
+                        else CharterConfig()
+                    )
+                    result = mutate(state, config)
+                    pipe.multi()
+                    pipe.set(state_key, json.dumps(state, separators=(",", ":")))
+                    pipe.execute()
+                    return result
+                except redis.WatchError:
+                    continue
+        raise RuntimeError("Charter state remained busy; no work was dispatched")
 
-    def list_runs(self, user_id: str) -> list[dict[str, Any]]:
-        runs = self.json_get(key(user_id, "runs"), [])
-        return runs if isinstance(runs, list) else []
-
-    def upsert_run(self, user_id: str, run: dict[str, Any]) -> None:
-        run["updatedAt"] = now_ms()
-        max_runs = _bounded(self.get_config(user_id).get("maxRunsStored"), 100, 1000)
-
-        def mutate(current: list[dict[str, Any]]):
-            runs = [r for r in current if r.get("id") != run.get("id")]
-            runs.insert(0, run)
-            return runs[:max_runs], None
-
-        self.atomic_update(key(user_id, "runs"), mutate)
-        self.publish(user_id, "autonomy_status", {"run": run})
-
-    def append_event(self, user_id: str, event: dict[str, Any]) -> None:
-        def mutate(events: list[dict[str, Any]]):
-            events.insert(0, event)
-            return events[:500], None
-
-        self.atomic_update(key(user_id, "events"), mutate)
-        self.publish(user_id, "autonomy_run_event", event)
-
-    def log_event(
-        self,
-        user_id: str,
-        run_id: str,
-        event_type: str,
-        message: str,
-        *,
-        level: str = "info",
-        data: dict[str, Any] | None = None,
-    ) -> None:
-        self.append_event(
-            user_id,
-            new_event(
-                run_id=run_id,
-                event_type=event_type,
-                message=message,
-                level=level,
-                data=data,
+    def publish(self, user_id: str) -> None:
+        self.redis.publish(
+            f"user:{user_id}:updates",
+            json.dumps(
+                {
+                    "type": "autonomy_status",
+                    "timestamp": now_ms(),
+                    "data": {"charter": True},
+                }
             ),
         )
 
-    def list_feed(self, user_id: str, limit: int | None = None) -> list[dict[str, Any]]:
-        feed = self.json_get(key(user_id, "feed"), [])
-        if not isinstance(feed, list):
-            return []
-        return feed[:limit] if limit is not None else feed
-
-    def append_feed_items(
-        self, user_id: str, items: list[dict[str, Any]], *, require_lease: bool = False
-    ) -> list[dict[str, Any]]:
-        """Store new feed items, dropping ones that repeat recent feed entries.
-
-        Returns the items that were actually stored (post de-duplication) so the
-        caller can record accurate ``feedItemIds`` and surface a dropped count.
-        """
-        if not items:
-            return []
-        config = self.get_config(user_id)
-        dedupe_enabled = config.get("feedDedupeEnabled", True)
-        window_ms = window_ms_for_days(config.get("feedDedupeWindowDays"))
-        max_items = _bounded(config.get("maxFeedItems"), 200, 2000)
-
-        # F-016: de-dupe and cap inside an atomic read-modify-write so a
-        # concurrent writer (e.g. after a lease expiry) cannot clobber the feed.
-        def mutate(feed: list[dict[str, Any]]):
-            if dedupe_enabled:
-                kept, _dropped = dedupe_feed_items(
-                    items,
-                    feed,
-                    now=now_ms(),
-                    window_ms=window_ms,
-                )
-            else:
-                kept = [
-                    stamp_feed_item(item) for item in items if isinstance(item, dict)
-                ]
-            if not kept:
-                return feed, []
-            # Return only the items that survived the cap so the caller's
-            # feedItemIds never reference items that were truncated out of the feed.
-            stored = kept[:max_items]
-            return (kept + feed)[:max_items], stored
-
-        stored = self.atomic_update(
-            key(user_id, "feed"),
-            mutate,
-            lease_user=user_id if require_lease else None,
-        )
-        if stored:
-            self.publish(user_id, "autonomy_feed_updated", {"items": stored})
-        return stored
-
-    def queue_length(self, user_id: str) -> int:
-        return int(self.redis.llen(key(user_id, "queue")) or 0)
-
-    def queue_snapshot(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
-        raw_items = self.redis.lrange(key(user_id, "queue"), -limit, -1)
-        requests: list[dict[str, Any]] = []
-        for raw in reversed(raw_items):
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                requests.append(parsed)
-        return requests
-
-    def dequeue(self, user_id: str, timeout: int = 5) -> dict[str, Any] | None:
-        # F-013: reliable queue. Atomically MOVE the request to a per-user
-        # processing list instead of destructively popping it, so a crash before
-        # the run is recorded does not lose the job — reclaim_processing()
-        # resolves anything left behind on the next startup. brpoplpush pops the
-        # queue tail (FIFO with lpush) and pushes to the processing-list head.
-        if not self.owns_lease(user_id):
-            raise RuntimeError("cannot dequeue without owning the worker lease")
-        queue_key = key(user_id, "queue")
-        processing_key = key(user_id, "processing")
-        raw = self.redis.brpoplpush(queue_key, processing_key, timeout)
-        if not raw:
-            return None
-        # Persist the safe-to-retry phase in the very next command after the
-        # claim, before anything that can fail. A replacement must not infer
-        # that a claim without a phase was dispatched; without this fact a
-        # request interrupted here would be dropped as "unknown". The write
-        # is not fenced on the lease: it records that this request has not
-        # been dispatched, which stays true even if the lease was just lost,
-        # because dispatch itself is fenced below. The reclaim script clears
-        # the hash once the processing list is empty, so a stale entry from
-        # a lost lease cannot accumulate.
-        self.redis.hset(key(user_id, "processing_state"), raw, "claimed")
-        lease_ttl = self._lease_ttls.get(user_id, 60)
-        if not self.refresh_lease(user_id, ttl_seconds=lease_ttl):
-            # The request remains in processing for the replacement owner.
-            raise RuntimeError("worker lease was lost while dequeuing a request")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = None
-        if not isinstance(parsed, dict):
-            # Poison entry: drop it from processing so it cannot wedge the worker.
-            with contextlib.suppress(Exception):
-                self.redis.lrem(processing_key, 1, raw)
-                self.redis.hdel(key(user_id, "processing_state"), raw)
-            return None
-        self._inflight[user_id] = raw
-        return parsed
-
-    def mark_backend_started(self, user_id: str) -> None:
-        """Fence dispatch and durably prevent replay before opening the request.
-
-        The backend has no durable run checkpoint or general action idempotency.
-        Once dispatch might have started, recovery must report interruption
-        instead of submitting the same external actions again.
-        """
-        raw = self._inflight.get(user_id)
-        token = self._lease_tokens.get(user_id)
-        if (
-            raw is None
-            or not token
-            or not self.redis.eval(
-                """
-            if redis.call("GET", KEYS[1]) ~= ARGV[1] or
-               redis.call("HGET", KEYS[2], ARGV[2]) ~= "claimed" then
-                return 0
-            end
-            redis.call("HSET", KEYS[2], ARGV[2], "started")
-            return 1
-            """,
-                2,
-                key(user_id, "lease"),
-                key(user_id, "processing_state"),
-                token,
-                raw,
-            )
-        ):
-            raise WorkerLeaseLost("Worker no longer owns an undispatched request.")
-
-    def complete(self, user_id: str) -> bool:
-        """Remove the in-flight request from the processing list after handling.
-
-        Call once the run has been recorded (success or a recorded failure). If
-        the worker crashes before this, the entry stays in ``processing`` and is
-        handled by ``reclaim_processing()`` on the next startup. Only requests
-        that have not reached backend dispatch can be re-queued.
-        """
-        raw = self._inflight.pop(user_id, None)
-        if raw is None:
-            return False
-        token = self._lease_tokens.get(user_id)
-        if not token:
-            return False
-        return bool(
-            self.redis.eval(
-                """
-                if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-                    return 0
-                end
-                redis.call("LREM", KEYS[2], 1, ARGV[2])
-                redis.call("HDEL", KEYS[3], ARGV[2])
-                return 1
-                """,
-                3,
-                key(user_id, "lease"),
-                key(user_id, "processing"),
-                key(user_id, "processing_state"),
-                token,
-                raw,
-            )
-        )
-
-    def reclaim_processing(self, user_id: str) -> int:
-        """Resolve interrupted claims, retrying only proven undispatched work.
-
-        Missing state includes claims from older workers. Treat that uncertainty
-        conservatively: they may have dispatched external actions already.
-        """
-
-        token = self._lease_tokens.get(user_id)
-        if not token:
-            raise RuntimeError(
-                "cannot reclaim processing work without owning the lease"
-            )
-        processing_key = key(user_id, "processing")
-        queue_key = key(user_id, "queue")
-        if not self.redis.llen(processing_key):
-            # A claim whose worker lost its lease between the processing push
-            # and the phase write can leave its phase behind after another
-            # worker drained processing. No claims remain, so no phase does.
-            self.redis.eval(
-                """
-                if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-                    return false
-                end
-                if redis.call("LLEN", KEYS[2]) == 0 then
-                    redis.call("DEL", KEYS[3])
-                end
-                return true
-                """,
-                3,
-                key(user_id, "lease"),
-                processing_key,
-                key(user_id, "processing_state"),
-                token,
-            )
-            return 0
-        # Requests the script below will queue again: every processing entry
-        # whose recorded phase proves it never reached the backend.
-        states = self.redis.hgetall(key(user_id, "processing_state")) or {}
-        requeued = all(
-            _text(states.get(raw)) == "claimed"
-            for raw in (self.redis.lrange(processing_key, 0, -1) or [])
-        )
-        # Close interrupted records first, so a failure here leaves the
-        # requests in processing for the next reclaim to retry both.
-        try:
-            self._abort_interrupted_runs(user_id, requeued=requeued)
-        except WorkerLeaseLost:
-            self._lease_tokens.pop(user_id, None)
-            self._lease_ttls.pop(user_id, None)
-            raise RuntimeError(
-                "cannot reclaim processing work after losing the lease"
-            ) from None
-        # dequeue() consumes the queue's RIGHT end and pushes each claim onto
-        # the processing list's LEFT end, so processing holds the newest claim
-        # on the left. Moving undispatched claims LEFT -> RIGHT keeps the oldest
-        # first, ahead of requests queued behind it. Started and unknown claims
-        # are removed without another backend call.
-        moved = self.redis.eval(
-            """
-            if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-                return false
-            end
-            local moved = {}
-            while true do
-                local value = redis.call("LINDEX", KEYS[2], 0)
-                if not value then
-                    break
-                end
-                if redis.call("HGET", KEYS[4], value) == "claimed" then
-                    redis.call("LMOVE", KEYS[2], KEYS[3], "LEFT", "RIGHT")
-                else
-                    redis.call("LPOP", KEYS[2])
-                end
-                redis.call("HDEL", KEYS[4], value)
-                table.insert(moved, value)
-            end
-            -- No claims remain, so no phase does either.
-            redis.call("DEL", KEYS[4])
-            return moved
-            """,
-            4,
-            key(user_id, "lease"),
-            processing_key,
-            queue_key,
-            key(user_id, "processing_state"),
-            token,
-        )
-        if moved is None or moved is False:
-            self._lease_tokens.pop(user_id, None)
-            self._lease_ttls.pop(user_id, None)
-            raise RuntimeError("cannot reclaim processing work after losing the lease")
-        local_inflight = self._inflight.get(user_id)
-        if local_inflight in moved:
-            self._inflight.pop(user_id, None)
-        return len(moved)
-
-    def _abort_interrupted_runs(self, user_id: str, *, requeued: bool = False) -> None:
-        """Close run records left "running" when their worker stopped mid-run.
-
-        Only the lease owner calls this, before it starts a run of its own, so
-        stale workers cannot persist their output. Only undispatched requests
-        may run under new records. The dashboard treats the newest
-        "running" record as the active run, so one left behind stays "live".
-        ``requeued`` says the interrupted requests were all proven undispatched
-        and run again under new records, so the summary must not claim the
-        opposite.
-        """
-
-        if not any(
-            isinstance(run, dict) and run.get("status") == "running"
-            for run in self.list_runs(user_id)
-        ):
-            return
+    def prepare(self, user_id: str) -> dict | None:
         timestamp = now_ms()
-        summary = (
-            "Run was interrupted before its request reached the backend. The "
-            "request was queued again and runs under a new record."
-            if requeued
-            else "Run was interrupted before it finished. Work that may have "
-            "reached the backend will not be retried automatically."
-        )
 
-        def mutate(current: list[dict[str, Any]]):
-            runs, aborted = [], []
-            for run in current:
-                if isinstance(run, dict) and run.get("status") == "running":
-                    run = {
-                        **run,
-                        "status": "aborted",
-                        "summary": summary,
-                        "completedAt": timestamp,
-                        "updatedAt": timestamp,
-                    }
-                    aborted.append(run)
-                runs.append(run)
-            return (runs if aborted else UNCHANGED), aborted
+        def mutate(state: dict, config: CharterConfig):
+            recover(state, timestamp)
+            schedule(state, config, timestamp)
+            return select_due(state, config, timestamp)
 
-        for run in self.atomic_update(key(user_id, "runs"), mutate, lease_user=user_id):
-            self.publish(user_id, "autonomy_status", {"run": run})
-            self.log_event(user_id, run["id"], "run_aborted", summary, level="warn")
+        return self.update(user_id, mutate)
+
+    def claim(self, user_id: str, task_id: str) -> dict | None:
+        timestamp = now_ms()
+
+        def mutate(state: dict, config: CharterConfig):
+            task = state["actions"].get(task_id)
+            if (
+                not task
+                or task["status"] != "pending"
+                or not task_enabled(config, task["kind"])
+                or task["dueAt"] > timestamp
+            ):
+                return None
+            # Re-evaluate expiry at dispatch, not only at scheduler selection.
+            selected = select_due(state, config, timestamp)
+            if selected is None or selected["id"] != task_id:
+                return None
+            task.update(status="running", updatedAt=timestamp)
+            task["attempts"] += 1
+            run = {
+                "id": f"run_{uuid.uuid4().hex}",
+                "actionId": task_id,
+                "kind": task["kind"],
+                "responsibility": task["responsibility"],
+                "status": "running",
+                "startedAt": timestamp,
+                "completedAt": None,
+                "outcome": None,
+            }
+            task["runId"] = run["id"]
+            state["runs"].insert(0, run)
+            return {
+                "task": task,
+                "run": run,
+                "config": config.model_dump(),
+                "state": state,
+            }
+
+        return self.update(user_id, mutate)
+
+    def finish(
+        self, user_id: str, task_id: str, run_id: str, output: CharterOutput
+    ) -> None:
+        timestamp = now_ms()
+
+        def mutate(state: dict, config: CharterConfig):
+            task = state["actions"].get(task_id)
+            if not task or task.get("runId") != run_id or task["status"] != "running":
+                raise WorkerLeaseLost("Execution is no longer current")
+            finish(state, task_id, output, config, timestamp)
+            for run in state["runs"]:
+                if run["id"] == run_id:
+                    run.update(
+                        status=output.outcome.status,
+                        completedAt=timestamp,
+                        outcome=output.outcome.model_dump(),
+                    )
+            state["runs"] = state["runs"][: config.maxRunsStored]
+
+        self.update(user_id, mutate)
 
     def acquire_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
-        token = f"{os.getpid()}:{uuid.uuid4().hex}"
-        ttl_seconds = max(1, int(ttl_seconds))
-        acquired = bool(
-            self.redis.set(key(user_id, "lease"), token, nx=True, ex=ttl_seconds)
-        )
-        if acquired:
+        token = uuid.uuid4().hex
+        if self.redis.set(key(user_id, "lease"), token, nx=True, ex=ttl_seconds):
             self._lease_tokens[user_id] = token
-            self._lease_ttls[user_id] = ttl_seconds
-        return acquired
+            return True
+        return False
 
     def owns_lease(self, user_id: str) -> bool:
         token = self._lease_tokens.get(user_id)
-        if not token:
-            return False
-        return self.redis.get(key(user_id, "lease")) == token
+        return bool(token and self.redis.get(key(user_id, "lease")) == token)
 
     def refresh_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
         token = self._lease_tokens.get(user_id)
-        if not token:
-            return False
-        ttl_seconds = max(1, int(ttl_seconds))
-        refreshed = bool(
-            self.redis.eval(
-                """
-                if redis.call("GET", KEYS[1]) == ARGV[1] then
-                    return redis.call("EXPIRE", KEYS[1], ARGV[2])
-                end
-                return 0
-                """,
+        return bool(
+            token
+            and self.redis.eval(
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                "return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
                 1,
                 key(user_id, "lease"),
                 token,
                 ttl_seconds,
             )
         )
-        if not refreshed:
-            self._lease_tokens.pop(user_id, None)
-            self._lease_ttls.pop(user_id, None)
-            return False
-        self._lease_ttls[user_id] = ttl_seconds
-        return True
 
     def release_lease(self, user_id: str) -> None:
         token = self._lease_tokens.pop(user_id, None)
-        self._lease_ttls.pop(user_id, None)
-        if not token:
-            return
-        self.redis.eval(
-            """
-            if redis.call("GET", KEYS[1]) == ARGV[1] then
-                return redis.call("DEL", KEYS[1])
-            end
-            return 0
-            """,
-            1,
-            key(user_id, "lease"),
-            token,
-        )
+        if token:
+            self.redis.eval(
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                "return redis.call('DEL', KEYS[1]) end return 0",
+                1,
+                key(user_id, "lease"),
+                token,
+            )
 
     def cancel_requested(self, user_id: str, run_id: str) -> bool:
         return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
-
-    def maybe_enqueue_scheduled(self, user_id: str) -> dict[str, Any] | None:
-        """Enqueue a due scheduled run and record it in one transaction.
-
-        The dashboard edits the same config record with compare-and-set. Merge
-        only ``lastScheduledRunAt``/``updatedAt`` into the latest stored record
-        instead of writing back a stale snapshot, and commit the queue entry
-        with that marker so a failed write cannot enqueue the same slot twice.
-        """
-
-        config_key = key(user_id, "config")
-        current = now_ms()
-
-        def due(config: dict[str, Any]) -> bool:
-            if not config.get("enabled", True):
-                return False
-            interval = schedule_interval_seconds(config.get("intervalSeconds"))
-            try:
-                last = int(config.get("lastScheduledRunAt") or 0)
-            except (TypeError, ValueError, OverflowError):
-                last = 0
-            return not last or current - last >= interval * 1000
-
-        # The idle loop polls this every few seconds: keep the common not-due
-        # case to one read (creating a missing default) and recheck in the
-        # transaction only when a slot is actually due.
-        if not due(self.get_config(user_id)):
-            return None
-        request = {
-            "id": f"scheduled-{current}",
-            "trigger": "scheduled",
-            "requestedBy": "worker",
-            "createdAt": current,
-        }
-
-        def mark_due(stored: dict[str, Any]):
-            config = {**default_config(user_id), **stored}
-            if not stored or not due(config):
-                return UNCHANGED, None
-            updated = {**stored, "lastScheduledRunAt": current, "updatedAt": current}
-            return updated, {**config, **updated}
-
-        def enqueue(client: Any, scheduled_config: dict[str, Any] | None) -> None:
-            if scheduled_config is not None:
-                client.lpush(key(user_id, "queue"), json.dumps(request))
-
-        scheduled_config = self.atomic_update(
-            config_key, mark_due, empty=dict, also=enqueue
-        )
-        if scheduled_config is None:
-            return None
-        # Notifications follow the durable commit; neither can duplicate work.
-        self.publish(user_id, "autonomy_status", {"queued": request})
-        self.publish(user_id, "autonomy_status", {"config": scheduled_config})
-        return request

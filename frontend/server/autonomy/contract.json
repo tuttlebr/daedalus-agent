@@ -1,0 +1,327 @@
+{
+  "defaults": {
+    "version": 2,
+    "enabled": true,
+    "timezone": "America/Detroit",
+    "responsibilities": {
+      "calendar": {
+        "enabled": true,
+        "intervalSeconds": 21600,
+        "calendarId": "",
+        "sources": ["https://www.salinemi.gov/newslist.php"],
+        "preferences": "",
+        "reminderMinutes": []
+      },
+      "lighting": {
+        "enabled": true,
+        "intervalSeconds": 21600,
+        "scene": "Go Green!",
+        "catchUpMinutes": 15,
+        "lightIds": []
+      },
+      "cluster": {
+        "enabled": true,
+        "intervalSeconds": 900,
+        "contexts": [],
+        "excludedNamespaces": [],
+        "configurationSource": "cluster_managed",
+        "lanVerificationSource": "",
+        "maintenancePolicy": ""
+      },
+      "evolution": {
+        "enabled": true,
+        "intervalSeconds": 86400
+      }
+    },
+    "summary": {
+      "time": "18:00",
+      "destination": "autonomy_dashboard"
+    },
+    "expansionPolicy": "propose",
+    "maxToolCalls": 40,
+    "maxRunSeconds": 600,
+    "maxAttempts": 3,
+    "maxPendingActions": 500,
+    "maxRunsStored": 500,
+    "maxSummariesStored": 90
+  },
+  "schema": {
+    "$defs": {
+      "CalendarConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 21600,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "calendarId": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Calendarid",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "preferences": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Preferences",
+            "type": "string"
+          },
+          "reminderMinutes": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 5,
+            "title": "Reminderminutes",
+            "type": "array"
+          }
+        },
+        "title": "CalendarConfig",
+        "type": "object"
+      },
+      "ClusterConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 900,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "contexts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Contexts",
+            "type": "array"
+          },
+          "excludedNamespaces": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Excludednamespaces",
+            "type": "array"
+          },
+          "configurationSource": {
+            "const": "cluster_managed",
+            "default": "cluster_managed",
+            "title": "Configurationsource",
+            "type": "string"
+          },
+          "lanVerificationSource": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Lanverificationsource",
+            "type": "string"
+          },
+          "maintenancePolicy": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Maintenancepolicy",
+            "type": "string"
+          }
+        },
+        "title": "ClusterConfig",
+        "type": "object"
+      },
+      "LightingConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 21600,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "scene": {
+            "default": "Go Green!",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Scene",
+            "type": "string"
+          },
+          "catchUpMinutes": {
+            "default": 15,
+            "maximum": 60,
+            "minimum": 0,
+            "title": "Catchupminutes",
+            "type": "integer"
+          },
+          "lightIds": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Lightids",
+            "type": "array"
+          }
+        },
+        "title": "LightingConfig",
+        "type": "object"
+      },
+      "Responsibilities": {
+        "additionalProperties": false,
+        "properties": {
+          "calendar": {
+            "$ref": "#/$defs/CalendarConfig"
+          },
+          "lighting": {
+            "$ref": "#/$defs/LightingConfig"
+          },
+          "cluster": {
+            "$ref": "#/$defs/ClusterConfig"
+          },
+          "evolution": {
+            "$ref": "#/$defs/ResponsibilityConfig"
+          }
+        },
+        "title": "Responsibilities",
+        "type": "object"
+      },
+      "ResponsibilityConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 3600,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          }
+        },
+        "title": "ResponsibilityConfig",
+        "type": "object"
+      },
+      "SummaryConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "time": {
+            "default": "18:00",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Time",
+            "type": "string"
+          },
+          "destination": {
+            "const": "autonomy_dashboard",
+            "default": "autonomy_dashboard",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "title": "SummaryConfig",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "version": {
+        "const": 2,
+        "default": 2,
+        "title": "Version",
+        "type": "integer"
+      },
+      "enabled": {
+        "default": true,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "timezone": {
+        "const": "America/Detroit",
+        "default": "America/Detroit",
+        "title": "Timezone",
+        "type": "string"
+      },
+      "responsibilities": {
+        "$ref": "#/$defs/Responsibilities"
+      },
+      "summary": {
+        "$ref": "#/$defs/SummaryConfig"
+      },
+      "expansionPolicy": {
+        "const": "propose",
+        "default": "propose",
+        "title": "Expansionpolicy",
+        "type": "string"
+      },
+      "maxToolCalls": {
+        "default": 40,
+        "maximum": 100,
+        "minimum": 5,
+        "title": "Maxtoolcalls",
+        "type": "integer"
+      },
+      "maxRunSeconds": {
+        "default": 600,
+        "maximum": 1800,
+        "minimum": 60,
+        "title": "Maxrunseconds",
+        "type": "integer"
+      },
+      "maxAttempts": {
+        "default": 3,
+        "maximum": 5,
+        "minimum": 1,
+        "title": "Maxattempts",
+        "type": "integer"
+      },
+      "maxPendingActions": {
+        "default": 500,
+        "maximum": 2000,
+        "minimum": 10,
+        "title": "Maxpendingactions",
+        "type": "integer"
+      },
+      "maxRunsStored": {
+        "default": 500,
+        "maximum": 2000,
+        "minimum": 10,
+        "title": "Maxrunsstored",
+        "type": "integer"
+      },
+      "maxSummariesStored": {
+        "default": 90,
+        "maximum": 365,
+        "minimum": 7,
+        "title": "Maxsummariesstored",
+        "type": "integer"
+      }
+    },
+    "title": "CharterConfig",
+    "type": "object"
+  }
+}

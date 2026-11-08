@@ -58,8 +58,6 @@ export type ServerMessage =
       data: { conversationId: string; sessionId: string };
     }
   | { type: 'autonomy_status'; data: any }
-  | { type: 'autonomy_run_event'; data: any }
-  | { type: 'autonomy_feed_updated'; data: any }
   | {
       type: 'chat_token';
       conversationId: string;

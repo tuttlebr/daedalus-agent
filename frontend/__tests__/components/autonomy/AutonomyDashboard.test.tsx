@@ -2,228 +2,148 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import type { AutonomyState } from '@/types/autonomy';
+
 import { AutonomyDashboard } from '@/components/autonomy/AutonomyDashboard';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultConfig } from '@/server/autonomy/config';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  wsConnected: true,
-  wsOptions: null as any,
-}));
-
-vi.mock('@/hooks/useWebSocket', () => ({
-  useWebSocket: vi.fn((options: any) => {
-    mocks.wsOptions = options;
-    return {
-      isConnected: mocks.wsConnected,
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      streamingStates: {},
-      subscribeToJob: vi.fn(),
-      unsubscribeFromJob: vi.fn(),
-      subscribeToChat: vi.fn(),
-      unsubscribeFromChat: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('@/components/autonomy/WorkspaceDrawer', () => ({
-  WorkspaceDrawer: () => <div data-testid="workspace" />,
-}));
-
-function responseBody(url: string): unknown {
-  if (url.endsWith('/config')) return {};
-  return [];
-}
-
-function renderDashboard(): { root: Root; container: HTMLDivElement } {
-  const container = document.createElement('div');
+let root: Root;
+let container: HTMLDivElement;
+let state: AutonomyState;
+beforeEach(() => {
+  state = {
+    version: 2,
+    actions: {},
+    schedules: {},
+    records: {},
+    proposals: {},
+    notes: {},
+    runs: [],
+    summaries: [],
+    reported: {},
+  };
+  container = document.createElement('div');
   document.body.appendChild(container);
-  const root = createRoot(container);
-  act(() => root.render(<AutonomyDashboard />));
-  return { root, container };
-}
-
-async function flushRequests(): Promise<void> {
+  root = createRoot(container);
+  (
+    globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (url.endsWith('/config') ? defaultConfig() : state),
+    })),
+  );
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});
+async function render() {
   await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    root.render(<AutonomyDashboard />);
   });
 }
-
-function requestedUrls(): string[] {
-  return vi.mocked(fetch).mock.calls.map(([url]) => String(url));
-}
-
-describe('AutonomyDashboard refresh strategy', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.clearAllMocks();
-    mocks.wsConnected = true;
-    mocks.wsOptions = null;
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'visible',
-    });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        return {
-          ok: true,
-          json: async () => responseBody(url),
-        } as Response;
-      }),
-    );
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-    document.body.innerHTML = '';
-  });
-
-  it('stops interval polling while connected and coalesces targeted WS refreshes', async () => {
-    const { root } = renderDashboard();
-    await flushRequests();
-    vi.mocked(fetch).mockClear();
-
-    await act(async () => {
-      vi.advanceTimersByTime(15_000);
-    });
-    expect(fetch).not.toHaveBeenCalled();
-
-    act(() => {
-      mocks.wsOptions.onAutonomyFeedUpdated({});
-      mocks.wsOptions.onAutonomyFeedUpdated({});
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(50);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(requestedUrls().sort()).toEqual(['/api/autonomy/feed']);
-
-    act(() => root.unmount());
-  });
-
-  it('retains the full interval refresh as a disconnected fallback', async () => {
-    mocks.wsConnected = false;
-    const { root } = renderDashboard();
-    await flushRequests();
-    vi.mocked(fetch).mockClear();
-
-    await act(async () => {
-      vi.advanceTimersByTime(15_000);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(requestedUrls().sort()).toEqual(
-      [
-        '/api/autonomy/config',
-        '/api/autonomy/feed',
-        '/api/autonomy/goals',
-        '/api/autonomy/queue',
-        '/api/autonomy/runs',
-      ].sort(),
-    );
-
-    act(() => root.unmount());
-  });
-
-  it('keeps a failed feed update visible until a complete refresh succeeds', async () => {
-    const { root, container } = renderDashboard();
-    await flushRequests();
-    vi.mocked(fetch).mockRejectedValueOnce(new Error('Feed unavailable'));
-    act(() => mocks.wsOptions.onAutonomyFeedUpdated({}));
-    await act(async () => {
-      vi.advanceTimersByTime(50);
-    });
-    await flushRequests();
-    expect(container.textContent).toContain('Showing the last saved');
-
-    act(() => mocks.wsOptions.onAutonomyStatus({ config: true }));
-    await act(async () => {
-      vi.advanceTimersByTime(50);
-    });
-    await flushRequests();
-    expect(container.textContent).toContain('Showing the last saved');
-
-    act(() => {
-      mocks.wsOptions.onConnected();
-      mocks.wsOptions.onConnected();
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(50);
-    });
-    await flushRequests();
-    expect(container.textContent).not.toContain('Showing the last saved');
-    act(() => root.unmount());
-  });
-
-  it.each(['config', 'feed'])(
-    'keeps a newer %s update when the initial full refresh finishes last',
-    async (resource) => {
-      let releaseGoals!: () => void;
-      const goals = new Promise<Response>((resolve) => {
-        releaseGoals = () =>
-          resolve({ ok: true, json: async () => [] } as Response);
-      });
-      const requests = new Map<string, number>();
-      vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = String(input);
-        const count = (requests.get(url) || 0) + 1;
-        requests.set(url, count);
-        if (url.endsWith('/goals') && count === 1) return goals;
-        const body = url.endsWith('/config')
-          ? { enabled: count === 1 }
-          : url.endsWith('/feed')
-          ? [
-              {
-                id: `item-${count}`,
-                title: count === 1 ? 'Initial feed item' : 'New feed item',
-                bluf: 'Fixture evidence',
-                createdAt: Date.now(),
-                lane: 'known',
-              },
-            ]
-          : [];
-        return { ok: true, json: async () => body } as Response;
-      });
-      const { root, container } = renderDashboard();
-      try {
-        await flushRequests();
-        act(() => {
-          if (resource === 'config')
-            mocks.wsOptions.onAutonomyStatus({ config: true });
-          else mocks.wsOptions.onAutonomyFeedUpdated({});
-        });
-        await act(async () => {
-          vi.advanceTimersByTime(50);
-        });
-        await flushRequests();
-        expect(requests.get(`/api/autonomy/${resource}`)).toBe(2);
-        await act(async () => {
-          releaseGoals();
-        });
-        await flushRequests();
-        expect(container.textContent).toContain(
-          resource === 'config' ? 'Paused' : 'Idle',
-        );
-        expect(container.textContent).toContain(
-          resource === 'feed' ? 'New feed item' : 'Initial feed item',
-        );
-        if (resource === 'feed')
-          expect(container.textContent).not.toContain('Initial feed item');
-      } finally {
-        releaseGoals();
-        await flushRequests();
-        act(() => root.unmount());
-      }
+it('shows the initial responsibilities and daily digest destination', async () => {
+  await render();
+  expect(container.textContent).toContain('Local calendar');
+  expect(container.textContent).toContain('MSU game lighting');
+  expect(container.textContent).toContain('18:00 Eastern');
+  expect(container.textContent).toContain('Your first summary');
+  expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+    '/api/autonomy/config',
+    '/api/autonomy/state',
+  ]);
+});
+it('reports partial lighting and skipped devices in a daily summary', async () => {
+  state.summaries = [
+    {
+      id: 'one',
+      date: '2026-11-07',
+      title: 'Daily summary',
+      message: '',
+      createdAt: 0,
+      items: [
+        {
+          responsibility: 'lighting',
+          status: 'partial',
+          summary: 'Reachable lights changed.',
+          skipped: ['offline lamp'],
+        },
+      ],
     },
+  ];
+  await render();
+  expect(container.textContent).toContain('lighting · partial');
+  expect(container.textContent).toContain('offline lamp');
+});
+it('pauses all through the config API', async () => {
+  await render();
+  const button = Array.from(container.querySelectorAll('button')).find(
+    (node) => node.textContent === 'Pause all',
+  )!;
+  await act(async () => button.click());
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.some(
+        ([url, options]) =>
+          url === '/api/autonomy/config' &&
+          options?.body === '{"enabled":false}',
+      ),
+  ).toBe(true);
+});
+it('does not present a failed load as an empty successful dashboard', async () => {
+  vi.mocked(fetch).mockRejectedValue(new Error('offline'));
+  await render();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    'unavailable',
+  );
+  expect(container.textContent).not.toContain('Your first summary');
+});
+
+it('records useful-idea feedback without representing it as new action authority', async () => {
+  const proposal = {
+    id: 'idea',
+    title: 'A useful idea',
+    benefit: 'Saves effort',
+    trigger: 'Daily',
+    requiredAccess: 'Existing tools',
+    actions: 'A proposed task',
+    limits: 'Needs a defined charter',
+    status: 'proposed' as const,
+    updatedAt: 0,
+  };
+  state.proposals.idea = proposal;
+  state.summaries = [
+    {
+      id: 'summary',
+      date: '2026-11-07',
+      title: 'Daily summary',
+      message: '',
+      createdAt: 0,
+      items: [{ responsibility: 'evolution', status: 'proposed', proposal }],
+    },
+  ];
+  await render();
+  const button = Array.from(container.querySelectorAll('button')).find(
+    (node) => node.textContent === 'Mark useful',
+  )!;
+  await act(async () => button.click());
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.some(
+        ([url, options]) =>
+          url === '/api/autonomy/state' &&
+          options?.body === '{"operation":"accept","id":"idea"}',
+      ),
+  ).toBe(true);
+  expect(container.textContent).toContain(
+    'does not yet have permission to act',
   );
 });

@@ -518,12 +518,19 @@ impl Mcp {
             .ok_or_else(|| anyhow!(FailureClass::Value))?;
         let key = Self::key(name, user);
         let lock = self.locks.get(&key);
-        // Interactive consent can wait minutes for the user. Never hold the
-        // session across it: other runs' preparation discovers through it.
+        // Background work reuses/refreshes the existing user's grant but must
+        // never create a consent flow that nobody is present to complete.
+        // Interactive consent also stays outside the session lock.
         let headers = self
-            .headers(name, user, Some(emit))
-            .await?
-            .ok_or_else(|| anyhow!("Authorization required"))?;
+            .headers(name, user, if background { None } else { Some(emit) })
+            .await?;
+        let Some(headers) = headers else {
+            return Ok(ToolOutcome {
+                content: "The user's saved authorization is unavailable. No call was executed. Record this source as unavailable and ask the user to reconnect it in the daily summary.".into(),
+                is_error: true,
+                ..Default::default()
+            });
+        };
         let (_lock, headers) = match lock.try_lock() {
             Ok(guard) => (guard, headers),
             Err(_) => {

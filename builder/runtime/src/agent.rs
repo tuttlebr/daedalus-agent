@@ -237,6 +237,19 @@ impl Agent {
                 _ = self.events.sender.closed() => bail!("Client disconnected"),
             }
         };
+        let charter_task = crate::autonomy_policy::Task::parse(&body, self.handle.autonomy)?;
+        if let Some(task) = &charter_task {
+            prepared.max_iterations = prepared.max_iterations.min(task.max_tool_calls + 4);
+            // Independent responsibilities are separate worker requests. Within
+            // one action, evidence and mutations must retain causal ordering.
+            prepared.parallel_tool_calls = false;
+        }
+        let mut charter_tool_calls = 0;
+        let mut charter_mutated = false;
+        let mut charter_mutations = std::collections::HashSet::new();
+        let mut charter_unverified_groups = std::collections::HashSet::<String>::new();
+        let mut charter_backups = std::collections::HashSet::<String>::new();
+        let mut charter_pending_backups = std::collections::HashMap::<String, String>::new();
         let autonomy_output = crate::autonomy_output::definition(&body, self.handle.autonomy)?;
         let autonomy_output = if let Some(tool) = autonomy_output {
             prepared.tools.push(tool);
@@ -904,7 +917,7 @@ impl Agent {
                     let Some(position) = position else {
                         break;
                     };
-                    let call = queued.remove(position).expect("queued call exists");
+                    let mut call = queued.remove(position).expect("queued call exists");
                     let name = call.function.name.to_string();
                     let id = call.id.to_string();
                     if self.revision != batch_revision
@@ -929,6 +942,83 @@ impl Agent {
                             .to_string(),
                         ));
                         continue;
+                    }
+                    if let Some(task) = &charter_task {
+                        let completion = name == crate::autonomy_output::TOOL;
+                        let problem = if !task.allows(&name, &call.function.arguments) {
+                            Some(
+                                "Not executed: this capability is outside the selected autonomous responsibility. Report the limitation and continue authorized work.",
+                            )
+                        } else if crate::autonomy_policy::Task::patch_target(
+                            &name,
+                            &call.function.arguments,
+                        )
+                        .is_some_and(|target| !charter_backups.contains(&target))
+                        {
+                            Some(
+                                "Not executed: first create and read back a cluster ConfigMap backup of this object's current configuration in the same namespace and context. A backup for another object does not authorize this patch.",
+                            )
+                        } else if !completion && charter_tool_calls >= task.max_tool_calls {
+                            requirement = crate::tool_contracts::Requirement::Named(
+                                crate::autonomy_output::TOOL.into(),
+                            );
+                            Some(
+                                "Tool budget reached. Submit the verified outcome now; do not claim unfinished work succeeded.",
+                            )
+                        } else if completion
+                            && charter_mutated
+                            && call.function.arguments["outcome"]["status"] == "deferred"
+                        {
+                            Some(
+                                "A mutation was attempted. Report completed, partial, failed or uncertain with evidence; deferred is reserved for work with no attempted mutation.",
+                            )
+                        } else if completion
+                            && !charter_unverified_groups.is_empty()
+                            && matches!(
+                                call.function.arguments["outcome"]["status"].as_str(),
+                                Some("completed" | "partial")
+                            )
+                        {
+                            Some(
+                                "A mutation has no successful subsequent state read from its service. Verify remote state before claiming completed or partial; otherwise report uncertain or failed. A write acknowledgement alone is not verification.",
+                            )
+                        } else {
+                            None
+                        };
+                        if let Some(problem) = problem {
+                            history.push(Message::tool_result(
+                                call.id,
+                                call.function.name,
+                                problem,
+                            ));
+                            continue;
+                        }
+                        if completion && call.function.arguments["outcome"].is_object() {
+                            call.function.arguments["outcome"]["mutationAttempted"] =
+                                json!(charter_mutated);
+                        }
+                        if !completion {
+                            charter_tool_calls += 1;
+                            if crate::autonomy_policy::Task::mutation(
+                                &name,
+                                &call.function.arguments,
+                            ) {
+                                let identity = format!(
+                                    "{name}:{}",
+                                    crate::authorization::canonical(&call.function.arguments)?.1
+                                );
+                                if !charter_mutations.insert(identity) {
+                                    history.push(Message::tool_result(call.id, call.function.name, "Not executed: this exact mutation was already attempted for this action. Inspect remote state and report the outcome; do not replay it."));
+                                    continue;
+                                }
+                                charter_mutated = true;
+                                charter_unverified_groups.insert(
+                                    name.split_once("__")
+                                        .map_or("memory", |(group, _)| group)
+                                        .to_owned(),
+                                );
+                            }
+                        }
                     }
                     let tool_call = self
                         .handle
@@ -1037,6 +1127,32 @@ impl Agent {
                 let name = call.function.name.to_string();
                 if !outcome.is_error && !outcome.terminal {
                     requirement.succeeded(&name);
+                    if charter_task.is_some()
+                        && let Some((target, location)) =
+                            crate::autonomy_policy::Task::backup_target(
+                                &name,
+                                &call.function.arguments,
+                            )
+                    {
+                        charter_pending_backups.insert(location, target);
+                    }
+                    if charter_task.is_some()
+                        && let Some(location) = crate::autonomy_policy::Task::backup_read(
+                            &name,
+                            &call.function.arguments,
+                        )
+                        && let Some(target) = charter_pending_backups.remove(&location)
+                    {
+                        charter_backups.insert(target);
+                    }
+                    if charter_task.is_some()
+                        && let Some(group) = crate::autonomy_policy::Task::verification_group(
+                            &name,
+                            &call.function.arguments,
+                        )
+                    {
+                        charter_unverified_groups.remove(&group);
+                    }
                 }
                 let group = self.execution_group(&name);
                 if preparation.is_some() {
@@ -1954,6 +2070,53 @@ mod tests {
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect()
+    }
+
+    #[tokio::test]
+    async fn charter_tool_budget_is_enforced_before_dispatch_and_completion_stays_available() {
+        let mut scripts = (0..6)
+            .map(|index| {
+                completed(vec![call(
+                    &format!("read{index}"),
+                    "current_datetime_tool",
+                    "{}",
+                )])
+            })
+            .collect::<Vec<_>>();
+        scripts.push(completed(vec![call(
+            "finish",
+            crate::autonomy_output::TOOL,
+            r#"{"outcome":{"status":"completed","summary":"Read the clock."}}"#,
+        )]));
+        let outcome = run_scripted(
+            json!({"current_datetime_tool":{"_type":"current_datetime"}}),
+            json!({"tools":["current_datetime_tool"]}),
+            "Execute the charter task.", scripts, json!({}), None,
+            json!({
+                "autonomy_task":{"id":"task:one","kind":"calendar_discovery","max_tool_calls":5},
+                "autonomy_output_schema":{"type":"object","additionalProperties":false,"required":["outcome"],"properties":{
+                    "outcome":{"type":"object","additionalProperties":false,"required":["status","summary"],"properties":{
+                        "status":{"type":"string"},"summary":{"type":"string"},"mutationAttempted":{"type":"boolean"}
+                    }}
+                }}
+            }),
+        ).await;
+        assert!(outcome.result.is_ok(), "{:?}", outcome.result);
+        assert_eq!(
+            outcome
+                .stream
+                .matches("Function Start: current_datetime_tool")
+                .count(),
+            5
+        );
+        assert!(
+            outcome
+                .requests
+                .iter()
+                .any(|request| request.to_string().contains("Tool budget reached"))
+        );
+        assert!(outcome.stream.contains("Read the clock."));
+        assert!(outcome.stream.contains("mutationAttempted"));
     }
 
     #[tokio::test]

@@ -182,8 +182,6 @@ describe('useWebSocket behavior through the mounted hook', () => {
       onConversationUpdated: vi.fn(),
       onConversationDeleted: vi.fn(),
       onAutonomyStatus: vi.fn(),
-      onAutonomyRunEvent: vi.fn(),
-      onAutonomyFeedUpdated: vi.fn(),
     };
     render({ ...options, onConversationUpdated: old });
     const registrations = mocks.manager.on.mock.calls.length;
@@ -199,16 +197,10 @@ describe('useWebSocket behavior through the mounted hook', () => {
     emit('conversation_deleted', { conversationId: 'chat' });
     const event = { id: 'run' };
     emit('autonomy_status', event);
-    emit('autonomy_run_event', event);
-    emit('autonomy_feed_updated', event);
     expect(old).not.toHaveBeenCalled();
     expect(current.mock.calls).toEqual([[announced], [finalized]]);
     expect(options.onConversationDeleted).toHaveBeenCalledWith('chat');
-    for (const callback of [
-      options.onAutonomyStatus,
-      options.onAutonomyRunEvent,
-      options.onAutonomyFeedUpdated,
-    ])
+    for (const callback of [options.onAutonomyStatus])
       expect(callback).toHaveBeenCalledWith(event);
     expect(mocks.manager.on).toHaveBeenCalledTimes(registrations);
     expect(mocks.manager.connect).toHaveBeenCalledOnce();

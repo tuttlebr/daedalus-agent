@@ -1,633 +1,580 @@
 'use client';
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-
-import { useWebSocket } from '@/hooks/useWebSocket';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   AutonomyConfig,
-  AutonomyEvent,
-  AutonomyFeedItem,
-  AutonomyGoal,
-  AutonomyQueuedRequest,
-  AutonomyRun,
+  AutonomyState,
+  Outcome,
+  Responsibility,
 } from '@/types/autonomy';
 
-import { AutonomyFeed } from './AutonomyFeed';
-import { AutonomyHeader } from './AutonomyHeader';
-import { WorkspaceDrawer } from './WorkspaceDrawer';
-import { isActiveRun } from './utils';
-
-interface DashboardState {
-  config: AutonomyConfig | null;
-  goals: AutonomyGoal[];
-  runs: AutonomyRun[];
-  queue: AutonomyQueuedRequest[];
-  feed: AutonomyFeedItem[];
-  events: AutonomyEvent[];
-}
-
-const emptyState: DashboardState = {
-  config: null,
-  goals: [],
-  runs: [],
-  queue: [],
-  feed: [],
-  events: [],
+const labels: Record<Responsibility, string> = {
+  calendar: 'Local calendar',
+  lighting: 'MSU game lighting',
+  cluster: 'Cluster maintenance',
+  evolution: 'Continual improvement',
 };
+const descriptions: Record<Responsibility, string> = {
+  calendar:
+    'Keep practical dates and local activities current through your connected Google calendar.',
+  lighting:
+    'Turn on reachable lights and apply Go Green! at game start. Leave them as-is afterward.',
+  cluster:
+    'Investigate and repair problems while preserving working connections. Recommend upgrades without installing them.',
+  evolution:
+    'Learn what helps you and propose additional responsibilities in the daily summary.',
+};
+const buttonClass =
+  'min-h-touch-min max-w-full whitespace-normal break-words rounded-lg border border-separator px-3 py-2 text-sm hover:bg-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50';
+const inputClass =
+  'mt-1 w-full rounded-lg border border-separator bg-control px-3 py-2 text-sm';
 
-const POLL_INTERVAL_MS = 15_000;
-const WS_REFRESH_DEBOUNCE_MS = 50;
-
-type DashboardResource =
-  | 'config'
-  | 'goals'
-  | 'runs'
-  | 'queue'
-  | 'feed'
-  | 'events';
-
-const ALL_RESOURCES: readonly DashboardResource[] = [
-  'config',
-  'goals',
-  'runs',
-  'queue',
-  'feed',
-  'events',
-];
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to refresh ${url}`);
-  return response.json() as Promise<T>;
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(path, options);
+  if (!response.ok)
+    throw new Error(
+      'The request could not be completed. Refresh and try again.',
+    );
+  return response.json();
 }
-
-export function AutonomyDashboard() {
-  const [state, setState] = useState<DashboardState>(emptyState);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
-  const stateRef = useRef(state);
-  const refreshVersionsRef = useRef<Partial<Record<DashboardResource, number>>>(
-    {},
-  );
-  const pendingResourcesRef = useRef<Set<DashboardResource>>(new Set());
-  const scheduledRefreshRef = useRef<number | null>(null);
-  const latestEventRunIdRef = useRef<string | null>(null);
-  const hasConnectedRef = useRef(false);
-
-  const activeRun = useMemo(() => state.runs.find(isActiveRun), [state.runs]);
-  const feedSorted = useMemo(
-    () => [...state.feed].sort((a, b) => b.createdAt - a.createdAt),
-    [state.feed],
-  );
-  const lastRunAt = useMemo(() => {
-    if (!state.runs.length) return null;
-    const r = state.runs[0];
-    return r.completedAt || r.startedAt || r.createdAt || null;
-  }, [state.runs]);
-
-  const refreshResources = useCallback(
-    async (
-      resources: readonly DashboardResource[],
-      eventRunId?: string | null,
-    ) => {
-      const requested = new Set(resources);
-      // Full loads and targeted WebSocket refreshes can finish out of order.
-      // Track each resource independently so a newer feed does not discard
-      // unrelated goals from an older full load.
-      const versions = new Map(
-        [...requested].map((resource) => {
-          const version = (refreshVersionsRef.current[resource] ?? 0) + 1;
-          refreshVersionsRef.current[resource] = version;
-          return [resource, version];
-        }),
-      );
-      const [config, goals, runs, queue, feed] = await Promise.all([
-        requested.has('config')
-          ? fetchJson<AutonomyConfig>('/api/autonomy/config')
-          : undefined,
-        requested.has('goals')
-          ? fetchJson<AutonomyGoal[]>('/api/autonomy/goals')
-          : undefined,
-        requested.has('runs')
-          ? fetchJson<AutonomyRun[]>('/api/autonomy/runs')
-          : undefined,
-        requested.has('queue')
-          ? fetchJson<AutonomyQueuedRequest[]>('/api/autonomy/queue')
-          : undefined,
-        requested.has('feed')
-          ? fetchJson<AutonomyFeedItem[]>('/api/autonomy/feed')
-          : undefined,
-      ]);
-
-      const patch: Partial<DashboardState> = {};
-      if (config !== undefined) patch.config = config;
-      if (goals !== undefined) patch.goals = goals;
-      if (runs !== undefined) patch.runs = runs;
-      if (queue !== undefined) patch.queue = queue;
-      if (feed !== undefined) patch.feed = feed;
-
-      if (requested.has('events')) {
-        const currentRuns = runs ?? stateRef.current.runs;
-        const runId = currentRuns[0]?.id || eventRunId;
-        if (runId) {
-          const detail = await fetchJson<{ events?: AutonomyEvent[] }>(
-            `/api/autonomy/runs/${encodeURIComponent(runId)}`,
-          );
-          patch.events = detail.events || [];
-        } else {
-          patch.events = [];
-        }
-      }
-
-      setState((current) => {
-        const latestPatch = Object.fromEntries(
-          Object.entries(patch).filter(
-            ([resource]) =>
-              versions.get(resource as DashboardResource) ===
-              refreshVersionsRef.current[resource as DashboardResource],
-          ),
-        );
-        const next = { ...current, ...latestPatch };
-        stateRef.current = next;
-        return next;
-      });
-    },
-    [],
-  );
-
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshResources(ALL_RESOURCES);
-      setLoadError(false);
-    } catch (err) {
-      // Surface load failures instead of silently rendering an empty feed.
-      console.error('Failed to refresh autonomy dashboard:', err);
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [refreshResources]);
-
-  const scheduleRefresh = useCallback(
-    (resources: readonly DashboardResource[], eventRunId?: string | null) => {
-      resources.forEach((resource) =>
-        pendingResourcesRef.current.add(resource),
-      );
-      if (eventRunId) latestEventRunIdRef.current = eventRunId;
-      if (scheduledRefreshRef.current !== null) return;
-
-      scheduledRefreshRef.current = window.setTimeout(() => {
-        scheduledRefreshRef.current = null;
-        const pending = Array.from(pendingResourcesRef.current);
-        pendingResourcesRef.current.clear();
-        const latestEventRunId = latestEventRunIdRef.current;
-        latestEventRunIdRef.current = null;
-        refreshResources(pending, latestEventRunId)
-          .then(() => {
-            if (ALL_RESOURCES.every((resource) => pending.includes(resource)))
-              setLoadError(false);
-          })
-          .catch(() => setLoadError(true));
-      }, WS_REFRESH_DEBOUNCE_MS);
-    },
-    [refreshResources],
-  );
-
-  const handleAutonomyStatus = useCallback(
-    (data: Record<string, unknown> | null | undefined) => {
-      const resources: DashboardResource[] = [];
-      if (data?.config) resources.push('config');
-      if (data?.goals) resources.push('goals');
-      if (data?.run || data?.runId || data?.status) resources.push('runs');
-      if (data?.queued || data?.queuedBatch) resources.push('queue');
-      scheduleRefresh(resources.length ? resources : ALL_RESOURCES);
-    },
-    [scheduleRefresh],
-  );
-
-  const { isConnected: wsConnected } = useWebSocket({
-    enabled: true,
-    onAutonomyStatus: handleAutonomyStatus,
-    onAutonomyRunEvent: (event) =>
-      scheduleRefresh(['runs', 'events'], event?.runId),
-    onAutonomyFeedUpdated: () => scheduleRefresh(['feed']),
-    onConnected: () => {
-      if (hasConnectedRef.current) scheduleRefresh(ALL_RESOURCES);
-      hasConnectedRef.current = true;
-    },
-    onDisconnected: () => {
-      hasConnectedRef.current = true;
-      scheduleRefresh(ALL_RESOURCES);
-    },
-  });
-
-  useEffect(() => {
-    refresh().catch(() => setLoading(false));
-  }, [refresh]);
-
-  useEffect(() => {
-    let timer: number | null = null;
-    const start = () => {
-      stop();
-      if (wsConnected || document.visibilityState !== 'visible') return;
-      timer = window.setInterval(() => {
-        if (!wsConnected && document.visibilityState === 'visible') {
-          refresh().catch(() => {});
-        }
-      }, POLL_INTERVAL_MS);
-    };
-    const stop = () => {
-      if (timer !== null) {
-        window.clearInterval(timer);
-        timer = null;
-      }
-    };
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && !wsConnected) {
-        scheduleRefresh(ALL_RESOURCES);
-        start();
-      } else {
-        stop();
-      }
-    };
-    start();
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      stop();
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [refresh, scheduleRefresh, wsConnected]);
-
-  useEffect(
-    () => () => {
-      if (scheduledRefreshRef.current !== null) {
-        window.clearTimeout(scheduledRefreshRef.current);
-      }
-    },
-    [],
-  );
-
-  const updateConfig = useCallback(
-    async (patch: Partial<AutonomyConfig>) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy('config');
-      try {
-        const response = await fetch('/api/autonomy/config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        });
-        if (!response.ok) throw new Error('Failed to update config');
-        setActionNotice('Autonomy settings saved.');
-        await refresh();
-        return true;
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not update the autonomy settings. Try again.');
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const enqueueRun = useCallback(
-    async (prompt: string) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy('run');
-      try {
-        const response = await fetch('/api/autonomy/runs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trigger: 'manual', prompt }),
-        });
-        if (!response.ok) throw new Error('Failed to queue run');
-        setActionNotice('Run added to the queue.');
-        await refresh();
-        return true;
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not queue the run. Try again.');
-        return false;
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const runActiveGoals = useCallback(
-    async (prompt: string) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy('run:goals');
-      try {
-        const response = await fetch('/api/autonomy/runs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope: 'all_active_goals', prompt }),
-        });
-        if (!response.ok) throw new Error('Failed to queue active goals');
-        setActionNotice('Active goals added to the queue.');
-        await refresh();
-        return true;
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not run the active goals. Try again.');
-        return false;
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const createGoal = useCallback(
-    async (title: string, description: string) => {
-      if (!title.trim()) return false;
-      setActionError(null);
-      setActionNotice(null);
-      setBusy('goal');
-      try {
-        const response = await fetch('/api/autonomy/goals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, description }),
-        });
-        if (!response.ok) throw new Error('Failed to create goal');
-        setActionNotice('Goal added.');
-        await refresh();
-        return true;
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not create the goal. Try again.');
-        return false;
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const importGoals = useCallback(
-    async (payload: unknown) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy('goal:import');
-      try {
-        const body =
-          payload && typeof payload === 'object' && !Array.isArray(payload)
-            ? { mode: 'replace', ...payload }
-            : { mode: 'replace', goals: payload };
-        const response = await fetch('/api/autonomy/goals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!response.ok) throw new Error('Failed to import goals');
-        setActionNotice('Goals imported.');
-        await refresh();
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const importProfile = useCallback(async (payload: unknown) => {
-    setActionError(null);
-    setActionNotice(null);
-    setBusy('profile:import');
-    try {
-      const response = await fetch('/api/profile/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload || {}),
-      });
-      const responseBody = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          responseBody?.detail ||
-            responseBody?.error ||
-            `Failed to import profile (${response.status})`,
-        );
-      }
-      if (responseBody?.status === 'accepted') {
-        const queued = Number(
-          responseBody?.queued || responseBody?.imported || 0,
-        );
-        setActionNotice(
-          `Profile import accepted. Hindsight is processing ${queued} ${
-            queued === 1 ? 'memory' : 'memories'
-          }.`,
-        );
-      } else {
-        setActionNotice('Profile import completed.');
-      }
-    } finally {
-      setBusy(null);
-    }
-  }, []);
-
-  const deleteGoal = useCallback(
-    async (id: string) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy(`goal:${id}`);
-      try {
-        const response = await fetch(
-          `/api/autonomy/goals?id=${encodeURIComponent(id)}`,
-          { method: 'DELETE' },
-        );
-        if (!response.ok) throw new Error('Failed to delete goal');
-        await refresh();
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not delete the goal. Try again.');
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const cancelActiveRun = useCallback(async () => {
-    if (!activeRun) return;
-    setActionError(null);
-    setActionNotice(null);
-    setBusy('cancel');
-    try {
-      const response = await fetch(
-        `/api/autonomy/runs/${activeRun.id}/cancel`,
-        {
-          method: 'POST',
-        },
-      );
-      if (!response.ok) throw new Error('Failed to cancel run');
-      setActionNotice('Cancellation requested.');
-      await refresh();
-    } catch (err) {
-      console.error(err);
-      setActionError('Could not cancel the run. Try again.');
-    } finally {
-      setBusy(null);
-    }
-  }, [activeRun, refresh]);
-
-  const cancelQueuedRequest = useCallback(
-    async (requestId: string) => {
-      setActionError(null);
-      setActionNotice(null);
-      setBusy(requestId);
-      try {
-        const response = await fetch(
-          `/api/autonomy/queue?id=${encodeURIComponent(requestId)}`,
-          { method: 'DELETE' },
-        );
-        if (!response.ok && response.status !== 404) {
-          throw new Error('Failed to cancel queued request');
-        }
-        await refresh();
-      } catch (err) {
-        console.error(err);
-        setActionError('Could not cancel the queued request. Try again.');
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
-
-  const togglePause = useCallback(() => {
-    void updateConfig({ enabled: !state.config?.enabled });
-  }, [state.config?.enabled, updateConfig]);
-
-  const updateInterval = useCallback(
-    (hours: number) => {
-      void updateConfig({ intervalSeconds: Math.max(1, hours) * 3600 });
-    },
-    [updateConfig],
-  );
-
-  const handleDrawerClose = useCallback(() => {
-    setDrawerOpen(false);
-    window.setTimeout(() => workspaceButtonRef.current?.focus(), 80);
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="app-page app-workspace h-full overflow-y-auto pb-8">
-        <div className="app-content-rail pt-6">
-          <SkeletonFeed />
-        </div>
-      </div>
-    );
-  }
-
-  // A failed first load must not masquerade as an empty feed.
-  if (loadError && !state.config && state.feed.length === 0) {
-    return (
-      <div className="app-page app-workspace h-full overflow-y-auto text-dark-text-primary">
-        <div className="app-content-rail flex h-full flex-col items-center justify-center gap-4 text-center">
-          <p className="text-sm text-dark-text-secondary">
-            Could not load the autonomy dashboard. Check your connection and try
-            again.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              void refresh();
-            }}
-            className="min-h-touch-min rounded-lg border border-separator/70 bg-fill/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+function timestamp(value: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Detroit',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(value);
+}
+function Evidence({ outcome }: { outcome: Outcome }) {
   return (
-    <div className="app-page app-workspace h-full overflow-y-auto pb-8 text-dark-text-primary">
-      <div className="app-content-rail relative space-y-6">
-        <AutonomyHeader
-          ref={workspaceButtonRef}
-          config={state.config}
-          activeRun={activeRun}
-          lastRunAt={lastRunAt}
-          queuedRequests={state.queue.length}
-          onOpenWorkspace={() => setDrawerOpen(true)}
-          onRefresh={() => refresh()}
-          refreshing={refreshing}
-          wsConnected={wsConnected}
-        />
-        {loadError && (
-          <p
-            role="status"
-            className="rounded-lg bg-control p-3 text-sm text-secondary"
-          >
-            Updates are temporarily unavailable. Showing the last saved
-            activity. Use Refresh to try again.
-          </p>
-        )}
-        <AutonomyFeed items={feedSorted} config={state.config} />
-      </div>
-      <WorkspaceDrawer
-        open={drawerOpen}
-        onClose={handleDrawerClose}
-        config={state.config}
-        goals={state.goals}
-        runs={state.runs}
-        queue={state.queue}
-        events={state.events}
-        activeRun={activeRun}
-        busy={busy}
-        error={actionError}
-        notice={actionNotice}
-        onTogglePause={togglePause}
-        onEnqueueRun={enqueueRun}
-        onRunActiveGoals={runActiveGoals}
-        onCancelActiveRun={cancelActiveRun}
-        onCancelQueuedRequest={cancelQueuedRequest}
-        onUpdateInterval={updateInterval}
-        onCreateGoal={createGoal}
-        onImportGoals={importGoals}
-        onImportProfile={importProfile}
-        onDeleteGoal={deleteGoal}
-      />
+    <div className="space-y-2 text-sm">
+      <p>{outcome.summary}</p>
+      {!!outcome.skipped?.length && (
+        <p>Skipped: {outcome.skipped.join(', ')}</p>
+      )}
+      {outcome.recommendations?.map((text, index) => (
+        <p key={index}>{text}</p>
+      ))}
+      {!!outcome.evidence?.length && (
+        <details>
+          <summary className="cursor-pointer">Verification evidence</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {outcome.evidence.map((item, index) => (
+              <li key={index}>
+                {item.description}
+                {item.reference && /^https?:\/\//i.test(item.reference) ? (
+                  <>
+                    {' '}
+                    <a
+                      className="underline"
+                      href={item.reference}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Source
+                    </a>
+                  </>
+                ) : item.reference ? (
+                  <span> ({item.reference})</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
 
-function SkeletonFeed() {
+export function AutonomyDashboard() {
+  const [config, setConfig] = useState<AutonomyConfig | null>(null);
+  const [state, setState] = useState<AutonomyState | null>(null);
+  const [draft, setDraft] = useState<AutonomyConfig | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  const refresh = useCallback(async () => {
+    const current = ++generation.current;
+    try {
+      const [settings, activity] = await Promise.all([
+        request<AutonomyConfig>('/api/autonomy/config'),
+        request<AutonomyState>('/api/autonomy/state'),
+      ]);
+      if (current !== generation.current) return;
+      setConfig(settings);
+      setState(activity);
+    } catch {
+      if (current === generation.current)
+        setError('Updates are unavailable. Showing any last saved activity.');
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, 15000);
+    return () => {
+      window.clearInterval(timer);
+      generation.current += 1;
+    };
+  }, [refresh]);
+  async function perform(
+    path: string,
+    body: unknown,
+    message: string,
+    method = 'POST',
+  ) {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setNotice(message);
+      setDraft(null);
+      await refresh();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const save = (patch: unknown) =>
+    perform('/api/autonomy/config', patch, 'Charter settings saved.', 'PUT');
+  const operate = (body: unknown, message: string) =>
+    perform('/api/autonomy/state', body, message);
+  const edit = (fn: (next: AutonomyConfig) => void) => {
+    if (!draft) return;
+    const next = structuredClone(draft);
+    fn(next);
+    setDraft(next);
+  };
   return (
-    <div className="space-y-8" role="status" aria-label="Loading Autonomy">
-      {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="space-y-2">
-          <div className="h-3 w-20 animate-pulse rounded bg-fill/[0.04]" />
-          <div className="h-5 w-3/4 animate-pulse rounded bg-fill/[0.06]" />
-          <div className="h-4 w-full animate-pulse rounded bg-fill/[0.04]" />
-          <div className="h-4 w-5/6 animate-pulse rounded bg-fill/[0.03]" />
-        </div>
-      ))}
+    <div className="app-page app-workspace h-full overflow-y-auto pb-8 text-dark-text-primary">
+      <div className="app-content-rail space-y-6 break-words pt-6">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">Autonomy</h1>
+            <p className="text-sm text-dark-text-secondary">
+              Your charter, daily summaries, and completed work.
+            </p>
+          </div>
+          <div className="flex max-w-full flex-wrap gap-2">
+            <button
+              className={buttonClass}
+              onClick={() => {
+                setError('');
+                void refresh();
+              }}
+            >
+              Refresh
+            </button>
+            {config && (
+              <button
+                disabled={busy}
+                className={buttonClass}
+                onClick={() => void save({ enabled: !config.enabled })}
+              >
+                {config.enabled ? 'Pause all' : 'Resume all'}
+              </button>
+            )}
+          </div>
+        </header>
+        {error && (
+          <p role="alert" className="rounded-lg bg-control p-3">
+            {error}
+          </p>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {!config && !error && <p role="status">Loading charter…</p>}
+        {config && (
+          <>
+            <section
+              aria-label="Initial charter"
+              className="grid gap-3 md:grid-cols-2"
+            >
+              {(Object.keys(labels) as Responsibility[]).map((name) => (
+                <article
+                  key={name}
+                  className="min-w-0 rounded-xl border border-separator p-4"
+                >
+                  <h2 className="font-semibold">{labels[name]}</h2>
+                  <p className="my-2 text-sm text-dark-text-secondary">
+                    {descriptions[name]}
+                  </p>
+                  <p className="mb-2 text-sm">
+                    {config.enabled && config.responsibilities[name].enabled
+                      ? 'Active'
+                      : 'Paused'}{' '}
+                    · every {config.responsibilities[name].intervalSeconds / 60}{' '}
+                    minutes
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      disabled={busy}
+                      className={buttonClass}
+                      onClick={() =>
+                        void save({
+                          responsibilities: {
+                            [name]: {
+                              enabled: !config.responsibilities[name].enabled,
+                            },
+                          },
+                        })
+                      }
+                    >
+                      {config.responsibilities[name].enabled
+                        ? 'Pause'
+                        : 'Resume'}{' '}
+                      {labels[name]}
+                    </button>
+                    <button
+                      disabled={
+                        busy ||
+                        !config.enabled ||
+                        !config.responsibilities[name].enabled
+                      }
+                      className={buttonClass}
+                      onClick={() =>
+                        void operate(
+                          { operation: 'run', responsibility: name },
+                          'Responsibility queued.',
+                        )
+                      }
+                    >
+                      Check now
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </section>
+            <section className="rounded-xl border border-separator p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p>
+                  Daily summary at {config.summary.time} Eastern · new
+                  responsibilities are proposed for your review.
+                </p>
+                <button
+                  className={buttonClass}
+                  onClick={() =>
+                    setDraft(draft ? null : structuredClone(config))
+                  }
+                >
+                  {draft ? 'Close settings' : 'Settings'}
+                </button>
+              </div>
+              {draft && (
+                <form
+                  className="mt-4 space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void save(draft);
+                  }}
+                >
+                  <label className="block text-sm">
+                    Summary time (Eastern)
+                    <input
+                      type="time"
+                      required
+                      className={inputClass}
+                      value={draft.summary.time}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.summary.time = event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {(Object.keys(labels) as Responsibility[]).map((name) => (
+                      <label key={name} className="block text-sm">
+                        {labels[name]} check interval (minutes)
+                        <input
+                          type="number"
+                          min={5}
+                          max={10080}
+                          required
+                          className={inputClass}
+                          value={
+                            draft.responsibilities[name].intervalSeconds / 60
+                          }
+                          onChange={(event) =>
+                            edit((next) => {
+                              next.responsibilities[name].intervalSeconds =
+                                Number(event.target.value) * 60;
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block text-sm">
+                    Google calendar ID (leave blank to use your saved preference
+                    or sole writable calendar)
+                    <input
+                      className={inputClass}
+                      value={draft.responsibilities.calendar.calendarId}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.calendar.calendarId =
+                            event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Local sources (one URL per line)
+                    <textarea
+                      className={inputClass}
+                      value={draft.responsibilities.calendar.sources.join('\n')}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.calendar.sources =
+                            event.target.value.split('\n');
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Local interests, area, and household applicability
+                    <textarea
+                      className={inputClass}
+                      value={draft.responsibilities.calendar.preferences}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.calendar.preferences =
+                            event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Reminder lead times (minutes, comma separated; blank
+                    preserves calendar defaults)
+                    <input
+                      className={inputClass}
+                      value={draft.responsibilities.calendar.reminderMinutes.join(
+                        ',',
+                      )}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.calendar.reminderMinutes =
+                            event.target.value.trim()
+                              ? event.target.value.split(',').map(Number)
+                              : [];
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Lighting scene
+                    <input
+                      required
+                      className={inputClass}
+                      value={draft.responsibilities.lighting.scene}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.lighting.scene =
+                            event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Missed game start allowance (minutes)
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      className={inputClass}
+                      value={draft.responsibilities.lighting.catchUpMinutes}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.lighting.catchUpMinutes =
+                            Number(event.target.value);
+                        })
+                      }
+                    />
+                  </label>
+                  <p className="text-sm">
+                    Repairs use cluster-managed configuration. Backups remain in
+                    the affected namespace; externally managed changes are
+                    reported for review.
+                  </p>
+                  <label className="block text-sm">
+                    Non-node LAN verification source
+                    <input
+                      className={inputClass}
+                      value={
+                        draft.responsibilities.cluster.lanVerificationSource
+                      }
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.cluster.lanVerificationSource =
+                            event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Cluster maintenance boundaries
+                    <textarea
+                      className={inputClass}
+                      value={draft.responsibilities.cluster.maintenancePolicy}
+                      onChange={(event) =>
+                        edit((next) => {
+                          next.responsibilities.cluster.maintenancePolicy =
+                            event.target.value;
+                        })
+                      }
+                    />
+                  </label>
+                  <button disabled={busy} className={buttonClass} type="submit">
+                    Save settings
+                  </button>
+                </form>
+              )}
+            </section>
+          </>
+        )}
+        <section aria-label="Daily summaries" className="space-y-3">
+          <h2 className="text-xl font-semibold">Daily summaries</h2>
+          {state && !state.summaries.length && (
+            <p className="text-sm text-dark-text-secondary">
+              Your first summary will appear at the scheduled time. Work in
+              progress is listed below.
+            </p>
+          )}
+          {state?.summaries.map((summary) => (
+            <article
+              key={summary.id}
+              className="space-y-3 rounded-xl border border-separator p-4"
+            >
+              <h3 className="font-semibold">{summary.title}</h3>
+              {summary.message && <p>{summary.message}</p>}
+              {summary.items.map((item, index) => (
+                <div key={index} className="border-t border-separator pt-3">
+                  <p className="mb-1 text-sm font-medium">
+                    {item.responsibility} · {item.status}
+                  </p>
+                  {item.summary && (
+                    <Evidence
+                      outcome={{
+                        ...item,
+                        status: item.status as Outcome['status'],
+                        summary: item.summary,
+                      }}
+                    />
+                  )}
+                  {item.proposal && (
+                    <div>
+                      <p className="font-medium">{item.proposal.title}</p>
+                      <p>{item.proposal.benefit}</p>
+                      <details>
+                        <summary className="cursor-pointer text-sm">
+                          Proposed responsibility
+                        </summary>
+                        <p>Trigger: {item.proposal.trigger}</p>
+                        <p>Actions: {item.proposal.actions}</p>
+                        <p>Access: {item.proposal.requiredAccess}</p>
+                        <p>Limits: {item.proposal.limits}</p>
+                      </details>
+                      {state.proposals[item.proposal.id]?.status ===
+                        'proposed' && (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            className={buttonClass}
+                            disabled={busy}
+                            onClick={() =>
+                              void operate(
+                                { operation: 'accept', id: item.proposal!.id },
+                                'Interest saved. This idea does not yet have permission to act.',
+                              )
+                            }
+                          >
+                            Mark useful
+                          </button>
+                          <button
+                            className={buttonClass}
+                            disabled={busy}
+                            onClick={() =>
+                              void operate(
+                                { operation: 'dismiss', id: item.proposal!.id },
+                                'Proposal dismissed. This preference will be retained.',
+                              )
+                            }
+                          >
+                            Dismiss proposal
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </article>
+          ))}
+        </section>
+        <section aria-label="Action history" className="space-y-3">
+          <h2 className="text-xl font-semibold">
+            Scheduled work and action history
+          </h2>
+          {state && !Object.keys(state.actions).length && (
+            <p>The worker has not scheduled any work yet.</p>
+          )}
+          {state &&
+            Object.values(state.actions)
+              .sort(
+                (a, b) =>
+                  Number(['pending', 'running'].includes(b.status)) -
+                    Number(['pending', 'running'].includes(a.status)) ||
+                  b.updatedAt - a.updatedAt,
+              )
+              .slice(0, 50)
+              .map((item) => (
+                <details
+                  key={item.id}
+                  className="rounded-lg border border-separator p-3"
+                >
+                  <summary className="cursor-pointer">
+                    {labels[item.responsibility as Responsibility] ||
+                      'Daily summary'}{' '}
+                    {typeof item.payload.title === 'string' &&
+                      `· ${item.payload.title} `}
+                    {typeof item.payload.opponent === 'string' &&
+                      `· MSU vs ${item.payload.opponent} `}
+                    · {item.status} · {timestamp(item.dueAt)}
+                  </summary>
+                  <div className="mt-3 space-y-2">
+                    {item.outcome && <Evidence outcome={item.outcome} />}
+                    {['pending', 'running'].includes(item.status) && (
+                      <button
+                        className={buttonClass}
+                        disabled={busy}
+                        onClick={() =>
+                          void operate(
+                            { operation: 'cancel', id: item.id },
+                            'Stop requested. Any uncertain effects will be recorded.',
+                          )
+                        }
+                      >
+                        {item.status === 'running'
+                          ? 'Stop action'
+                          : 'Cancel scheduled action'}
+                      </button>
+                    )}
+                  </div>
+                </details>
+              ))}
+        </section>
+      </div>
     </div>
   );
 }

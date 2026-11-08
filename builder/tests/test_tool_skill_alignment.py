@@ -46,8 +46,7 @@ def test_configuration_contract_rejects_overrides_outside_exposure(filters):
         check_configuration(config)
 
 
-def test_source_ids_agree_across_verifier_chat_and_autonomous_runs():
-    from autonomous_agent.prompt import _SOURCE_POLICY_IDS
+def test_source_ids_agree_across_verifier_and_chat():
     from source_verifier.source_verifier_function import _default_source_registry
 
     config = configuration()
@@ -59,7 +58,7 @@ def test_source_ids_agree_across_verifier_chat_and_autonomous_runs():
             r"'([a-z_]+)'", (ROOT / "frontend/types/sourcePolicy.ts").read_text()
         )
     )
-    assert ids == ui_ids == _SOURCE_POLICY_IDS
+    assert ids == ui_ids
     assert {
         source["id"]: (
             source["tools"],

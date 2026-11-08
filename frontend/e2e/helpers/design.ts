@@ -1,5 +1,7 @@
 import type { Conversation } from '@/types/chat';
 
+import { defaultConfig } from '../../server/autonomy/config';
+
 import { expect, type Page } from '@playwright/test';
 
 // Deterministic content isolates frontend behavior from personal data and live
@@ -30,8 +32,19 @@ export async function openApp(page: Page, conversations: Conversation[] = []) {
     else if (path.startsWith('/api/memory/'))
       body = { items: [], total: 0, limit: 25, offset: 0 };
     else if (path === '/api/autonomy/config')
-      body = { enabled: false, intervalSeconds: 14400 };
-    else if (path.startsWith('/api/autonomy/')) body = [];
+      body = { ...defaultConfig(), enabled: false };
+    else if (path === '/api/autonomy/state')
+      body = {
+        version: 2,
+        actions: {},
+        schedules: {},
+        records: {},
+        proposals: {},
+        notes: {},
+        runs: [],
+        summaries: [],
+        reported: {},
+      };
     else if (path === '/api/google-workspace/connections')
       body = {
         connections: [

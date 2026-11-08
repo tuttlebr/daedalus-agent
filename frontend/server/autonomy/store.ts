@@ -1,681 +1,219 @@
 import { publishSyncEvent } from '@/utils/sync/publish';
 
-import {
+import type {
   AutonomyConfig,
-  AutonomyEvent,
-  AutonomyFeedItem,
-  AutonomyGoal,
-  AutonomyQueuedRequest,
-  AutonomyRun,
+  AutonomyState,
+  Responsibility,
+  TaskKind,
 } from '@/types/autonomy';
 
+import { applyConfigPatch, defaultConfig } from './config';
+
 import { updateJsonAtomically } from '@/server/atomicJson';
-import { sanitizeSourcePolicy } from '@/server/chat/sourcePolicy';
-import { positiveIntegerFromEnv } from '@/server/config/env';
-import { getRedis, jsonGet, sessionKey } from '@/server/session/redis';
-import { v4 as uuidv4 } from 'uuid';
+import { getRedis } from '@/server/session/redis';
+import { createHash, randomUUID } from 'node:crypto';
 
-const DEFAULT_INTERVAL_SECONDS = 14_400;
-const MIN_INTERVAL_SECONDS = 300; // 5 min floor — block degenerate tight worker loops
-const MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60; // 7 days
-const DEFAULT_DEDUPE_WINDOW_DAYS = 14;
-const MIN_DEDUPE_WINDOW_DAYS = 1;
-const MAX_DEDUPE_WINDOW_DAYS = 90;
-const VALID_MODES = new Set(['hybrid', 'research_feed', 'task_executor']);
-const VALID_RUNTIMES = new Set(['dedicated_worker']);
-const VALID_ACTION_POLICIES = new Set([
-  'broad_autonomy',
-  'read_memory_only',
-  'low_risk_writes',
-]);
-const VALID_GOAL_STATUSES = new Set(['active', 'paused', 'completed']);
-const MAX_IMPORTED_GOALS = 100;
-function clampInt(
-  value: unknown,
-  min: number,
-  max: number,
-): number | undefined {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.min(Math.max(Math.floor(n), min), max);
+export function autonomyKey(userId: string, name: string): string {
+  return `autonomy:${userId}:charter:${name}`;
 }
-
-/**
- * Whitelist + validate a client-supplied config patch before it is persisted
- * and consumed by the autonomous worker. Unknown keys and invalid values are
- * dropped, and numeric fields are clamped, so a client cannot drive the worker
- * into a tight loop (intervalSeconds=0) or set an unrecognized policy (F-009).
- */
-export function sanitizeConfigPatch(
-  patch: Partial<AutonomyConfig>,
-): Partial<AutonomyConfig> {
-  const clean: Partial<AutonomyConfig> = {};
-  if (!patch || typeof patch !== 'object') return clean;
-
-  if (typeof patch.enabled === 'boolean') clean.enabled = patch.enabled;
-  if (typeof patch.mode === 'string' && VALID_MODES.has(patch.mode)) {
-    clean.mode = patch.mode;
-  }
-  if (typeof patch.runtime === 'string' && VALID_RUNTIMES.has(patch.runtime)) {
-    clean.runtime = patch.runtime;
-  }
-  if (
-    typeof patch.actionPolicy === 'string' &&
-    VALID_ACTION_POLICIES.has(patch.actionPolicy)
-  ) {
-    clean.actionPolicy = patch.actionPolicy;
-  }
-
-  const interval = clampInt(
-    patch.intervalSeconds,
-    MIN_INTERVAL_SECONDS,
-    MAX_INTERVAL_SECONDS,
-  );
-  if (interval !== undefined) clean.intervalSeconds = interval;
-
-  const maxRuns = clampInt(patch.maxRunsStored, 1, 1000);
-  if (maxRuns !== undefined) clean.maxRunsStored = maxRuns;
-
-  const maxFeed = clampInt(patch.maxFeedItems, 1, 2000);
-  if (maxFeed !== undefined) clean.maxFeedItems = maxFeed;
-
-  if (typeof patch.feedDedupeEnabled === 'boolean') {
-    clean.feedDedupeEnabled = patch.feedDedupeEnabled;
-  }
-  const dedupeWindow = clampInt(
-    patch.feedDedupeWindowDays,
-    MIN_DEDUPE_WINDOW_DAYS,
-    MAX_DEDUPE_WINDOW_DAYS,
-  );
-  if (dedupeWindow !== undefined) clean.feedDedupeWindowDays = dedupeWindow;
-
-  const sourcePolicy = sanitizeSourcePolicy(patch.sourcePolicy);
-  if (sourcePolicy) {
-    clean.sourcePolicy = { ...sourcePolicy, requirePlanApproval: false };
-  }
-
-  return clean;
-}
-
-function autonomyKey(userId: string, name: string): string {
-  return sessionKey(['autonomy', userId, name]);
-}
-
-export function nowMs(): number {
-  return Date.now();
-}
-
-function defaultConfig(userId: string): AutonomyConfig {
-  const timestamp = nowMs();
+export function emptyState(): AutonomyState {
   return {
-    enabled: true,
-    userId,
-    mode: 'hybrid',
-    runtime: 'dedicated_worker',
-    actionPolicy: 'broad_autonomy',
-    intervalSeconds: DEFAULT_INTERVAL_SECONDS,
-    maxRunsStored: 100,
-    maxFeedItems: 200,
-    feedDedupeEnabled: true,
-    feedDedupeWindowDays: DEFAULT_DEDUPE_WINDOW_DAYS,
-    sourcePolicy: {
-      disabledSources: [],
-      enabledSources: [],
-      maxResearchToolCalls: 6,
-      requirePlanApproval: false,
-    },
-    lastScheduledRunAt: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    version: 2,
+    actions: {},
+    schedules: {},
+    records: {},
+    proposals: {},
+    notes: {},
+    runs: [],
+    summaries: [],
+    reported: {},
   };
 }
-
-async function getList<T>(userId: string, name: string): Promise<T[]> {
-  const value = await jsonGet(autonomyKey(userId, name));
-  return Array.isArray(value) ? value : [];
+async function notify(userId: string) {
+  await publishSyncEvent(userId, {
+    type: 'autonomy_status',
+    timestamp: Date.now(),
+    data: { charter: true },
+  });
 }
-
-function normalizeConfig(
-  userId: string,
-  existing: Partial<AutonomyConfig> | null,
-): AutonomyConfig {
-  const defaults = defaultConfig(userId);
-  const stored = existing && typeof existing === 'object' ? existing : {};
-  const storedSourcePolicy = sanitizeSourcePolicy(stored.sourcePolicy);
-  return {
-    ...defaults,
-    ...stored,
-    sourcePolicy: {
-      ...defaults.sourcePolicy,
-      ...(storedSourcePolicy || {}),
-      requirePlanApproval: false,
-    },
-  };
-}
-
 export async function getConfig(userId: string): Promise<AutonomyConfig> {
-  const existing = await jsonGet(autonomyKey(userId, 'config'));
-  if (existing && typeof existing === 'object')
-    return normalizeConfig(userId, existing);
-  const created = await updateJsonAtomically<AutonomyConfig>(
-    autonomyKey(userId, 'config'),
-    (current) => current || defaultConfig(userId),
-  );
-  return normalizeConfig(userId, created);
+  const raw = await getRedis().get(autonomyKey(userId, 'config'));
+  return raw
+    ? applyConfigPatch(defaultConfig(), JSON.parse(raw))
+    : defaultConfig();
 }
-
 export async function saveConfig(
   userId: string,
-  patch: Partial<AutonomyConfig>,
+  patch: unknown,
 ): Promise<AutonomyConfig> {
-  const next = (await updateJsonAtomically<AutonomyConfig>(
+  const config = await updateJsonAtomically<AutonomyConfig>(
     autonomyKey(userId, 'config'),
-    (current) => ({
-      ...normalizeConfig(userId, current),
-      ...sanitizeConfigPatch(patch),
-      userId,
-      updatedAt: nowMs(),
-    }),
-  )) as AutonomyConfig;
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: nowMs(),
-    data: { config: next },
-  });
-  return next;
-}
-
-export async function listGoals(userId: string): Promise<AutonomyGoal[]> {
-  return getList<AutonomyGoal>(userId, 'goals');
-}
-
-/**
- * Apply `mutate` to the latest goal list. An updater that returns null
- * leaves the stored list untouched and publishes nothing, so a request for an
- * unknown goal is not committed and broadcast as a change.
- */
-export async function mutateGoals(
-  userId: string,
-  mutate: (goals: AutonomyGoal[]) => AutonomyGoal[] | null,
-): Promise<AutonomyGoal[] | null> {
-  const goals = await updateJsonAtomically<AutonomyGoal[]>(
-    autonomyKey(userId, 'goals'),
-    (current) => mutate(Array.isArray(current) ? current : []),
+    (current) => applyConfigPatch(current || defaultConfig(), patch),
   );
-  if (goals === null) return null;
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: nowMs(),
-    data: { goals },
-  });
-  return goals;
+  await notify(userId);
+  return config!;
 }
-
-function sanitizeGoalId(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const cleaned = value
-    .trim()
-    .replace(/[^A-Za-z0-9_-]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  if (!cleaned) return '';
-  return cleaned.startsWith('goal_') ? cleaned : `goal_${cleaned}`;
+export async function getState(userId: string): Promise<AutonomyState> {
+  const raw = await getRedis().get(autonomyKey(userId, 'state'));
+  if (!raw) return emptyState();
+  const state = JSON.parse(raw) as AutonomyState;
+  if (
+    state.version !== 2 ||
+    !state.actions ||
+    !Array.isArray(state.runs) ||
+    !Array.isArray(state.summaries)
+  )
+    throw new Error('Invalid charter state');
+  return state;
 }
-
-function uniqueGoalId(preferredId: string, usedIds: Set<string>): string {
-  const base = preferredId || `goal_${uuidv4().replace(/-/g, '')}`;
-  let candidate = base;
-  let suffix = 2;
-  while (usedIds.has(candidate)) {
-    candidate = `${base}_${suffix}`;
-    suffix += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-
-function sanitizeGoalTags(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const tags = Array.from(
-    new Set(
-      value
-        .filter((tag): tag is string => typeof tag === 'string')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .slice(0, 12),
-    ),
-  );
-  return tags.length > 0 ? tags : undefined;
-}
-
-export function normalizeImportedGoals(
-  rawGoals: unknown[],
-  existingGoals: AutonomyGoal[] = [],
-): AutonomyGoal[] {
-  const timestamp = nowMs();
-  const usedIds = new Set(existingGoals.map((goal) => goal.id));
-
-  return rawGoals
-    .slice(0, MAX_IMPORTED_GOALS)
-    .map((raw): AutonomyGoal | null => {
-      if (!raw || typeof raw !== 'object') return null;
-      const input = raw as Partial<AutonomyGoal> & Record<string, unknown>;
-      const title = typeof input.title === 'string' ? input.title.trim() : '';
-      if (!title) return null;
-
-      const priority = Number(input.priority);
-      const status =
-        typeof input.status === 'string' &&
-        VALID_GOAL_STATUSES.has(input.status)
-          ? (input.status as AutonomyGoal['status'])
-          : 'active';
-      const tags = sanitizeGoalTags(input.tags);
-      return {
-        id: uniqueGoalId(sanitizeGoalId(input.id), usedIds),
-        title,
-        description:
-          typeof input.description === 'string' ? input.description.trim() : '',
-        status,
-        priority: Number.isFinite(priority) ? priority : 3,
-        ...(tags ? { tags } : {}),
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        lastRunAt: null,
-      };
-    })
-    .filter((goal): goal is AutonomyGoal => goal !== null);
-}
-
-export async function importGoals(
+const kinds: Record<Responsibility, TaskKind> = {
+  calendar: 'calendar_discovery',
+  lighting: 'sports_discovery',
+  cluster: 'cluster_maintenance',
+  evolution: 'evolution',
+};
+export async function requestResponsibility(
   userId: string,
-  rawGoals: unknown[],
-  mode: 'replace' | 'append' = 'replace',
-): Promise<{ goals: AutonomyGoal[]; imported: number; skipped: number }> {
-  let importedGoals: AutonomyGoal[] = [];
-  const goals = await mutateGoals(userId, (existingGoals) => {
-    importedGoals = normalizeImportedGoals(
-      rawGoals,
-      mode === 'append' ? existingGoals : [],
-    );
-    // The API rejects an empty import; it must not erase existing goals first.
-    if (!importedGoals.length) return existingGoals;
-    return mode === 'append'
-      ? [...importedGoals, ...existingGoals]
-      : importedGoals;
-  });
-  return {
-    // The import updater always returns a list, so null cannot occur here.
-    goals: goals ?? [],
-    imported: importedGoals.length,
-    skipped: Math.max(0, rawGoals.length - importedGoals.length),
-  };
-}
-
-export async function createGoal(
-  userId: string,
-  input: Pick<AutonomyGoal, 'title' | 'description'> & Partial<AutonomyGoal>,
-): Promise<AutonomyGoal> {
-  const timestamp = nowMs();
-  // Request bodies are untrusted JSON: apply the same field rules as edits and
-  // imports so the worker and dashboard never see an unknown goal status.
-  const goal: AutonomyGoal = {
-    id: `goal_${uuidv4().replace(/-/g, '')}`,
-    title:
-      (typeof input.title === 'string' && input.title.trim()) ||
-      'Untitled goal',
-    description:
-      typeof input.description === 'string' ? input.description.trim() : '',
-    status:
-      typeof input.status === 'string' && VALID_GOAL_STATUSES.has(input.status)
-        ? input.status
-        : 'active',
-    priority: Number.isFinite(input.priority) ? Number(input.priority) : 3,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    lastRunAt: null,
-  };
-  await mutateGoals(userId, (goals) => [goal, ...goals]);
-  return goal;
-}
-
-export async function listRuns(userId: string): Promise<AutonomyRun[]> {
-  return getList<AutonomyRun>(userId, 'runs');
-}
-
-function normalizeQueuedRequest(
-  value: unknown,
-  position: number,
-): AutonomyQueuedRequest | null {
-  if (!value || typeof value !== 'object') return null;
-  const request = value as Partial<AutonomyQueuedRequest>;
-  const id =
-    typeof request.id === 'string' && request.id.trim()
-      ? request.id
-      : `queued_${position}`;
-
-  return {
-    id,
-    trigger: typeof request.trigger === 'string' ? request.trigger : 'manual',
-    goalId: typeof request.goalId === 'string' ? request.goalId : null,
-    prompt: typeof request.prompt === 'string' ? request.prompt : '',
-    requestedBy:
-      typeof request.requestedBy === 'string' ? request.requestedBy : 'unknown',
-    createdAt: Number.isFinite(request.createdAt)
-      ? Number(request.createdAt)
-      : 0,
-    position,
-  };
-}
-
-export async function listQueuedRequests(
-  userId: string,
-): Promise<AutonomyQueuedRequest[]> {
-  const redis = getRedis();
-  const rawItems = await redis.lrange(autonomyKey(userId, 'queue'), 0, -1);
-  return rawItems
-    .reverse()
-    .map((raw, index) => {
-      try {
-        return normalizeQueuedRequest(JSON.parse(raw), index + 1);
-      } catch {
+  responsibility: unknown,
+): Promise<string> {
+  if (
+    typeof responsibility !== 'string' ||
+    !Object.hasOwn(kinds, responsibility)
+  )
+    throw new Error('Select an existing responsibility');
+  const name = responsibility as Responsibility;
+  const config = await getConfig(userId);
+  if (!config.enabled || !config.responsibilities[name].enabled)
+    throw new Error('Resume this responsibility before running it');
+  const kind = kinds[name];
+  const timestamp = Date.now();
+  const id = `${kind}:${createHash('sha256')
+    .update(`${kind}:${randomUUID()}`)
+    .digest('hex')
+    .slice(0, 32)}`;
+  let selectedId = id;
+  await updateJsonAtomically<AutonomyState>(
+    autonomyKey(userId, 'state'),
+    (current) => {
+      const state = current || emptyState();
+      const existing = Object.values(state.actions).find(
+        (item) =>
+          item.kind === kind && ['pending', 'running'].includes(item.status),
+      );
+      if (existing) {
+        selectedId = existing.id;
         return null;
       }
-    })
-    .filter((request): request is AutonomyQueuedRequest => request !== null);
+      if (
+        Object.values(state.actions).filter((item) =>
+          ['pending', 'running'].includes(item.status),
+        ).length >= config.maxPendingActions
+      )
+        throw new Error('Pending action capacity reached');
+      return {
+        ...state,
+        actions: {
+          ...state.actions,
+          [id]: {
+            id,
+            kind,
+            responsibility: name,
+            status: 'pending',
+            dueAt: timestamp,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            attempts: 0,
+            payload: {},
+            outcome: null,
+          },
+        },
+      };
+    },
+  );
+  await notify(userId);
+  return selectedId;
 }
-
-/**
- * Remove a request that is still queued.
- *
- * `cancelRun` keys on a run id, which the worker only mints at dequeue time, so
- * a queued request had no cancellation path at all: "run all active goals" can
- * enqueue up to MAX_QUEUE_DEPTH entries that the user could not withdraw.
- * LREM matches the exact serialized entry, so a concurrent dequeue of the same
- * item simply removes nothing and reports false.
- */
-export async function cancelQueuedRequest(
+export async function cancelAction(
   userId: string,
-  requestId: string,
+  actionId: string,
 ): Promise<boolean> {
-  const trimmed = requestId?.trim();
-  if (!trimmed) return false;
-
-  const redis = getRedis();
-  const queueKey = autonomyKey(userId, 'queue');
-  const rawItems = await redis.lrange(queueKey, 0, -1);
-  const match = rawItems.find((raw) => {
-    try {
-      return (JSON.parse(raw) as { id?: unknown })?.id === trimmed;
-    } catch {
-      return false;
-    }
-  });
-  if (!match) return false;
-
-  const removed = await redis.lrem(queueKey, 1, match);
-  if (removed < 1) return false;
-
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: nowMs(),
-    data: { dequeued: trimmed },
-  });
-  return true;
-}
-
-export async function getRun(
-  userId: string,
-  runId: string,
-): Promise<AutonomyRun | null> {
-  return (await listRuns(userId)).find((run) => run.id === runId) || null;
-}
-
-// Bound the per-user autonomy queue so a stalled/slow worker cannot grow Redis
-// without limit, and cap prompt size to keep queue entries small.
-const MAX_QUEUE_DEPTH = positiveIntegerFromEnv('AUTONOMY_MAX_QUEUE_DEPTH', 100);
-const MAX_PROMPT_CHARS = positiveIntegerFromEnv(
-  'AUTONOMY_MAX_PROMPT_CHARS',
-  8000,
-);
-
-export class QueueFullError extends Error {
-  constructor(public readonly maxDepth: number) {
-    super(
-      `Autonomy queue is full (max ${maxDepth} pending requests). ` +
-        'Try again once queued runs drain.',
-    );
-    this.name = 'QueueFullError';
-  }
-}
-
-export class NoActiveGoalsError extends Error {
-  constructor() {
-    super('No active autonomy goals are available to run.');
-    this.name = 'NoActiveGoalsError';
-  }
-}
-
-type EnqueueRunInput = {
-  trigger?: string;
-  goalId?: string | null;
-  prompt?: string;
-  requestedBy?: string;
-  scope?: string;
-};
-
-type QueueRequest = {
-  id: string;
-  trigger: string;
-  goalId: string | null;
-  prompt: string;
-  requestedBy: string;
-  createdAt: number;
-};
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === 'string' && value ? value : undefined;
-}
-
-function clippedPrompt(input: Pick<EnqueueRunInput, 'prompt'>): string {
-  return (stringField(input.prompt) || '').slice(0, MAX_PROMPT_CHARS);
-}
-
-function priorityValue(goal: AutonomyGoal): number {
-  const priority = Number(goal.priority);
-  return Number.isFinite(priority) ? priority : 3;
-}
-
-function isAllActiveGoalsPrompt(prompt: unknown): boolean {
-  if (typeof prompt !== 'string') return false;
-  const normalized = prompt
-    .trim()
-    .toLowerCase()
-    .replace(/[.!?]+$/g, '')
-    .replace(/\s+/g, ' ');
-  if (!normalized) return false;
-  if (
-    /\b(do not|don't|dont|never|not|no)\b.*\b(run|start|queue)\b.*\b(all|every|each)\b.*\b(active\s+)?goals?\b/.test(
-      normalized,
-    )
-  ) {
-    return false;
-  }
-  return /^(please\s+)?(run|start|queue)\s+(all|every|each)\s+(active\s+)?goals?(\s+now)?$/.test(
-    normalized,
+  let found = false;
+  await updateJsonAtomically<AutonomyState>(
+    autonomyKey(userId, 'state'),
+    async (current) => {
+      const item = current?.actions[actionId];
+      if (!current || !item || !['pending', 'running'].includes(item.status))
+        return null;
+      found = true;
+      if (item.status === 'running' && item.runId) {
+        await getRedis().set(
+          autonomyKey(userId, `cancel:${item.runId}`),
+          '1',
+          'EX',
+          7200,
+        );
+      }
+      let records = { ...current.records };
+      if (
+        item.kind === 'calendar_event' &&
+        typeof item.payload.sourceKey === 'string'
+      ) {
+        records = {
+          ...records,
+          [item.payload.sourceKey]: {
+            ...(Object.hasOwn(records, item.payload.sourceKey)
+              ? (records[item.payload.sourceKey] as Record<string, unknown>)
+              : {}),
+            dismissed: true,
+            updatedAt: Date.now(),
+          },
+        };
+      }
+      return {
+        ...current,
+        records,
+        actions: {
+          ...current.actions,
+          [actionId]: {
+            ...item,
+            // Keep dispatched work running until the worker records whether
+            // remote effects occurred; cancellation is not proof of no effect.
+            status: item.status === 'running' ? 'running' : 'cancelled',
+            cancelledByUser: true,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    },
   );
+  if (found) await notify(userId);
+  return found;
 }
-
-export function isAllActiveGoalsRunRequest(input: unknown): boolean {
-  if (!input || typeof input !== 'object') return false;
-  const request = input as EnqueueRunInput;
-  if (request.scope === 'all_active_goals') return true;
-  if (request.scope) return false;
-  const trigger = request.trigger || 'manual';
-  if (trigger !== 'manual') return false;
-  return isAllActiveGoalsPrompt(request.prompt);
-}
-
-function newQueueRequest(
-  input: EnqueueRunInput,
-  queuedAt: number,
-): QueueRequest {
-  const goalId = stringField(input.goalId) || null;
-  return {
-    id: `request_${uuidv4().replace(/-/g, '')}`,
-    trigger: stringField(input.trigger) || (goalId ? 'goal' : 'manual'),
-    goalId,
-    prompt: clippedPrompt(input),
-    requestedBy: stringField(input.requestedBy) || 'ui',
-    createdAt: queuedAt,
-  };
-}
-
-async function enqueueRequests(
+export async function reviewProposal(
   userId: string,
-  requests: QueueRequest[],
-): Promise<void> {
-  const admitted = await getRedis().eval(
-    `
-    -- ADMIT_AUTONOMY_REQUESTS
-    local count = #ARGV - 1
-    if redis.call('LLEN', KEYS[1]) + count > tonumber(ARGV[1]) then return 0 end
-    for i = 2, #ARGV do redis.call('LPUSH', KEYS[1], ARGV[i]) end
-    return 1
-  `,
-    1,
-    autonomyKey(userId, 'queue'),
-    MAX_QUEUE_DEPTH,
-    ...requests.map((request) => JSON.stringify(request)),
-  );
-  if (admitted !== 1) throw new QueueFullError(MAX_QUEUE_DEPTH);
-}
-
-export async function enqueueRun(
-  userId: string,
-  input: EnqueueRunInput,
-): Promise<{ id: string; queuedAt: number }> {
-  const queuedAt = nowMs();
-  const request = newQueueRequest(input, queuedAt);
-  await enqueueRequests(userId, [request]);
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: queuedAt,
-    data: { queued: request },
-  });
-  return { id: request.id, queuedAt };
-}
-
-export async function enqueueAllActiveGoals(
-  userId: string,
-  input: Pick<EnqueueRunInput, 'prompt' | 'requestedBy'> = {},
-): Promise<{
-  queued: number;
-  requests: Array<{ id: string; goalId: string; queuedAt: number }>;
-}> {
-  const goals = await listGoals(userId);
-  const activeGoals = goals
-    .map((goal, index) => ({ goal, index }))
-    .filter(({ goal }) => goal.status === 'active')
-    .sort(
-      (a, b) =>
-        priorityValue(a.goal) - priorityValue(b.goal) || a.index - b.index,
-    )
-    .map(({ goal }) => goal);
-
-  if (!activeGoals.length) {
-    throw new NoActiveGoalsError();
-  }
-
-  const queuedAt = nowMs();
-  const prompt = clippedPrompt(input);
-  const requests = activeGoals.map((goal) =>
-    newQueueRequest(
-      {
-        trigger: 'goal',
-        goalId: goal.id,
-        prompt,
-        requestedBy: input.requestedBy || 'ui',
-      },
-      queuedAt,
-    ),
-  );
-
-  await enqueueRequests(userId, requests);
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: queuedAt,
-    data: { queuedBatch: requests },
-  });
-
-  return {
-    queued: requests.length,
-    requests: requests.map((request) => ({
-      id: request.id,
-      goalId: request.goalId || '',
-      queuedAt,
-    })),
-  };
-}
-
-export async function listEvents(
-  userId: string,
-  runId?: string,
-): Promise<AutonomyEvent[]> {
-  const events = await getList<AutonomyEvent>(userId, 'events');
-  return runId ? events.filter((event) => event.runId === runId) : events;
-}
-
-export async function listFeed(userId: string): Promise<AutonomyFeedItem[]> {
-  return getList<AutonomyFeedItem>(userId, 'feed');
-}
-
-// The worker caps REQUEST_TIMEOUT at 6900s, so the cancel flag must
-// outlive the longest permitted run. At the previous 3600s it expired at
-// exactly the default request timeout, letting a cancelled run finish and
-// overwrite its own 'cancelled' status with 'completed'.
-const CANCEL_FLAG_TTL_SECONDS = 2 * 6900;
-
-/**
- * Stop a queued or running run. Returns false, writing and publishing
- * nothing, when no such run exists for this user: the UI then learns that the
- * id is unknown or already finished instead of a success for a no-op.
- */
-export async function cancelRun(
-  userId: string,
-  runId: string,
+  proposalId: string,
+  status: 'accepted' | 'dismissed',
 ): Promise<boolean> {
-  const redis = getRedis();
-  const active = (await listRuns(userId)).some(
-    (run) => run.id === runId && ['queued', 'running'].includes(run.status),
+  let found = false;
+  await updateJsonAtomically<AutonomyState>(
+    autonomyKey(userId, 'state'),
+    (current) => {
+      const proposal = current?.proposals[proposalId];
+      if (!current || !proposal) return null;
+      found = true;
+      return {
+        ...current,
+        proposals: {
+          ...current.proposals,
+          [proposalId]: {
+            ...proposal,
+            status,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    },
   );
-  if (!active) return false;
-  // The flag reaches the worker's open backend request first; the record
-  // then changes under the latest snapshot, which may already show the run
-  // finished (the flag still stops a worker that has not read it yet).
-  await redis.set(
-    autonomyKey(userId, `cancel:${runId}`),
-    '1',
-    'EX',
-    CANCEL_FLAG_TTL_SECONDS,
-  );
-  await updateJsonAtomically<AutonomyRun[]>(
-    autonomyKey(userId, 'runs'),
-    (current) =>
-      (Array.isArray(current) ? current : []).map((run) =>
-        run.id === runId && ['queued', 'running'].includes(run.status)
-          ? {
-              ...run,
-              status: 'cancelled' as const,
-              updatedAt: nowMs(),
-              completedAt: nowMs(),
-            }
-          : run,
-      ),
-  );
-  await publishSyncEvent(userId, {
-    type: 'autonomy_status',
-    timestamp: nowMs(),
-    data: { runId, status: 'cancelled' },
-  });
-  return true;
+  if (found) await notify(userId);
+  return found;
 }

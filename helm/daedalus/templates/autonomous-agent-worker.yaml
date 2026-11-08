@@ -1,8 +1,4 @@
 {{- if .Values.autonomousAgent.enabled }}
-{{- $requestTimeout := int .Values.autonomousAgent.requestTimeout }}
-{{- if or (le $requestTimeout 0) (gt $requestTimeout 6900) }}
-{{- fail "autonomousAgent.requestTimeout must be between 1 and 6900 seconds so a single run cannot wedge the worker queue" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -115,14 +111,10 @@ spec:
               value: {{ ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) (printf "%s://%s-redis:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) .Values.redis.auth.enabled | quote }}
             - name: AUTONOMOUS_USER_ID
               value: {{ .Values.autonomousAgent.userId | quote }}
-            - name: REQUEST_TIMEOUT
-              value: {{ $requestTimeout | quote }}
             - name: AUTONOMY_WORKER_POLL_INTERVAL
               value: {{ .Values.autonomousAgent.worker.pollIntervalSeconds | default 10 | quote }}
             - name: AUTONOMY_WORKER_LEASE_TTL
               value: {{ .Values.autonomousAgent.worker.leaseTtlSeconds | default 60 | quote }}
-            - name: AUTONOMY_INTERVAL_SECONDS
-              value: {{ .Values.autonomousAgent.worker.intervalSeconds | default 14400 | quote }}
             - name: HOME
               value: /tmp
             - name: XDG_CACHE_HOME

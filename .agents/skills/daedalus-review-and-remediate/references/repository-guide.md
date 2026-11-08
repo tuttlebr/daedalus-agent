@@ -38,8 +38,9 @@ Important review boundaries to confirm in source:
   a path is dead. Follow actual registration and consumers.
 - Redis job durability does not checkpoint the in-memory backend agent. Reclaim
   must not replay an already-started backend request and duplicate remote actions.
-  Autonomous processing also persists a dispatch phase: only proven undispatched
-  claims may be retried; legacy claims without that evidence are interrupted.
+  Charter actions persist intent before dispatch and mark interrupted execution
+  uncertain. Calendar recovery reconciles remote state; lighting is never blindly
+  replayed. The retired autonomous queue is not read.
 - Conversation finalization writes must atomically verify the current finalizer
   lock token, so an expired owner cannot overwrite a newer turn.
 - Streaming recovery, authenticated ownership, approval binding and cancellation
@@ -64,8 +65,8 @@ executable checks under `scripts/`. Compare test discovery to tracked files so
 misplaced or excluded tests do not disappear from the audit. Ignored Rust tests
 are opt-in acceptance runners invoked by `make migration` scripts.
 Inspect builder stubs and frontend setup/mocks before interpreting green runs.
-Unit fakes that emulate Redis Lua by matching script text (`builder/tests/test_autonomous_store.py`,
-`frontend/__tests__/pages/api/chat/async.test.ts` and similar `eval` doubles)
+Unit fakes that emulate Redis Lua by matching script text
+(`frontend/__tests__/pages/api/chat/async.test.ts` and similar `eval` doubles)
 cannot detect a script regression; confirm a real-Redis suite under
 `make test-integration` covers each script. Those suites do not feed the
 coverage gates, so unit coverage for persistence code understates what runs.
