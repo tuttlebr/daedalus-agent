@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from autonomous_agent.backend_client import (
     BackendClient,
+    BackendRejectedError,
     OAuthRequiredError,
     RunAbortedError,
 )
@@ -17,6 +18,7 @@ _PARTIAL = 'data: {"choices":[{"delta":{"content":"partial answer"}}]}\n\n'
 @pytest.fixture
 def backend_stream():
     body = b""
+    status_code = 200
     keep_open = False
     release = threading.Event()
     server_finished = threading.Event()
@@ -24,7 +26,7 @@ def backend_stream():
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(200)
+            self.send_response(status_code)
             self.send_header("Content-Type", "text/event-stream")
             if not keep_open:
                 self.send_header("Content-Length", str(len(body)))
@@ -48,10 +50,11 @@ def backend_stream():
         request_timeout=5,
     )
 
-    def invoke(stream, *, hold_open=False):
-        nonlocal body, keep_open
+    def invoke(stream, *, hold_open=False, status=200):
+        nonlocal body, keep_open, status_code
         body = stream.encode("utf-8")
         keep_open = hold_open
+        status_code = status
         return backend.call(
             [{"role": "user", "content": "test"}],
             charter_task={
@@ -95,6 +98,21 @@ def test_backend_stream_rejects_partial_or_failed_answers(
 ):
     with pytest.raises(RunAbortedError, match=error):
         backend_stream(_PARTIAL + suffix)
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 409, 429])
+def test_admission_rejection_is_distinct_from_unknown_execution(backend_stream, status):
+    with pytest.raises(BackendRejectedError) as error:
+        backend_stream("PRIVATE RESPONSE", status=status)
+    assert error.value.status_code == status
+    assert "PRIVATE" not in str(error.value)
+
+
+@pytest.mark.parametrize("status", [408, 500, 502, 503, 504])
+def test_server_or_gateway_failure_does_not_claim_no_mutation(backend_stream, status):
+    with pytest.raises(RunAbortedError) as error:
+        backend_stream("PRIVATE RESPONSE", status=status)
+    assert not isinstance(error.value, BackendRejectedError)
 
 
 def test_backend_stream_preserves_text_and_accepts_optional_sse_spacing(backend_stream):

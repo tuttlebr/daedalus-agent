@@ -69,6 +69,9 @@ repair. Deferred work is bounded by the configured attempt count and backoff;
 a result cannot classify an attempted mutation as deferred for automatic retry.
 Calendar work deferred without a mutation can be reconsidered on a later source
 check after the discovery interval, allowing restored Google access to unblock it.
+Explicit pre-stream admission refusals from the internal backend use bounded
+deferred retries, including during rolling deployments. Interrupted streams and
+server/gateway failures remain uncertain and do not authorize blind replay.
 After a mutation, the runtime requires a successful state read from the affected
 service before accepting completed or partial status. The agent still must
 compare that evidence with the intended result; a successful read alone does not

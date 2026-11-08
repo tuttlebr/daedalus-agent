@@ -7,6 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from autonomous_agent.backend_client import BackendRejectedError
 from autonomous_agent.charter import CharterConfig, CharterOutput
 from autonomous_agent.scheduling import action
 from autonomous_agent.store import RedisStore, WorkerLeaseLost, key, now_ms
@@ -142,6 +143,24 @@ def test_worker_persists_verified_outcome_without_per_run_feed(store_user):
         run_once(store=store, user_id=user, task_id=item["id"], backend=Backend())
         is None
     )
+
+
+def test_worker_retries_admission_refusal_without_replaying_uncertain_effects(
+    store_user,
+):
+    store, user = store_user
+    item = seed(store, user)
+
+    class Backend:
+        def call(self, *_args, **_kwargs):
+            raise BackendRejectedError(400)
+
+    run_once(store=store, user_id=user, task_id=item["id"], backend=Backend())
+    saved = store.get_state(user)["actions"][item["id"]]
+    assert saved["status"] == "pending"
+    assert saved["dueAt"] > saved["updatedAt"]
+    assert saved["outcome"]["status"] == "deferred"
+    assert saved["outcome"]["mutationAttempted"] is False
 
 
 def test_worker_cancel_aborts_stream_and_records_uncertain_effects(store_user):

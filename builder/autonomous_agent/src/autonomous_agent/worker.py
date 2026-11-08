@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any
 
-from .backend_client import BackendClient, RunAbortedError
+from .backend_client import BackendClient, BackendRejectedError, RunAbortedError
 from .charter import ActionOutcome, CharterConfig, CharterOutput, task_enabled
 from .prompt import build_messages, parse_structured_output
 from .store import RedisStore, WorkerLeaseLost, now_ms
@@ -100,6 +100,18 @@ def run_once(
         if abort.is_set() or store.cancel_requested(user_id, run["id"]):
             raise RunAbortedError("Execution stopped before result commit")
         output = parse_structured_output(response)
+    except BackendRejectedError as exc:
+        # The internal API returned a pre-stream admission refusal, so no tool
+        # was dispatched. This can happen while the prior backend drains during
+        # a rolling deployment. Retry with the normal bounded deferred backoff.
+        log(f"run deferred: kind={task['kind']} http_status={exc.status_code}")
+        output = CharterOutput(
+            outcome=ActionOutcome(
+                status="deferred",
+                mutationAttempted=False,
+                summary=f"Backend did not accept the request (HTTP {exc.status_code}); retry after the configured backoff.",
+            )
+        )
     except Exception as exc:
         # The model/transport may have changed remote state before failure.
         # Never use arbitrary exception text (which can contain credentials or

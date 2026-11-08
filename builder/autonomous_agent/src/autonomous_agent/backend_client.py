@@ -19,6 +19,14 @@ class RunAbortedError(RuntimeError):
     """The in-flight backend request was stopped before it produced an answer."""
 
 
+class BackendRejectedError(RunAbortedError):
+    """The internal backend rejected admission before opening an execution stream."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"Backend rejected admission (HTTP {status_code})")
+
+
 class ApprovalRequiredError(RuntimeError):
     """The backend stopped at an approval boundary.
 
@@ -156,6 +164,17 @@ class BackendClient:
                 except httpx.HTTPStatusError as exc:
                     # The run record is user-visible; keep the internal URL
                     # and provider status text out of it.
+                    if exc.response.status_code in {
+                        400,
+                        401,
+                        403,
+                        404,
+                        409,
+                        413,
+                        422,
+                        429,
+                    }:
+                        raise BackendRejectedError(exc.response.status_code) from None
                     raise RunAbortedError(
                         f"backend returned HTTP {exc.response.status_code}"
                     ) from None
