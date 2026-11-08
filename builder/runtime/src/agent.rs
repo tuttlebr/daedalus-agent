@@ -810,6 +810,31 @@ impl Agent {
             }
             let batch_revision = self.revision;
             let mut problems = catalog.check_batch(&calls, &tools)?;
+            // JSON Schema omits Pydantic's cross-field/date validators. Ask the
+            // same model that owns worker publication before ending this run.
+            // Errors join the existing bounded correction path; research and
+            // mutations are not replayed to repair completion formatting.
+            if charter_task.is_some() && calls.len() == 1 {
+                let call = &calls[0];
+                if call.function.name.as_str() == crate::autonomy_output::TOOL
+                    && problems[0].is_empty()
+                {
+                    let check = self
+                        .http
+                        .post(format!("{}/runtime/v1/autonomy/validate", self.tools_url))
+                        .headers(self.headers.clone())
+                        .json(&call.function.arguments)
+                        .timeout(Duration::from_secs(10))
+                        .send();
+                    let response = tokio::select! {
+                        response = check => response?,
+                        _ = self.events.sender.closed() => bail!("Client disconnected"),
+                    };
+                    let validation: crate::autonomy_output::Validation =
+                        response.error_for_status()?.json().await?;
+                    problems[0] = validation.problem;
+                }
+            }
             // A premature completion with valid arguments is an ordering
             // rejection, not an invalid-argument strike: two such batches must
             // not disable the tool the run has to finish with.
@@ -1960,6 +1985,10 @@ mod tests {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/responses", post(respond))
+            .route(
+                "/runtime/v1/autonomy/validate",
+                post(|| async { Json(json!({"problem":""})) }),
+            )
             .route("/runtime/v1/catalog", post(catalogue))
             .route("/runtime/v1/tools/call", post(tool_call))
             .with_state(model.clone());

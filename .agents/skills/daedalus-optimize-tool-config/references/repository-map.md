@@ -60,12 +60,22 @@ from `builder/autonomous_agent/src/autonomous_agent/prompt.py` as
 `builder/runtime/src/agent.rs` validates and serializes its terminal arguments.
 This tool is not a YAML function or an external action. Preserve the worker's
 completion instruction and strict publication validation; final formatting must
-not replay research. The autonomous cases in `builder/runtime_http_check.py`
+not replay research. Charter completions additionally call the authenticated
+`/runtime/v1/autonomy/validate` endpoint in `builder/daedalus_runtime/service.py`,
+which uses the worker's Pydantic model for semantic validation before terminal
+publication. Errors enter the runtime's bounded argument-correction path;
+diagnostics from `builder/autonomous_agent/src/autonomous_agent/prompt.py` expose
+only safe schema locations and fixed guidance. The autonomous cases in `builder/runtime_http_check.py`
 exercise this path against the built image for both preparation modes.
 `builder/migration/autonomy_http_check.py` additionally verifies user-scoped
 Google grants, background authorization failure, task write limits, partial
 lighting results, mutation replay rejection, call budgets, cluster backup/read
 binding before patches, and constrained application health probes.
+
+The main chat prompt routes prose rewrites and reviews to
+`skills/prose-editing/SKILL.md`. Keep its editing rules available on demand while
+preserving the global chat/output contracts and word budgets in
+`builder/tests/test_backend_config_contracts.py`.
 
 The shipped Kubernetes group preauthorizes its explicit allowlist with
 `approval_policy: auto_approve`, including mutation/command tools. Results stay

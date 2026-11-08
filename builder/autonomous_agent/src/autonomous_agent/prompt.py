@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
+from pydantic import ValidationError
 
 from .charter import EASTERN, CharterConfig, CharterOutput
 from .scheduling import available_action_slots
@@ -188,9 +189,51 @@ def output_schema() -> dict:
     return CharterOutput.model_json_schema()
 
 
+def validation_problem(exc: ValidationError) -> str:
+    """Safe correction guidance: never echo inputs, arbitrary keys or exception text."""
+    hints = []
+    fields = {
+        "outcome",
+        "games",
+        "calendarEvents",
+        "proposals",
+        "notes",
+        "start",
+        "end",
+        "sourceUrl",
+        "sourceKey",
+        "status",
+        "summary",
+        "evidence",
+        "observedState",
+    }
+    for error in exc.errors(include_input=False, include_context=False)[:4]:
+        loc = error["loc"]
+        path = "/" + "/".join(
+            str(part) if isinstance(part, int) or part in fields else "*"
+            for part in loc
+        )
+        hint = "Use only declared fields and their schema types and bounds."
+        if error["type"] == "value_error":
+            if not loc:
+                hint = "Each calendar sourceKey, (sport, game sourceKey), and proposal id must be unique."
+            elif loc[-1] == "sourceUrl":
+                hint = "Use an HTTP(S) URL with a hostname, no credentials, and at most 2048 characters."
+            elif loc[0] == "games" and loc[-1] == "start":
+                hint = "Use a valid ISO timestamp with an explicit UTC offset."
+            elif loc[0] == "calendarEvents":
+                hint = "Use ISO dates for all-day events or explicit-offset timestamps for timed events; end must follow start."
+            elif loc[0] == "outcome":
+                hint = "Completed/partial outcomes require evidence; observedState must fit in 32768 serialized UTF-8 bytes."
+        hints.append(f"{path}: {hint}")
+    return "Invalid charter result. " + " ".join(hints)
+
+
 def parse_structured_output(text: str) -> CharterOutput:
     try:
         return CharterOutput.model_validate_json(text)
+    except ValidationError as exc:
+        raise StructuredOutputError(validation_problem(exc)) from None
     except (ValueError, TypeError):
         raise StructuredOutputError("Backend returned invalid charter output") from None
 

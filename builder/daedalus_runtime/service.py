@@ -501,6 +501,20 @@ def create_app(config_path: str | None = None) -> FastAPI:
         request.app.state.oauth.callback(state, code, error)
         return {"status": "authorization_received"}
 
+    @app.post("/runtime/v1/autonomy/validate")
+    async def validate_autonomy(body: dict):
+        # Internal authentication middleware protects this endpoint. Use the
+        # worker's authoritative model before Rust publishes a terminal result.
+        from autonomous_agent.charter import CharterOutput
+        from autonomous_agent.prompt import validation_problem
+
+        authenticated_user_id_from_context()
+        try:
+            CharterOutput.model_validate(body)
+        except ValidationError as exc:
+            return {"problem": validation_problem(exc)}
+        return {"problem": ""}
+
     @app.post("/runtime/prepare")
     async def prepare(body: dict, request: Request):
         started = time.monotonic()

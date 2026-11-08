@@ -11,7 +11,7 @@ from typing import Any
 
 from .backend_client import BackendClient, BackendRejectedError, RunAbortedError
 from .charter import ActionOutcome, CharterConfig, CharterOutput, task_enabled
-from .prompt import build_messages, parse_structured_output
+from .prompt import StructuredOutputError, build_messages, parse_structured_output
 from .store import RedisStore, WorkerLeaseLost, now_ms
 from .summary import publish_daily_summary
 
@@ -117,6 +117,8 @@ def run_once(
         # Never use arbitrary exception text (which can contain credentials or
         # model text) or automatically retry an unverified mutation.
         log(f"run interrupted: kind={task['kind']} error_class={type(exc).__name__}")
+        if isinstance(exc, StructuredOutputError):
+            log(f"validation failed: {exc}")
         output = CharterOutput(
             outcome=ActionOutcome(
                 status="uncertain",

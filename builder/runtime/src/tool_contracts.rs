@@ -250,7 +250,14 @@ impl Catalog {
                                 Value::Array(_) => "array",
                                 Value::Object(_) => "object",
                             };
-                            format!("{path}: {constraint} (received {kind})")
+                            let allowed = path.strip_suffix("/additionalProperties")
+                                .and_then(|parent| schema.pointer(parent))
+                                .and_then(|parent| parent.get("properties"))
+                                .and_then(Value::as_object)
+                                .map(|properties| format!(" Allowed fields: {}.",
+                                    properties.keys().cloned().collect::<Vec<_>>().join(", ")))
+                                .unwrap_or_default();
+                            format!("{path}: {constraint} (received {kind}).{allowed}")
                         },
                         None => path,
                     }
@@ -412,6 +419,24 @@ mod tests {
                     .is_empty()
             );
         }
+    }
+
+    #[test]
+    fn extra_fields_feedback_lists_schema_fields_without_private_keys_or_values() {
+        let mut catalog = Catalog::default();
+        catalog.add(&tool()).unwrap();
+        let errors = catalog
+            .check_batch(
+                &[call(
+                    "extra",
+                    "read",
+                    json!({"id":1,"PRIVATE-KEY":"PRIVATE-VALUE"}),
+                )],
+                &[tool()],
+            )
+            .unwrap();
+        assert!(errors[0].contains("Allowed fields: id"));
+        assert!(!errors[0].contains("PRIVATE"));
     }
 
     #[test]

@@ -7,6 +7,7 @@ validation execute from the image. No household or cluster service is contacted.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import shlex
@@ -14,7 +15,11 @@ import time
 import uuid
 
 from autonomous_agent.charter import CharterConfig
-from autonomous_agent.prompt import build_messages, output_schema
+from autonomous_agent.prompt import (
+    build_messages,
+    output_schema,
+    parse_structured_output,
+)
 from autonomous_agent.scheduling import action, empty_state
 from image_check import environment, require
 from leaf_check import measure
@@ -385,7 +390,72 @@ def main(image, redis_image, preparation):
                 result["done"] and not result["errors"],
                 f"Charter request failed: {result}",
             )
+            parse_structured_output(result["answer"])
             return json.loads(result["answer"])
+
+        # Reproduce structural and semantic failures with the actual worker
+        # schema. Only completion is retried; the initial clock read runs once.
+        game = {
+            "sourceKey": "fixture-game",
+            "sourceUrl": "https://example.org/game",
+            "sport": "football",
+            "opponent": "Fixture",
+            "status": "scheduled",
+            "start": "2099-11-09T12:00:00-05:00",
+        }
+        valid = completion()
+        valid["arguments"]["games"] = [game]
+        variants = []
+        invalid = copy.deepcopy(valid)
+        invalid["arguments"]["games"] = json.dumps([game])
+        invalid["arguments"]["outcome"]["private-extra-key"] = "PRIVATE-VALUE"
+        variants.append((invalid, "Allowed fields:"))
+        for field, value, hint in [
+            ("start", "2099-11-09T12:00:00", "explicit UTC offset"),
+            ("sourceUrl", "PRIVATE-INVALID-URL", "HTTP(S) URL"),
+        ]:
+            invalid = copy.deepcopy(valid)
+            invalid["arguments"]["games"][0][field] = value
+            variants.append((invalid, hint))
+        invalid = copy.deepcopy(valid)
+        invalid["arguments"]["games"].append(copy.deepcopy(game))
+        variants.append((invalid, "must be unique"))
+        invalid = copy.deepcopy(valid)
+        invalid["arguments"]["outcome"]["evidence"] = []
+        variants.append((invalid, "require evidence"))
+        invalid = copy.deepcopy(valid)
+        invalid["arguments"]["calendarEvents"] = [
+            {
+                "sourceKey": "fixture-event",
+                "sourceUrl": "https://example.org/event",
+                "title": "Fixture",
+                "applicability": "Fixture",
+                "allDay": True,
+                "start": "2099-11-09",
+                "end": "2099-11-08",
+            }
+        ]
+        variants.append((invalid, "end must follow start"))
+        invalid = copy.deepcopy(valid)
+        invalid["arguments"]["outcome"]["observedState"] = {"fixture": "x" * 32768}
+        variants.append((invalid, "32768 serialized UTF-8 bytes"))
+        for invalid, hint in variants:
+            result = execute(
+                "sports_discovery",
+                [
+                    call("current_datetime_tool"),
+                    invalid,
+                    copy.deepcopy(valid),
+                ],
+            )
+            require(result["games"] == [game], "Corrected games were not published")
+            require(len(peers.requests) == 3, "Completion correction replayed research")
+            feedback = json.dumps(peers.outputs)
+            require(hint in feedback, "Correction lacks actionable validation feedback")
+            require(
+                "PRIVATE" not in feedback and "private-extra-key" not in feedback,
+                "Correction leaked private argument values or keys",
+            )
 
         for user in ("synthetic-alice", "synthetic-bob"):
             start, end = {"date": "2026-11-09"}, {"date": "2026-11-14"}

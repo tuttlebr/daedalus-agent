@@ -4,6 +4,11 @@ use rig_core::completion::ToolDefinition;
 use serde_json::Value;
 
 pub const TOOL: &str = "submit_autonomous_result";
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Validation {
+    pub problem: String,
+}
 pub const GUIDANCE: &str = "Finish this autonomous cycle by calling submit_autonomous_result alone, after other tools finish. Its arguments are the final result. Do not return the result as assistant text. Use completed evidence; do not repeat research or actions to format the result.";
 
 pub fn definition(body: &Value, autonomy: bool) -> Result<Option<ToolDefinition>> {

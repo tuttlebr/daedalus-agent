@@ -144,4 +144,8 @@ do not prove a real connected calendar, Hue bridge or cluster is reachable.
 <redis-image> --preparation rust` exercises the charter against synthetic MCP
 and model peers; repeat with `--preparation python` for the alternate preparation
 path. It verifies per-user Google grants, read/write task separation, partial
-lighting, bounded calls, and upgrade/duplicate-mutation rejection.
+lighting, bounded calls, and upgrade/duplicate-mutation rejection. Completion
+checks use the actual worker schema and Pydantic validators, including safe
+correction of invalid fields, timestamps, source URLs, duplicate identities,
+missing evidence, event ordering and oversized observed state. Correction reuses
+completed research within the same run.

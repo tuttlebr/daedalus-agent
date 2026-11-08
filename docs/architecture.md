@@ -87,8 +87,14 @@ summaries plus action evidence. See [autonomous charter operations](autonomy.md)
 Autonomous requests carry the authenticated user identity, a task capability
 boundary, a tool budget and `autonomy_output_schema`. The Rust runtime exposes
 `submit_autonomous_result` for that run and validates the final arguments.
-Completion must be submitted alone after the action's tools finish. Invalid prose
-cannot be published as a result. The worker validates the result again before
+Completion must be submitted alone after the action's tools finish. For charter
+tasks, the runtime also calls the authenticated Python
+`/runtime/v1/autonomy/validate` endpoint before terminal publication. It uses the
+worker's `CharterOutput` model, including date, source, evidence and identity
+validators that JSON Schema cannot express. Rejected results enter the same
+bounded argument-correction path without replaying research or mutations.
+Validation service failures fail closed. Invalid prose cannot be published as a
+result. The worker validates the result again before
 committing observations, outcomes or future work. Existing user Google MCP grants
 can be refreshed noninteractively; unavailable grants do not open consent flows.
 

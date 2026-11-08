@@ -140,3 +140,68 @@ def test_fallback_terminal_result_returns_executor_state(monkeypatch):
     assert event["data"]["loaded_skills"] == []
     # The caller stores this state for the next call of the tool.
     assert event["data"]["executor_state"]["attempts"] == {"leaf_tool": 3}
+
+
+@pytest.mark.parametrize(
+    "case,hint",
+    [
+        ("valid", ""),
+        ("time", "explicit UTC offset"),
+        ("source", "HTTP(S) URL"),
+        ("duplicate", "must be unique"),
+        ("evidence", "require evidence"),
+        ("extra", "declared fields"),
+    ],
+)
+def test_autonomy_validation_uses_worker_contract_without_private_diagnostics(
+    monkeypatch, case, hint
+):
+    import asyncio
+
+    from autonomous_agent.prompt import StructuredOutputError, parse_structured_output
+
+    monkeypatch.setitem(sys.modules, "redis.asyncio", SimpleNamespace(Redis=object))
+    import daedalus_runtime.service as service
+    import nat_helpers.front_end as front_end
+
+    monkeypatch.setattr(service, "FastAPI", _App)
+    monkeypatch.setattr(service, "authenticated_user_id_from_context", lambda: "alice")
+    monkeypatch.setattr(front_end, "attach_daedalus_routes", lambda app: app)
+    app = service.create_app("/unused.yaml")
+    body = {
+        "outcome": {
+            "status": "completed",
+            "summary": "PRIVATE-SUMMARY",
+            "evidence": [{"description": "Fixture read"}],
+        },
+        "games": [
+            {
+                "sourceKey": "fixture",
+                "sourceUrl": "https://example.org/game",
+                "sport": "football",
+                "opponent": "Fixture",
+                "status": "scheduled",
+                "start": "2099-11-09T12:00:00-05:00",
+            }
+        ],
+    }
+    if case == "time":
+        body["games"][0]["start"] = "PRIVATE-TIMESTAMP"
+    elif case == "source":
+        body["games"][0]["sourceUrl"] = "https://user:PRIVATE-PASSWORD@example.org/game"
+    elif case == "duplicate":
+        body["games"] *= 2
+    elif case == "evidence":
+        body["outcome"]["evidence"] = []
+    elif case == "extra":
+        body["outcome"]["PRIVATE-KEY"] = "PRIVATE-VALUE"
+    result = asyncio.run(app.routes[("POST", "/runtime/v1/autonomy/validate")](body))
+    if case == "valid":
+        assert result == {"problem": ""}
+        parse_structured_output(json.dumps(body))
+    else:
+        assert hint in result["problem"]
+        assert "PRIVATE" not in result["problem"]
+        with pytest.raises(StructuredOutputError) as error:
+            parse_structured_output(json.dumps(body))
+        assert str(error.value) == result["problem"]

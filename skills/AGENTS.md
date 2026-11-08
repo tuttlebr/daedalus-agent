@@ -67,6 +67,7 @@ rollback implementation), and the actual leaf-tool schemas.
 | ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Personalized briefing                | daily-summary             | espn-fantasy-football for in-season fantasy; network-health-check or kubernetes-specialist for a requested check or material incident |
 | Inbox prioritization and chat drafts | email-inbox-triage        | bubblewrap-agent-workflow for files; daily-summary retains its source window and format                                               |
+| Prose editing                        | prose-editing             | bubblewrap-agent-workflow for file publication                                                                                        |
 | Ideation                             | creative-ideation         | requested implementation or image skill                                                                                               |
 | Recent topic and community research  | last30days                | bubblewrap-agent-workflow for files; daily-summary retains its briefing contract                                                      |
 | Image generation/edit                | image-creation            | creative-ideation only for open concept exploration                                                                                   |
@@ -83,7 +84,7 @@ rollback implementation), and the actual leaf-tool schemas.
 ## Validation
 
 Discover the complete catalog dynamically through the real parser/dispatcher;
-the current catalog contains 14 entries. Load every bundled
+the current catalog contains 15 entries. Load every bundled
 text resource, and check local links and cross-skill targets. Run the focused
 builder tests for any changed scripts/contracts and pre-commit on changed files.
 Do not use syntax checks as proof of model behavior, a deployment, or benchmark
