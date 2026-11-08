@@ -72,6 +72,17 @@ Google grants, background authorization failure, task write limits, partial
 lighting results, mutation replay rejection, call budgets, cluster backup/read
 binding before patches, and constrained application health probes.
 
+The Autonomy dashboard (`frontend/components/autonomy/AutonomyDashboard.tsx`)
+shows current work, latest outcomes and briefing, and bounded proposal pages;
+`frontend/components/autonomy/AutonomyJson.tsx` imports/exports operator settings
+using the generated contract validator. Worker history remains persisted even
+though the UI no longer renders its log. In
+`builder/autonomous_agent/src/autonomous_agent/prompt.py`, evolution samples up to
+six actions per responsibility plus scoped settings and continuity notes; other
+tasks retain their own context. Cluster checks revisit Daedalus diagnostics and
+prior repairs, while evolution remains read-only apart from authorized memory.
+Feedback is preference data, not permission for self-deployment or new actions.
+
 The main chat prompt routes prose rewrites and reviews to
 `skills/prose-editing/SKILL.md`. Keep its editing rules available on demand while
 preserving the global chat/output contracts and word budgets in

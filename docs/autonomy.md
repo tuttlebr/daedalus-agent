@@ -1,4 +1,32 @@
-# Autonomous charter
+# Autonomy
+
+The Autonomy tab presents current work, the latest outcome for each area, a
+single daily briefing, and paged improvement ideas. It does not render a growing
+schedule or action-history log. Verification evidence remains available alongside
+outcomes; full action and run records remain in the backend for recovery and
+diagnosis. Enabled schedules are configuration state, not a worker-health signal.
+
+Refresh, checks, pause/resume, cancellation, import and feedback actions show
+progress and completion or failure. A queued check stays distinct from running
+work and verified completion. The dashboard polls while visible, retains the last
+successful view on errors, and rejects refresh results that predate a mutation.
+
+Expand **Automation JSON** to download the current configuration as a template,
+then upload a complete configuration or a partial settings object (up to 128 KB).
+Uploads are validated against the same generated contract as the API and shown
+for review before **Apply JSON**. Omitted fields are preserved, invalid fields
+are rejected, and failed saves retain the upload for retry. JSON configures the
+supported responsibilities; it cannot introduce arbitrary executable tasks.
+
+For example, this partial upload changes only cluster-check cadence:
+
+```json
+{
+  "responsibilities": {
+    "cluster": { "intervalSeconds": 1800 }
+  }
+}
+```
 
 The autonomous worker owns four independently scheduled responsibilities:
 
@@ -12,6 +40,20 @@ The autonomous worker owns four independently scheduled responsibilities:
   resource repairs. Software upgrades are recommendations only.
 - **Continual improvement:** use preferences and outcomes to propose additional
   responsibilities. A proposal does not grant new execution authority.
+
+Improvement reviews receive up to six recent actions from each responsibility,
+their configured boundaries, continuity notes and proposal feedback. This keeps
+frequent cluster checks from crowding out calendar and home outcomes. Other
+tasks retain their own scoped context. Notes and diagnostics remain untrusted
+evidence, never instructions or permission.
+
+Cluster checks include Daedalus's own services when within configured scope.
+They discover actual workloads, correlate logs with previous outcomes, recheck
+prior repairs and retain bounded follow-up notes. Improvement reviews can inspect
+that evidence through read-only tools and propose a hypothesis with a validation
+plan. Repairs remain within the existing cluster task boundary; code, prompts,
+deployment changes and additional permissions remain proposals. The agent does
+not autonomously rewrite or deploy itself, or change its evaluation criteria.
 
 The Autonomy dashboard is the daily-summary destination. Defaults are 18:00 in
 `America/Detroit`, including daylight-saving changes. All-day calendar entries
@@ -39,7 +81,7 @@ regenerate the frontend contract with:
 builder/.venv/bin/python scripts/generate_autonomy_contract.py
 ```
 
-Settings include calendar selection, local sources/preferences/reminders, lighting
+JSON settings include calendar selection, local sources/preferences/reminders, lighting
 scene and device selection, missed-start allowance, cluster contexts and excluded
 namespaces, cluster-managed configuration, non-node LAN verification source,
 maintenance boundaries, tool-call budget and run deadline. Defaults limit each

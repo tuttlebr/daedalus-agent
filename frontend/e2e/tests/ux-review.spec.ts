@@ -1,3 +1,4 @@
+import { defaultConfig } from '../../server/autonomy/config';
 import {
   assertFits,
   chooseConversationAction,
@@ -14,12 +15,26 @@ import { resolve } from 'node:path';
 
 test.use({ serviceWorkers: 'block' });
 
-test('charter settings have named fields and remain usable with enlarged text', async ({
+test('Autonomy JSON remains accessible with enlarged text', async ({
   page,
 }, testInfo) => {
   await openApp(page);
   await navigate(page, 'Autonomy');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByText('Automation JSON', { exact: true }).click();
+  await page.getByLabel('Automation JSON file').setInputFiles({
+    name: 'automations.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        responsibilities: {
+          calendar: { preferences: 'Family festivals near Saline.' },
+        },
+      }),
+    ),
+  });
+  await expect(
+    page.getByText('Ready to apply: automations.json'),
+  ).toBeVisible();
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await settleTransitions(page);
@@ -31,55 +46,139 @@ test('charter settings have named fields and remain usable with enlarged text', 
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
-  for (const name of [
-    'Local interests, area, and household applicability',
-    'Lighting scene',
-    'Non-node LAN verification source',
-  ]) {
-    const field = page.getByRole('textbox', { name, exact: true });
-    await field.focus();
-    await expect(field).toBeInViewport();
+  for (const name of ['Download JSON', 'Upload JSON', 'Apply JSON']) {
+    const control = page.getByRole('button', { name, exact: true });
+    await control.focus();
+    await expect(control).toBeInViewport();
   }
   await assertFits(page);
   await page.screenshot({
-    path: testInfo.outputPath('charter-large-text.png'),
+    path: testInfo.outputPath('autonomy-json-large-text.png'),
   });
 });
 
-test('charter preserves failed settings drafts and validates check intervals', async ({
+test('Autonomy validates JSON and retains a failed import for retry', async ({
   page,
 }) => {
   await openApp(page);
   await navigate(page, 'Autonomy');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const preferences = page.getByRole('textbox', {
-    name: 'Local interests, area, and household applicability',
-  });
-  await preferences.fill('Family festivals near Saline.');
+  await page.getByText('Automation JSON', { exact: true }).click();
   let writes = 0;
   await page.route('**/api/autonomy/config', async (route) => {
     if (route.request().method() !== 'PUT') return route.fallback();
     writes++;
     return route.fulfill({ status: 503, json: {} });
   });
-  const interval = page.getByRole('spinbutton', {
-    name: 'Local calendar check interval (minutes)',
+  const upload = page.getByLabel('Automation JSON file');
+  await upload.setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      '{"responsibilities":{"calendar":{"intervalSeconds":0}}}',
+    ),
   });
-  await interval.fill('0');
-  await page
-    .getByRole('button', { name: 'Save settings', exact: true })
-    .click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Invalid autonomy setting' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Apply JSON', exact: true }),
+  ).toHaveCount(0);
   expect(writes).toBe(0);
-  await interval.fill('60');
-  await page
-    .getByRole('button', { name: 'Save settings', exact: true })
-    .click();
+  await upload.setInputFiles({
+    name: 'automations.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      '{"responsibilities":{"calendar":{"preferences":"Family festivals near Saline."}}}',
+    ),
+  });
+  await page.getByRole('button', { name: 'Apply JSON', exact: true }).click();
   await expect(
     page
       .getByRole('alert')
       .filter({ hasText: /The request could not be completed/ }),
   ).toBeVisible();
-  await expect(preferences).toHaveValue('Family festivals near Saline.');
+  await expect(page.getByLabel('JSON changes')).toContainText(
+    'Family festivals near Saline.',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Apply JSON', exact: true }),
+  ).toBeEnabled();
+  expect(writes).toBe(1);
+});
+
+test('Autonomy shows progress for refresh and queued checks', async ({
+  page,
+}) => {
+  await openApp(page);
+  await page.route('**/api/autonomy/config', async (route) => {
+    // Use the generated contract rather than production account settings.
+    return route.fulfill({ json: { ...defaultConfig(), enabled: true } });
+  });
+  await navigate(page, 'Autonomy');
+  await expect(
+    page.getByRole('button', { name: 'Check System health now' }),
+  ).toBeEnabled();
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  await page.route('**/api/autonomy/state', async (route) => {
+    if (route.request().method() === 'POST') {
+      requested = true;
+      await hold;
+      return route.fulfill({ status: 202, json: { id: 'check' } });
+    }
+    return route.fulfill({
+      json: {
+        version: 2,
+        summaries: [],
+        proposals: {},
+        actions: requested
+          ? {
+              check: {
+                id: 'check',
+                kind: 'cluster_maintenance',
+                responsibility: 'cluster',
+                status: 'pending',
+                dueAt: 0,
+                createdAt: 0,
+                updatedAt: 0,
+                attempts: 0,
+                payload: {},
+                outcome: null,
+              },
+            }
+          : {},
+      },
+    });
+  });
+  const check = page.getByRole('button', { name: 'Check System health now' });
+  await check.click();
+  await expect(check).toHaveText('Queueing…');
+  await expect(check).toBeDisabled();
+  release();
+  await expect(check).toHaveText('Queued');
+  await expect(check).toBeDisabled();
+  let finishRefresh!: () => void;
+  const refreshWait = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
+  await page.route('**/api/autonomy/config', async (route) => {
+    await refreshWait;
+    return route.fulfill({ json: defaultConfig() });
+  });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Refreshing…', exact: true }),
+  ).toBeDisabled();
+  finishRefresh();
+  await expect(
+    page.getByRole('button', { name: 'Refresh', exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Up to date.' }),
+  ).toBeVisible();
 });
 
 test('Memory search rejects stale results and offers a clear path back to all facts', async ({
@@ -468,7 +567,9 @@ test('Autonomy reports failed cancellation and retains action evidence after ref
     });
   });
   await navigate(page, 'Autonomy');
-  await page.getByText(/Cluster maintenance · running/).click();
+  await expect(
+    page.getByText('Check in progress', { exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Stop action', exact: true }).click();
   await expect(
     page
@@ -485,7 +586,9 @@ test('Autonomy reports failed cancellation and retains action evidence after ref
   await expect(
     page.getByRole('alert').filter({ hasText: /last saved activity/ }),
   ).toBeVisible();
-  await expect(page.getByText(/Cluster maintenance · running/)).toBeVisible();
+  await expect(
+    page.getByText('Check in progress', { exact: true }),
+  ).toBeVisible();
 });
 
 test('desktop image presets dismiss when keyboard focus leaves the popover', async ({

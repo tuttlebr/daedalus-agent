@@ -353,6 +353,8 @@ function_groups:
       Work through the user's requested task, verify the outcome, and summarize
       results or blockers. Available calls are preauthorized by deployment policy;
       the server's catalog and role still determine supported operations.
+      Autonomous task limits still apply: improvement reviews inspect evidence;
+      cluster maintenance performs only its bounded, verified repairs.
     # Operator authorization for this explicit allowlist keeps results in the
     # agent loop instead of ending each turn at an exact-call approval card.
     # Includes writes and command tools; server credentials/RBAC remain enforced.

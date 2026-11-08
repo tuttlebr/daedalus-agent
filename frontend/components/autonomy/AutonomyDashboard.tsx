@@ -1,5 +1,13 @@
 'use client';
 
+import {
+  IconActivity,
+  IconArrowRight,
+  IconCircleCheck,
+  IconLoader2,
+  IconRefresh,
+  IconSparkles,
+} from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
@@ -9,34 +17,43 @@ import type {
   Responsibility,
 } from '@/types/autonomy';
 
+import { AutonomyJson, buttonClass } from './AutonomyJson';
+
 const labels: Record<Responsibility, string> = {
-  calendar: 'Local calendar',
-  lighting: 'MSU game lighting',
-  cluster: 'Cluster maintenance',
-  evolution: 'Continual improvement',
+  calendar: 'Calendar',
+  lighting: 'Home',
+  cluster: 'System health',
+  evolution: 'Learning',
 };
 const descriptions: Record<Responsibility, string> = {
-  calendar:
-    'Keep practical dates and local activities current through your connected Google calendar.',
-  lighting:
-    'Turn on reachable lights and apply Go Green! at game start. Leave them as-is afterward.',
-  cluster:
-    'Investigate and repair problems while preserving working connections. Recommend upgrades without installing them.',
-  evolution:
-    'Learn what helps you and propose additional responsibilities in the daily summary.',
+  calendar: 'Dates and activities, taken care of.',
+  lighting: 'Your lighting routines.',
+  cluster: 'Daedalus and the services it depends on.',
+  evolution: 'Better methods, informed by your feedback.',
 };
-const buttonClass =
-  'min-h-touch-min max-w-full whitespace-normal break-words rounded-lg border border-separator px-3 py-2 text-sm hover:bg-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50';
-const inputClass =
-  'mt-1 w-full rounded-lg border border-separator bg-control px-3 py-2 text-sm';
+const names = Object.keys(labels) as Responsibility[];
+const statusLabels: Record<string, string> = {
+  completed: 'Verified',
+  partial: 'Partly completed',
+  failed: 'Needs attention',
+  deferred: 'Waiting on a prerequisite',
+  uncertain: 'Needs verification',
+};
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, options);
-  if (!response.ok)
-    throw new Error(
-      'The request could not be completed. Refresh and try again.',
-    );
-  return response.json();
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(path, {
+      ...options,
+      signal: controller.signal,
+    });
+    if (!response.ok)
+      throw new Error('The request could not be completed. Try again.');
+    return await response.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 function timestamp(value: number) {
   return new Intl.DateTimeFormat('en-US', {
@@ -47,6 +64,15 @@ function timestamp(value: number) {
     minute: '2-digit',
     timeZoneName: 'short',
   }).format(value);
+}
+function Spinner() {
+  return (
+    <IconLoader2
+      size={16}
+      aria-hidden="true"
+      className="shrink-0 motion-safe:animate-spin"
+    />
+  );
 }
 function Evidence({ outcome }: { outcome: Outcome }) {
   return (
@@ -60,7 +86,9 @@ function Evidence({ outcome }: { outcome: Outcome }) {
       ))}
       {!!outcome.evidence?.length && (
         <details>
-          <summary className="cursor-pointer">Verification evidence</summary>
+          <summary className="min-h-touch-min cursor-pointer py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            Verification evidence
+          </summary>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {outcome.evidence.map((item, index) => (
               <li key={index}>
@@ -92,12 +120,21 @@ function Evidence({ outcome }: { outcome: Outcome }) {
 export function AutonomyDashboard() {
   const [config, setConfig] = useState<AutonomyConfig | null>(null);
   const [state, setState] = useState<AutonomyState | null>(null);
-  const [draft, setDraft] = useState<AutonomyConfig | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [ideaPage, setIdeaPage] = useState(0);
+  const [selectedArea, setSelectedArea] = useState<Responsibility>('cluster');
   const generation = useRef(0);
-  const refresh = useCallback(async () => {
+  const working = useRef(false);
+
+  const refresh = useCallback(async (manual = false) => {
+    if (manual) {
+      setRefreshing(true);
+      setNotice('');
+    }
     const current = ++generation.current;
     try {
       const [settings, activity] = await Promise.all([
@@ -107,473 +144,616 @@ export function AutonomyDashboard() {
       if (current !== generation.current) return;
       setConfig(settings);
       setState(activity);
+      setUpdatedAt(Date.now());
+      setError('');
+      if (manual) setNotice('Up to date.');
     } catch {
       if (current === generation.current)
         setError('Updates are unavailable. Showing any last saved activity.');
+    } finally {
+      if (manual) setRefreshing(false);
     }
   }, []);
+
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh();
+      if (document.visibilityState === 'visible' && !working.current)
+        void refresh();
     }, 15000);
     return () => {
       window.clearInterval(timer);
       generation.current += 1;
     };
   }, [refresh]);
+
   async function perform(
+    key: string,
     path: string,
     body: unknown,
     message: string,
     method = 'POST',
   ) {
-    setBusy(true);
+    if (working.current) return false;
+    working.current = true;
+    // Invalidate reads started before this mutation; they cannot restore old settings.
+    generation.current += 1;
+    setPending(key);
     setError('');
     setNotice('');
     try {
-      await request(path, {
+      const result = await request<AutonomyConfig>(path, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (method === 'PUT') setConfig(result);
       setNotice(message);
-      setDraft(null);
       await refresh();
-    } catch (error) {
-      setError((error as Error).message);
+      return true;
+    } catch {
+      setError(
+        'The request could not be completed. Your changes have not been confirmed. Try again.',
+      );
+      return false;
     } finally {
-      setBusy(false);
+      working.current = false;
+      setPending('');
     }
   }
-  const save = (patch: unknown) =>
-    perform('/api/autonomy/config', patch, 'Charter settings saved.', 'PUT');
-  const operate = (body: unknown, message: string) =>
-    perform('/api/autonomy/state', body, message);
-  const edit = (fn: (next: AutonomyConfig) => void) => {
-    if (!draft) return;
-    const next = structuredClone(draft);
-    fn(next);
-    setDraft(next);
-  };
+  const save = (key: string, patch: unknown, message: string) =>
+    perform(key, '/api/autonomy/config', patch, message, 'PUT');
+  const operate = (key: string, body: unknown, message: string) =>
+    perform(key, '/api/autonomy/state', body, message);
+  const busy = !!pending;
+  const actions = Object.values(state?.actions || {}).sort(
+    (a, b) => b.updatedAt - a.updatedAt,
+  );
+  const running = actions.filter((item) => item.status === 'running');
+  const queued = actions.filter(
+    (item) => item.status === 'pending' && item.dueAt <= Date.now(),
+  );
+  const proposals = Object.values(state?.proposals || {})
+    .filter((item) => item.status === 'proposed')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const page = Math.min(
+    ideaPage,
+    Math.max(0, Math.ceil(proposals.length / 3) - 1),
+  );
+  const latestSummary = state?.summaries.reduce<
+    AutonomyState['summaries'][number] | undefined
+  >(
+    (latest, item) =>
+      !latest || item.createdAt > latest.createdAt ? item : latest,
+    undefined,
+  );
+  const latestLearning = actions.find(
+    (item) => item.responsibility === 'evolution' && item.outcome,
+  );
+  const enabledCount = config
+    ? names.filter((name) => config.responsibilities[name].enabled).length
+    : 0;
+
   return (
     <div className="app-page app-workspace h-full overflow-y-auto pb-8 text-dark-text-primary">
-      <div className="app-content-rail space-y-6 break-words pt-6">
+      <div className="app-content-rail space-y-5 break-words pt-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Autonomy</h1>
             <p className="text-sm text-dark-text-secondary">
-              Your charter, daily summaries, and completed work.
+              Less to manage. More taken care of.
             </p>
           </div>
           <div className="flex max-w-full flex-wrap gap-2">
             <button
               className={buttonClass}
-              onClick={() => {
-                setError('');
-                void refresh();
-              }}
+              disabled={refreshing || busy}
+              aria-busy={refreshing}
+              onClick={() => void refresh(true)}
             >
-              Refresh
+              {refreshing ? (
+                <Spinner />
+              ) : (
+                <IconRefresh size={16} aria-hidden="true" />
+              )}
+              {refreshing ? 'Refreshing…' : 'Refresh'}
             </button>
             {config && (
               <button
-                disabled={busy}
                 className={buttonClass}
-                onClick={() => void save({ enabled: !config.enabled })}
+                disabled={busy}
+                aria-busy={pending === 'toggle'}
+                onClick={() =>
+                  void save(
+                    'toggle',
+                    { enabled: !config.enabled },
+                    config.enabled
+                      ? 'Autonomy paused. Active work is being stopped.'
+                      : 'Autonomy resumed. Scheduled work can run.',
+                  )
+                }
               >
-                {config.enabled ? 'Pause all' : 'Resume all'}
+                {pending === 'toggle' && <Spinner />}
+                {pending === 'toggle'
+                  ? 'Updating…'
+                  : config.enabled
+                  ? 'Pause all'
+                  : 'Resume all'}
               </button>
             )}
           </div>
         </header>
         {error && (
-          <p role="alert" className="rounded-lg bg-control p-3">
+          <p
+            role="alert"
+            className="rounded-xl border border-separator bg-control p-3 text-sm"
+          >
             {error}
           </p>
         )}
-        {notice && <p role="status">{notice}</p>}
-        {!config && !error && <p role="status">Loading charter…</p>}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={notice ? 'text-sm' : 'sr-only'}
+        >
+          {notice}
+        </div>
+        {!config && !error && (
+          <p role="status" className="flex items-center gap-2">
+            <Spinner />
+            Loading autonomy…
+          </p>
+        )}
         {config && (
           <>
             <section
-              aria-label="Initial charter"
-              className="grid gap-3 md:grid-cols-2"
+              aria-label="Autonomy overview"
+              className="relative overflow-hidden rounded-2xl border border-separator bg-panel p-5 sm:p-6"
             >
-              {(Object.keys(labels) as Responsibility[]).map((name) => (
-                <article
-                  key={name}
-                  className="min-w-0 rounded-xl border border-separator p-4"
-                >
-                  <h2 className="font-semibold">{labels[name]}</h2>
-                  <p className="my-2 text-sm text-dark-text-secondary">
-                    {descriptions[name]}
-                  </p>
-                  <p className="mb-2 text-sm">
-                    {config.enabled && config.responsibilities[name].enabled
-                      ? 'Active'
-                      : 'Paused'}{' '}
-                    · every {config.responsibilities[name].intervalSeconds / 60}{' '}
-                    minutes
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      disabled={busy}
-                      className={buttonClass}
-                      onClick={() =>
-                        void save({
-                          responsibilities: {
-                            [name]: {
-                              enabled: !config.responsibilities[name].enabled,
-                            },
-                          },
-                        })
-                      }
-                    >
-                      {config.responsibilities[name].enabled
-                        ? 'Pause'
-                        : 'Resume'}{' '}
-                      {labels[name]}
-                    </button>
-                    <button
-                      disabled={
-                        busy ||
-                        !config.enabled ||
-                        !config.responsibilities[name].enabled
-                      }
-                      className={buttonClass}
-                      onClick={() =>
-                        void operate(
-                          { operation: 'run', responsibility: name },
-                          'Responsibility queued.',
-                        )
-                      }
-                    >
-                      Check now
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </section>
-            <section className="rounded-xl border border-separator p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p>
-                  Daily summary at {config.summary.time} Eastern · new
-                  responsibilities are proposed for your review.
-                </p>
-                <button
-                  className={buttonClass}
-                  onClick={() =>
-                    setDraft(draft ? null : structuredClone(config))
-                  }
-                >
-                  {draft ? 'Close settings' : 'Settings'}
-                </button>
-              </div>
-              {draft && (
-                <form
-                  className="mt-4 space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void save(draft);
-                  }}
-                >
-                  <label className="block text-sm">
-                    Summary time (Eastern)
-                    <input
-                      type="time"
-                      required
-                      className={inputClass}
-                      value={draft.summary.time}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.summary.time = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {(Object.keys(labels) as Responsibility[]).map((name) => (
-                      <label key={name} className="block text-sm">
-                        {labels[name]} check interval (minutes)
-                        <input
-                          type="number"
-                          min={5}
-                          max={10080}
-                          required
-                          className={inputClass}
-                          value={
-                            draft.responsibilities[name].intervalSeconds / 60
-                          }
-                          onChange={(event) =>
-                            edit((next) => {
-                              next.responsibilities[name].intervalSeconds =
-                                Number(event.target.value) * 60;
-                            })
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <label className="block text-sm">
-                    Google calendar ID (leave blank to use your saved preference
-                    or sole writable calendar)
-                    <input
-                      className={inputClass}
-                      value={draft.responsibilities.calendar.calendarId}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.calendar.calendarId =
-                            event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Local sources (one URL per line)
-                    <textarea
-                      className={inputClass}
-                      value={draft.responsibilities.calendar.sources.join('\n')}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.calendar.sources =
-                            event.target.value.split('\n');
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Local interests, area, and household applicability
-                    <textarea
-                      className={inputClass}
-                      value={draft.responsibilities.calendar.preferences}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.calendar.preferences =
-                            event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Reminder lead times (minutes, comma separated; blank
-                    preserves calendar defaults)
-                    <input
-                      className={inputClass}
-                      value={draft.responsibilities.calendar.reminderMinutes.join(
-                        ',',
-                      )}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.calendar.reminderMinutes =
-                            event.target.value.trim()
-                              ? event.target.value.split(',').map(Number)
-                              : [];
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Lighting scene
-                    <input
-                      required
-                      className={inputClass}
-                      value={draft.responsibilities.lighting.scene}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.lighting.scene =
-                            event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Missed game start allowance (minutes)
-                    <input
-                      type="number"
-                      min={0}
-                      max={60}
-                      className={inputClass}
-                      value={draft.responsibilities.lighting.catchUpMinutes}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.lighting.catchUpMinutes =
-                            Number(event.target.value);
-                        })
-                      }
-                    />
-                  </label>
-                  <p className="text-sm">
-                    Repairs use cluster-managed configuration. Backups remain in
-                    the affected namespace; externally managed changes are
-                    reported for review.
-                  </p>
-                  <label className="block text-sm">
-                    Non-node LAN verification source
-                    <input
-                      className={inputClass}
-                      value={
-                        draft.responsibilities.cluster.lanVerificationSource
-                      }
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.cluster.lanVerificationSource =
-                            event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    Cluster maintenance boundaries
-                    <textarea
-                      className={inputClass}
-                      value={draft.responsibilities.cluster.maintenancePolicy}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.responsibilities.cluster.maintenancePolicy =
-                            event.target.value;
-                        })
-                      }
-                    />
-                  </label>
-                  <button disabled={busy} className={buttonClass} type="submit">
-                    Save settings
-                  </button>
-                </form>
-              )}
-            </section>
-          </>
-        )}
-        <section aria-label="Daily summaries" className="space-y-3">
-          <h2 className="text-xl font-semibold">Daily summaries</h2>
-          {state && !state.summaries.length && (
-            <p className="text-sm text-dark-text-secondary">
-              Your first summary will appear at the scheduled time. Work in
-              progress is listed below.
-            </p>
-          )}
-          {state?.summaries.map((summary) => (
-            <article
-              key={summary.id}
-              className="space-y-3 rounded-xl border border-separator p-4"
-            >
-              <h3 className="font-semibold">{summary.title}</h3>
-              {summary.message && <p>{summary.message}</p>}
-              {summary.items.map((item, index) => (
-                <div key={index} className="border-t border-separator pt-3">
-                  <p className="mb-1 text-sm font-medium">
-                    {item.responsibility} · {item.status}
-                  </p>
-                  {item.summary && (
-                    <Evidence
-                      outcome={{
-                        ...item,
-                        status: item.status as Outcome['status'],
-                        summary: item.summary,
-                      }}
-                    />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-nvidia-green/10 blur-3xl"
+              />
+              <div className="relative space-y-5">
+                <div className="flex items-center gap-2 text-sm text-dark-text-secondary">
+                  <IconActivity size={18} aria-hidden="true" />
+                  {!state
+                    ? 'Activity unavailable'
+                    : running.length
+                    ? `${running.length} in progress`
+                    : config.enabled && enabledCount
+                    ? 'Scheduled work enabled'
+                    : 'Paused'}
+                  {updatedAt && (
+                    <span className="ml-auto text-xs">
+                      Updated {timestamp(updatedAt)}
+                    </span>
                   )}
-                  {item.proposal && (
-                    <div>
-                      <p className="font-medium">{item.proposal.title}</p>
-                      <p>{item.proposal.benefit}</p>
-                      <details>
-                        <summary className="cursor-pointer text-sm">
-                          Proposed responsibility
-                        </summary>
-                        <p>Trigger: {item.proposal.trigger}</p>
-                        <p>Actions: {item.proposal.actions}</p>
-                        <p>Access: {item.proposal.requiredAccess}</p>
-                        <p>Limits: {item.proposal.limits}</p>
-                      </details>
-                      {state.proposals[item.proposal.id]?.status ===
-                        'proposed' && (
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                    {!state
+                      ? 'Waiting for activity'
+                      : running.length
+                      ? 'Taking care of things'
+                      : !config.enabled || !enabledCount
+                      ? 'Ready when you are'
+                      : 'Room to focus on what matters'}
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm text-dark-text-secondary">
+                    {!config.enabled
+                      ? 'Resume when you want Daedalus to pick up its responsibilities.'
+                      : `${enabledCount} areas enabled. ${
+                          queued.length
+                            ? `${queued.length} checks queued.`
+                            : 'Checks run on their own schedule.'
+                        } Repairs and improvements are verified against real outcomes.`}
+                  </p>
+                </div>
+                <ol
+                  aria-label="Improvement cycle"
+                  className="grid gap-3 border-t border-separator pt-4 sm:grid-cols-3"
+                >
+                  {[
+                    [
+                      IconActivity,
+                      'Observe',
+                      'Read service health, logs, and recent outcomes.',
+                    ],
+                    [
+                      IconSparkles,
+                      'Improve',
+                      'Repair within your limits. Learn from feedback.',
+                    ],
+                    [
+                      IconCircleCheck,
+                      'Verify',
+                      'Check recovery and revisit recurring problems.',
+                    ],
+                  ].map(([Icon, title, description]) => {
+                    const CycleIcon = Icon as typeof IconActivity;
+                    return (
+                      <li key={String(title)} className="flex gap-3">
+                        <CycleIcon
+                          size={20}
+                          aria-hidden="true"
+                          className="mt-0.5 shrink-0 text-dark-text-secondary"
+                        />
+                        <div>
+                          <p className="text-sm font-medium">{String(title)}</p>
+                          <p className="mt-1 text-xs text-dark-text-secondary">
+                            {String(description)}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            </section>
+            <div className="grid items-start gap-5 lg:grid-cols-2">
+              <section
+                aria-labelledby="areas-heading"
+                className="min-w-0 rounded-2xl border border-separator bg-panel"
+              >
+                <div className="p-4">
+                  <h2 id="areas-heading" className="font-semibold">
+                    In your corner
+                  </h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    A live view of what Daedalus is looking after.
+                  </p>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Areas"
+                  className="flex flex-wrap gap-2 border-t border-separator px-4 pt-4"
+                >
+                  {names.map((name) => (
+                    <button
+                      key={name}
+                      className={`${buttonClass} ${
+                        selectedArea === name
+                          ? 'bg-control font-semibold ring-1 ring-focus'
+                          : ''
+                      }`}
+                      aria-pressed={selectedArea === name}
+                      onClick={() => setSelectedArea(name)}
+                    >
+                      {labels[name]}
+                      {running.some((item) => item.responsibility === name) && (
+                        <>
+                          <Spinner />
+                          <span className="sr-only">working</span>
+                        </>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {names
+                  .filter((name) => name === selectedArea)
+                  .map((name) => {
+                    const active = actions.filter(
+                      (item) =>
+                        item.responsibility === name &&
+                        (item.status === 'running' ||
+                          (item.status === 'pending' &&
+                            item.dueAt <= Date.now())),
+                    );
+                    const latest = actions.find(
+                      (item) => item.responsibility === name && item.outcome,
+                    );
+                    const enabled =
+                      config.enabled && config.responsibilities[name].enabled;
+                    const runKey = `run:${name}`;
+                    const toggleKey = `toggle:${name}`;
+                    return (
+                      <article
+                        key={name}
+                        aria-label={labels[name]}
+                        className="space-y-3 p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="font-medium">{labels[name]}</h3>
+                          <span className="flex items-center gap-2 text-xs text-dark-text-secondary">
+                            {active.some(
+                              (item) => item.status === 'running',
+                            ) ? (
+                              <>
+                                <Spinner />
+                                Working
+                              </>
+                            ) : active.length ? (
+                              'Queued'
+                            ) : !enabled ? (
+                              'Paused'
+                            ) : latest?.outcome ? (
+                              statusLabels[latest.outcome.status]
+                            ) : (
+                              'Awaiting first check'
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-sm text-dark-text-secondary">
+                          {descriptions[name]}
+                        </p>
+                        {latest?.outcome && (
+                          <details>
+                            <summary className="min-h-touch-min cursor-pointer py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                              Latest outcome · {timestamp(latest.updatedAt)}
+                            </summary>
+                            <Evidence outcome={latest.outcome} />
+                          </details>
+                        )}
+                        {active.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-control px-3 py-2 text-sm"
+                          >
+                            <span>
+                              {item.cancelledByUser
+                                ? 'Stopping…'
+                                : item.status === 'running'
+                                ? 'Check in progress'
+                                : 'Check queued'}
+                            </span>
+                            <button
+                              className={buttonClass}
+                              disabled={busy || item.cancelledByUser}
+                              aria-busy={pending === `cancel:${item.id}`}
+                              onClick={() =>
+                                void operate(
+                                  `cancel:${item.id}`,
+                                  { operation: 'cancel', id: item.id },
+                                  'Stop requested. Any uncertain effects will be recorded.',
+                                )
+                              }
+                            >
+                              {pending === `cancel:${item.id}` && <Spinner />}
+                              {pending === `cancel:${item.id}`
+                                ? 'Stopping…'
+                                : item.status === 'running'
+                                ? 'Stop action'
+                                : 'Cancel check'}
+                            </button>
+                          </div>
+                        ))}
                         <div className="flex flex-wrap gap-2">
                           <button
                             className={buttonClass}
-                            disabled={busy}
+                            disabled={busy || !enabled || !!active.length}
+                            aria-label={`${
+                              name === 'evolution' ? 'Review' : 'Check'
+                            } ${labels[name]} now`}
+                            aria-busy={pending === runKey}
                             onClick={() =>
                               void operate(
-                                { operation: 'accept', id: item.proposal!.id },
-                                'Interest saved. This idea does not yet have permission to act.',
+                                runKey,
+                                { operation: 'run', responsibility: name },
+                                `${labels[name]} check queued. Status updates automatically.`,
                               )
                             }
                           >
-                            Mark useful
+                            {pending === runKey && <Spinner />}
+                            {pending === runKey
+                              ? 'Queueing…'
+                              : active.some((item) => item.status === 'running')
+                              ? 'Working…'
+                              : active.length
+                              ? 'Queued'
+                              : name === 'evolution'
+                              ? 'Review now'
+                              : 'Check now'}
                           </button>
                           <button
                             className={buttonClass}
                             disabled={busy}
+                            aria-label={`${
+                              config.responsibilities[name].enabled
+                                ? 'Pause'
+                                : 'Resume'
+                            } ${labels[name]}`}
+                            aria-busy={pending === toggleKey}
                             onClick={() =>
-                              void operate(
-                                { operation: 'dismiss', id: item.proposal!.id },
-                                'Proposal dismissed. This preference will be retained.',
+                              void save(
+                                toggleKey,
+                                {
+                                  responsibilities: {
+                                    [name]: {
+                                      enabled:
+                                        !config.responsibilities[name].enabled,
+                                    },
+                                  },
+                                },
+                                `${labels[name]} ${
+                                  config.responsibilities[name].enabled
+                                    ? 'paused.'
+                                    : config.enabled
+                                    ? 'resumed.'
+                                    : 'enabled. Resume all to start scheduled work.'
+                                }`,
                               )
                             }
                           >
-                            Dismiss proposal
+                            {pending === toggleKey && <Spinner />}
+                            {pending === toggleKey
+                              ? 'Updating…'
+                              : config.responsibilities[name].enabled
+                              ? 'Pause'
+                              : 'Resume'}
                           </button>
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </article>
+                    );
+                  })}
+              </section>
+              <section
+                aria-labelledby="learning-heading"
+                className="min-w-0 space-y-4 rounded-2xl border border-separator bg-panel p-4"
+              >
+                <div className="flex items-center gap-2">
+                  <IconSparkles size={20} aria-hidden="true" />
+                  <h2 id="learning-heading" className="font-semibold">
+                    Getting better with you
+                  </h2>
                 </div>
-              ))}
-            </article>
-          ))}
-        </section>
-        <section aria-label="Action history" className="space-y-3">
-          <h2 className="text-xl font-semibold">
-            Scheduled work and action history
-          </h2>
-          {state && !Object.keys(state.actions).length && (
-            <p>The worker has not scheduled any work yet.</p>
-          )}
-          {state &&
-            Object.values(state.actions)
-              .sort(
-                (a, b) =>
-                  Number(['pending', 'running'].includes(b.status)) -
-                    Number(['pending', 'running'].includes(a.status)) ||
-                  b.updatedAt - a.updatedAt,
-              )
-              .slice(0, 50)
-              .map((item) => (
-                <details
-                  key={item.id}
-                  className="rounded-lg border border-separator p-3"
-                >
-                  <summary className="cursor-pointer">
-                    {labels[item.responsibility as Responsibility] ||
-                      'Daily summary'}{' '}
-                    {typeof item.payload.title === 'string' &&
-                      `· ${item.payload.title} `}
-                    {typeof item.payload.opponent === 'string' &&
-                      `· MSU vs ${item.payload.opponent} `}
-                    · {item.status} · {timestamp(item.dueAt)}
-                  </summary>
-                  <div className="mt-3 space-y-2">
-                    {item.outcome && <Evidence outcome={item.outcome} />}
-                    {['pending', 'running'].includes(item.status) && (
-                      <button
-                        className={buttonClass}
-                        disabled={busy}
-                        onClick={() =>
-                          void operate(
-                            { operation: 'cancel', id: item.id },
-                            'Stop requested. Any uncertain effects will be recorded.',
-                          )
-                        }
-                      >
-                        {item.status === 'running'
-                          ? 'Stop action'
-                          : 'Cancel scheduled action'}
-                      </button>
-                    )}
+                <p className="text-sm text-dark-text-secondary">
+                  Recent outcomes and your feedback shape the next review.
+                  System checks can investigate Daedalus itself; changes that
+                  need new permissions become ideas for you to consider.
+                </p>
+                {latestLearning?.outcome && (
+                  <Evidence outcome={latestLearning.outcome} />
+                )}
+                {!proposals.length && (
+                  <p className="rounded-xl bg-control p-4 text-sm text-dark-text-secondary">
+                    No ideas waiting for review. Useful improvements will appear
+                    here as Daedalus finds them.
+                  </p>
+                )}
+                {proposals.slice(page * 3, page * 3 + 3).map((proposal) => (
+                  <article
+                    key={proposal.id}
+                    className="space-y-3 rounded-xl border border-separator p-4"
+                  >
+                    <h3 className="font-medium">{proposal.title}</h3>
+                    <p className="text-sm text-dark-text-secondary">
+                      {proposal.benefit}
+                    </p>
+                    <details>
+                      <summary className="min-h-touch-min cursor-pointer py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                        How it would work
+                      </summary>
+                      <div className="space-y-2 text-sm">
+                        <p>When: {proposal.trigger}</p>
+                        <p>Actions: {proposal.actions}</p>
+                        <p>Access: {proposal.requiredAccess}</p>
+                        <p>Limits: {proposal.limits}</p>
+                      </div>
+                    </details>
+                    <div className="flex flex-wrap gap-2">
+                      {(['accept', 'dismiss'] as const).map((operation) => {
+                        const key = `${operation}:${proposal.id}`;
+                        return (
+                          <button
+                            key={operation}
+                            className={buttonClass}
+                            disabled={busy}
+                            aria-busy={pending === key}
+                            onClick={() =>
+                              void operate(
+                                key,
+                                { operation, id: proposal.id },
+                                operation === 'accept'
+                                  ? 'Interest saved. This idea does not yet have permission to act.'
+                                  : 'Idea dismissed. Your feedback will inform future reviews.',
+                              )
+                            }
+                          >
+                            {pending === key && <Spinner />}
+                            {pending === key
+                              ? 'Saving…'
+                              : operation === 'accept'
+                              ? 'Mark useful'
+                              : 'Dismiss idea'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </article>
+                ))}
+                {proposals.length > 3 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      className={buttonClass}
+                      disabled={page === 0}
+                      onClick={() => setIdeaPage(page - 1)}
+                    >
+                      Previous ideas
+                    </button>
+                    <span className="text-xs">
+                      {page + 1} / {Math.ceil(proposals.length / 3)}
+                    </span>
+                    <button
+                      className={buttonClass}
+                      disabled={(page + 1) * 3 >= proposals.length}
+                      onClick={() => setIdeaPage(page + 1)}
+                    >
+                      More ideas
+                      <IconArrowRight size={16} aria-hidden="true" />
+                    </button>
                   </div>
-                </details>
-              ))}
-        </section>
+                )}
+                {!!proposals.length && (
+                  <p className="text-xs text-dark-text-secondary">
+                    Marking an idea useful guides learning. New actions still
+                    need a defined scope.
+                  </p>
+                )}
+              </section>
+            </div>
+            <section
+              aria-labelledby="briefing-heading"
+              className="space-y-3 rounded-2xl border border-separator bg-panel p-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 id="briefing-heading" className="font-semibold">
+                  Latest briefing
+                </h2>
+                <span className="text-xs text-dark-text-secondary">
+                  Daily at {config.summary.time} Eastern
+                </span>
+              </div>
+              {state && !latestSummary && (
+                <p className="text-sm text-dark-text-secondary">
+                  Your first summary will appear here after the daily review.
+                </p>
+              )}
+              {latestSummary && (
+                <>
+                  <p className="text-xs text-dark-text-secondary">
+                    {timestamp(latestSummary.createdAt)}
+                  </p>
+                  {latestSummary.message && (
+                    <p className="text-sm">{latestSummary.message}</p>
+                  )}
+                  {latestSummary.items
+                    .filter((item) => !item.proposal)
+                    .map((item, index) => (
+                      <div
+                        key={index}
+                        className="space-y-2 border-t border-separator pt-3"
+                      >
+                        <p className="text-sm font-medium">
+                          {labels[item.responsibility as Responsibility] ||
+                            item.responsibility}{' '}
+                          · {statusLabels[item.status] || item.status}
+                        </p>
+                        {item.summary && (
+                          <Evidence
+                            outcome={{
+                              ...item,
+                              status: item.status as Outcome['status'],
+                              summary: item.summary,
+                            }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                </>
+              )}
+            </section>
+            <AutonomyJson
+              config={config}
+              busy={busy}
+              saving={pending === 'import'}
+              onApply={(patch) =>
+                save('import', patch, 'Automation configuration saved.')
+              }
+            />
+          </>
+        )}
       </div>
     </div>
   );

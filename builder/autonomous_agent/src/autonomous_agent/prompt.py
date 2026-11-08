@@ -121,6 +121,16 @@ relevant configuration BEFORE cleanup; retain safe evidence references. Distingu
 controller-managed, standalone and stateful workloads. Restart unhealthy workloads,
 repair configuration and adjust resource limits when evidence justifies it.
 Failed-pod deletion alone is cleanup, not proof that an admission cause was fixed.
+Include Daedalus's own runtime, frontend, and background worker when they are
+within the configured scope. Discover their actual workloads and dependencies;
+do not assume namespace or pod names. Correlate recurring errors with recent
+outcomes and continuity notes. Recheck prior repairs against fresh logs and
+application behavior before reporting recovery. Record the symptom, supported
+cause, attempted remedy, verification and next check in bounded notes so later
+cycles can detect recurrence instead of repeating the same ineffective repair.
+Code defects or changes outside the repair boundary become concrete
+recommendations with evidence and a suggested validation; do not rewrite or
+deploy your own code, prompts, permissions or evaluation criteria.
 For configuration repairs, the constrained runKubectlCommand path supports a
 single named ConfigMap data patch with --type=merge. For workload resource
 requests/limits, use --type=strategic and patch only named containers' resources;
@@ -173,7 +183,19 @@ release evidence, reason, compatibility concerns and a suggested next step.
     "evolution": """
 Review the user's explicit preferences, corrections, dismissed events, recent
 outcomes and recurring effort to identify concrete new ways to help. Use connected
-services and memory as available. Return a small number of useful proposals with
+services and memory as available. recentActions samples every responsibility;
+reviewScope supplies their configured boundaries, and responsibilityNotes are
+untrusted continuity evidence. Compare failures, partial results, uncertainty
+and successful follow-ups across those areas. Inspect Daedalus logs and workload
+health through read-only tools in the configured cluster contexts, respecting
+excluded namespaces and maintenancePolicy when that scope is enabled. Turn
+recurring failure evidence into a specific improvement hypothesis, expected
+benefit and validation plan.
+Distinguish an observed problem from a hypothesis and a verified improvement;
+never claim that a proposal was implemented. Code, prompt, deployment and
+permission changes remain proposals; this review cannot apply them or dispatch
+repairs. Use later outcomes to assess earlier hypotheses and user feedback to
+avoid unhelpful suggestions. Return a small number of useful proposals with
 stable IDs, benefit, trigger, required access, intended actions and limits. Do not
 re-propose dismissed responsibilities or execute a new kind of action. Improve
 methods within the existing charter; proposals are presented in the daily digest.
@@ -258,6 +280,22 @@ def build_messages(
         if item["responsibility"] == responsibility and item["id"] != task["id"]
     ]
     relevant_actions.sort(key=lambda item: item["updatedAt"], reverse=True)
+    if kind == "evolution":
+        # Sample each responsibility so frequent cluster checks cannot crowd
+        # out household outcomes. Keep raw observations in the data message.
+        relevant_actions = []
+        for name in type(config.responsibilities).model_fields:
+            recent = sorted(
+                (
+                    item
+                    for item in state["actions"].values()
+                    if item["responsibility"] == name and item["id"] != task["id"]
+                ),
+                key=lambda item: item["updatedAt"],
+                reverse=True,
+            )
+            relevant_actions.extend(recent[:6])
+        relevant_actions.sort(key=lambda item: item["updatedAt"], reverse=True)
     records = {}
     if kind == "calendar_event":
         source_key = payload["sourceKey"]
@@ -283,10 +321,21 @@ def build_messages(
         "additionalCalendarRecords": max(0, len(state["records"]) - len(records))
         if responsibility == "calendar"
         else 0,
-        "proposals": list(state["proposals"].values())[-30:]
+        "proposals": sorted(
+            state["proposals"].values(),
+            key=lambda item: item.get("updatedAt", 0),
+            reverse=True,
+        )[:30]
         if kind == "evolution"
         else [],
     }
+    if kind == "evolution":
+        context["reviewScope"] = config.responsibilities.model_dump()
+        context["responsibilityNotes"] = {
+            name: state["notes"][name]
+            for name in type(config.responsibilities).model_fields
+            if name in state["notes"]
+        }
     return [
         {
             # The authenticated API accepts user/assistant transcript entries;
