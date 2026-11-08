@@ -25,6 +25,8 @@ def publish_daily_summary(
         if not outcome or entry["kind"] == "daily_summary":
             continue
         identity = f"{entry['kind']}:{entry['payload'].get('sourceKey', '')}"
+        if entry["payload"].get("ruleId"):
+            identity += f":{entry['payload']['ruleId']}"
         content = {
             "responsibility": entry["responsibility"],
             "status": outcome["status"],

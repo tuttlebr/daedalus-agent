@@ -1521,9 +1521,12 @@ test('populated Autonomy summaries support appearance and text scaling', async (
     }),
   );
   await navigate(page, 'Autonomy');
-  const evidence = page.getByText('Verification evidence', { exact: true });
-  await evidence.focus();
-  await evidence.press('Enter');
+  await expect(page.getByText('Skipped: Offline lamp')).toBeHidden();
+  const resultDetails = page
+    .locator('summary')
+    .filter({ hasText: 'Reachable lights changed.' });
+  await resultDetails.focus();
+  await resultDetails.press('Enter');
   await expect(
     page.getByText('Verified reachable device states.'),
   ).toBeVisible();

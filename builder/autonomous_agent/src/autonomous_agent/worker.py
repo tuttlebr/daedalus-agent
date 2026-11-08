@@ -66,7 +66,12 @@ def run_once(
                 if (
                     SHUTDOWN.is_set()
                     or store.cancel_requested(user_id, run["id"])
-                    or not task_enabled(store.get_config(user_id), task["kind"])
+                    or not task_enabled(
+                        store.get_config(user_id),
+                        task["kind"],
+                        task["payload"],
+                        now_ms(),
+                    )
                 ):
                     abort.set()
                     return

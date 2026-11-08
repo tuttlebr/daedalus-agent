@@ -3,12 +3,17 @@
 import {
   IconActivity,
   IconArrowRight,
-  IconCircleCheck,
   IconLoader2,
   IconRefresh,
   IconSparkles,
 } from '@tabler/icons-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import type {
   AutonomyConfig,
@@ -17,6 +22,7 @@ import type {
   Responsibility,
 } from '@/types/autonomy';
 
+import { AutomationComposer, describeWindow } from './AutomationComposer';
 import { AutonomyJson, buttonClass } from './AutonomyJson';
 
 const labels: Record<Responsibility, string> = {
@@ -26,10 +32,10 @@ const labels: Record<Responsibility, string> = {
   evolution: 'Learning',
 };
 const descriptions: Record<Responsibility, string> = {
-  calendar: 'Dates and activities, taken care of.',
-  lighting: 'Your lighting routines.',
-  cluster: 'Daedalus and the services it depends on.',
-  evolution: 'Better methods, informed by your feedback.',
+  calendar: 'Calendar updates.',
+  lighting: 'Game-day lighting.',
+  cluster: 'Daedalus and cluster health.',
+  evolution: 'Reviews of recent results.',
 };
 const names = Object.keys(labels) as Responsibility[];
 const statusLabels: Record<string, string> = {
@@ -74,10 +80,33 @@ function Spinner() {
     />
   );
 }
+function ResultDetails({
+  text,
+  children,
+}: {
+  text: string;
+  children?: ReactNode;
+}) {
+  return (
+    <details className="group space-y-2 text-sm">
+      <summary className="min-h-touch-min cursor-pointer list-none rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+        <span className="line-clamp-2 whitespace-pre-line group-open:line-clamp-none">
+          {text}
+        </span>
+        <span className="mt-1 block text-xs text-dark-text-secondary group-open:hidden">
+          Details
+        </span>
+        <span className="mt-1 hidden text-xs text-dark-text-secondary group-open:block">
+          Hide details
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
+}
 function Evidence({ outcome }: { outcome: Outcome }) {
   return (
-    <div className="space-y-2 text-sm">
-      <p>{outcome.summary}</p>
+    <ResultDetails text={outcome.summary}>
       {!!outcome.skipped?.length && (
         <p>Skipped: {outcome.skipped.join(', ')}</p>
       )}
@@ -85,35 +114,30 @@ function Evidence({ outcome }: { outcome: Outcome }) {
         <p key={index}>{text}</p>
       ))}
       {!!outcome.evidence?.length && (
-        <details>
-          <summary className="min-h-touch-min cursor-pointer py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-            Verification evidence
-          </summary>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            {outcome.evidence.map((item, index) => (
-              <li key={index}>
-                {item.description}
-                {item.reference && /^https?:\/\//i.test(item.reference) ? (
-                  <>
-                    {' '}
-                    <a
-                      className="underline"
-                      href={item.reference}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Source
-                    </a>
-                  </>
-                ) : item.reference ? (
-                  <span> ({item.reference})</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </details>
+        <ul aria-label="Evidence" className="list-disc space-y-1 pl-5">
+          {outcome.evidence.map((item, index) => (
+            <li key={index}>
+              {item.description}
+              {item.reference && /^https?:\/\//i.test(item.reference) ? (
+                <>
+                  {' '}
+                  <a
+                    className="underline"
+                    href={item.reference}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Source
+                  </a>
+                </>
+              ) : item.reference ? (
+                <span> ({item.reference})</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       )}
-    </div>
+    </ResultDetails>
   );
 }
 
@@ -227,9 +251,6 @@ export function AutonomyDashboard() {
       !latest || item.createdAt > latest.createdAt ? item : latest,
     undefined,
   );
-  const latestLearning = actions.find(
-    (item) => item.responsibility === 'evolution' && item.outcome,
-  );
   const enabledCount = config
     ? names.filter((name) => config.responsibilities[name].enabled).length
     : 0;
@@ -240,9 +261,6 @@ export function AutonomyDashboard() {
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Autonomy</h1>
-            <p className="text-sm text-dark-text-secondary">
-              Less to manage. More taken care of.
-            </p>
           </div>
           <div className="flex max-w-full flex-wrap gap-2">
             <button
@@ -336,62 +354,37 @@ export function AutonomyDashboard() {
                     {!state
                       ? 'Waiting for activity'
                       : running.length
-                      ? 'Taking care of things'
+                      ? 'Checks running'
                       : !config.enabled || !enabledCount
-                      ? 'Ready when you are'
-                      : 'Room to focus on what matters'}
+                      ? 'Autonomy paused'
+                      : 'Waiting for the next check'}
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm text-dark-text-secondary">
                     {!config.enabled
-                      ? 'Resume when you want Daedalus to pick up its responsibilities.'
+                      ? 'Resume to restart scheduled checks.'
                       : `${enabledCount} areas enabled. ${
                           queued.length
                             ? `${queued.length} checks queued.`
                             : 'Checks run on their own schedule.'
-                        } Repairs and improvements are verified against real outcomes.`}
+                        }`}
                   </p>
                 </div>
-                <ol
-                  aria-label="Improvement cycle"
-                  className="grid gap-3 border-t border-separator pt-4 sm:grid-cols-3"
-                >
-                  {[
-                    [
-                      IconActivity,
-                      'Observe',
-                      'Read service health, logs, and recent outcomes.',
-                    ],
-                    [
-                      IconSparkles,
-                      'Improve',
-                      'Repair within your limits. Learn from feedback.',
-                    ],
-                    [
-                      IconCircleCheck,
-                      'Verify',
-                      'Check recovery and revisit recurring problems.',
-                    ],
-                  ].map(([Icon, title, description]) => {
-                    const CycleIcon = Icon as typeof IconActivity;
-                    return (
-                      <li key={String(title)} className="flex gap-3">
-                        <CycleIcon
-                          size={20}
-                          aria-hidden="true"
-                          className="mt-0.5 shrink-0 text-dark-text-secondary"
-                        />
-                        <div>
-                          <p className="text-sm font-medium">{String(title)}</p>
-                          <p className="mt-1 text-xs text-dark-text-secondary">
-                            {String(description)}
-                          </p>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
               </div>
             </section>
+            <AutomationComposer
+              lightingPaused={!config.responsibilities.lighting.enabled}
+              busy={busy}
+              paused={!config.enabled}
+              onApply={(plan) =>
+                perform(
+                  'plan',
+                  '/api/autonomy/plan',
+                  plan,
+                  'Automation saved.',
+                  'PUT',
+                )
+              }
+            />
             <div className="grid items-start gap-5 lg:grid-cols-2">
               <section
                 aria-labelledby="areas-heading"
@@ -399,11 +392,8 @@ export function AutonomyDashboard() {
               >
                 <div className="p-4">
                   <h2 id="areas-heading" className="font-semibold">
-                    In your corner
+                    Automations
                   </h2>
-                  <p className="mt-1 text-sm text-dark-text-secondary">
-                    A live view of what Daedalus is looking after.
-                  </p>
                 </div>
                 <div
                   role="group"
@@ -478,13 +468,77 @@ export function AutonomyDashboard() {
                         <p className="text-sm text-dark-text-secondary">
                           {descriptions[name]}
                         </p>
+                        {name === 'lighting' &&
+                          config.responsibilities.lighting.rules.map((rule) => (
+                            <div
+                              key={rule.id}
+                              className="space-y-2 rounded-xl border border-separator p-3 text-sm"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="font-medium">{rule.title}</h4>
+                                <span>
+                                  {rule.enabled ? 'Enabled' : 'Paused'}
+                                </span>
+                              </div>
+                              <p>
+                                {rule.team} · {rule.scene}
+                              </p>
+                              <p className="text-dark-text-secondary">
+                                {describeWindow(rule.weekdays, rule.months)}
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  className={buttonClass}
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void perform(
+                                      `rule:${rule.id}`,
+                                      '/api/autonomy/plan',
+                                      {
+                                        type: 'rule_state',
+                                        id: rule.id,
+                                        enabled: !rule.enabled,
+                                      },
+                                      `${rule.title} ${
+                                        rule.enabled ? 'paused' : 'enabled'
+                                      }.`,
+                                      'PUT',
+                                    )
+                                  }
+                                >
+                                  {pending === `rule:${rule.id}`
+                                    ? 'Updating…'
+                                    : rule.enabled
+                                    ? 'Pause'
+                                    : 'Resume'}
+                                </button>
+                                <button
+                                  className={buttonClass}
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void perform(
+                                      `remove:${rule.id}`,
+                                      '/api/autonomy/plan',
+                                      { type: 'remove_rule', id: rule.id },
+                                      'Automation removed.',
+                                      'PUT',
+                                    )
+                                  }
+                                >
+                                  {pending === `remove:${rule.id}`
+                                    ? 'Removing…'
+                                    : 'Remove'}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         {latest?.outcome && (
-                          <details>
-                            <summary className="min-h-touch-min cursor-pointer py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                              Latest outcome · {timestamp(latest.updatedAt)}
-                            </summary>
+                          <div>
+                            <p className="text-xs text-dark-text-secondary">
+                              {timestamp(latest.updatedAt)}
+                            </p>
                             <Evidence outcome={latest.outcome} />
-                          </details>
+                          </div>
                         )}
                         {active.map((item) => (
                           <div
@@ -595,21 +649,12 @@ export function AutonomyDashboard() {
                 <div className="flex items-center gap-2">
                   <IconSparkles size={20} aria-hidden="true" />
                   <h2 id="learning-heading" className="font-semibold">
-                    Getting better with you
+                    Ideas
                   </h2>
                 </div>
-                <p className="text-sm text-dark-text-secondary">
-                  Recent outcomes and your feedback shape the next review.
-                  System checks can investigate Daedalus itself; changes that
-                  need new permissions become ideas for you to consider.
-                </p>
-                {latestLearning?.outcome && (
-                  <Evidence outcome={latestLearning.outcome} />
-                )}
                 {!proposals.length && (
                   <p className="rounded-xl bg-control p-4 text-sm text-dark-text-secondary">
-                    No ideas waiting for review. Useful improvements will appear
-                    here as Daedalus finds them.
+                    No new ideas.
                   </p>
                 )}
                 {proposals.slice(page * 3, page * 3 + 3).map((proposal) => (
@@ -618,20 +663,14 @@ export function AutonomyDashboard() {
                     className="space-y-3 rounded-xl border border-separator p-4"
                   >
                     <h3 className="font-medium">{proposal.title}</h3>
-                    <p className="text-sm text-dark-text-secondary">
-                      {proposal.benefit}
-                    </p>
-                    <details>
-                      <summary className="min-h-touch-min cursor-pointer py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                        How it would work
-                      </summary>
+                    <ResultDetails text={proposal.benefit}>
                       <div className="space-y-2 text-sm">
                         <p>When: {proposal.trigger}</p>
                         <p>Actions: {proposal.actions}</p>
                         <p>Access: {proposal.requiredAccess}</p>
                         <p>Limits: {proposal.limits}</p>
                       </div>
-                    </details>
+                    </ResultDetails>
                     <div className="flex flex-wrap gap-2">
                       {(['accept', 'dismiss'] as const).map((operation) => {
                         const key = `${operation}:${proposal.id}`;
@@ -646,8 +685,8 @@ export function AutonomyDashboard() {
                                 key,
                                 { operation, id: proposal.id },
                                 operation === 'accept'
-                                  ? 'Interest saved. This idea does not yet have permission to act.'
-                                  : 'Idea dismissed. Your feedback will inform future reviews.',
+                                  ? 'Saved as useful. No automation enabled.'
+                                  : 'Idea dismissed.',
                               )
                             }
                           >
@@ -687,8 +726,7 @@ export function AutonomyDashboard() {
                 )}
                 {!!proposals.length && (
                   <p className="text-xs text-dark-text-secondary">
-                    Marking an idea useful guides learning. New actions still
-                    need a defined scope.
+                    Mark useful saves feedback without enabling the idea.
                   </p>
                 )}
               </section>
@@ -707,7 +745,7 @@ export function AutonomyDashboard() {
               </div>
               {state && !latestSummary && (
                 <p className="text-sm text-dark-text-secondary">
-                  Your first summary will appear here after the daily review.
+                  No briefing yet.
                 </p>
               )}
               {latestSummary && (

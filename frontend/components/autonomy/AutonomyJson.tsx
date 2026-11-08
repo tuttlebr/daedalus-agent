@@ -83,9 +83,8 @@ export function AutonomyJson({
         Automation JSON
       </summary>
       <p className="mb-4 text-sm text-dark-text-secondary">
-        Download your current configuration as a template. Upload a full
-        configuration or just the fields you want to change; other settings are
-        preserved.
+        Download your settings, edit the JSON, then upload it. Fields you leave
+        out stay unchanged.
       </p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -132,8 +131,7 @@ export function AutonomyJson({
         <div className="mt-4 space-y-3">
           <p className="text-sm font-medium">Ready to apply: {draft.name}</p>
           <p className="text-sm text-dark-text-secondary">
-            Applying enabled settings starts their scheduled work. Only
-            supported responsibilities and limits are accepted.
+            Enabled automations start when you apply these settings.
           </p>
           <pre
             aria-label="JSON changes"

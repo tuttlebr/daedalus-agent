@@ -49,6 +49,21 @@ class Contract(BaseModel):
 class ResponsibilityConfig(Contract):
     enabled: bool = True
     intervalSeconds: int = Field(default=3600, ge=300, le=604800)
+    instructions: str = Field(default="", max_length=4000)
+    # Python weekday numbering: Monday=0, Sunday=6. Months are inclusive.
+    weekdays: list[Annotated[int, Field(ge=0, le=6)]] = Field(
+        default_factory=lambda: list(range(7)), min_length=1, max_length=7
+    )
+    months: list[Annotated[int, Field(ge=1, le=12)]] = Field(
+        default_factory=lambda: list(range(1, 13)), min_length=1, max_length=12
+    )
+
+    @field_validator("weekdays", "months")
+    @classmethod
+    def unique_window(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Window values must be unique")
+        return values
 
 
 class CalendarConfig(ResponsibilityConfig):
@@ -77,12 +92,34 @@ class CalendarConfig(ResponsibilityConfig):
         return sorted(set(values))
 
 
-class LightingConfig(ResponsibilityConfig):
+class GameLightingConfig(ResponsibilityConfig):
     intervalSeconds: int = Field(default=21600, ge=300, le=604800)
     scene: str = Field(default="Go Green!", min_length=1, max_length=160)
     catchUpMinutes: int = Field(default=15, ge=0, le=60)
     # Empty means all household lights discoverable through the configured tool.
     lightIds: list[str] = Field(default_factory=list, max_length=500)
+    team: str = Field(default="Michigan State", min_length=1, max_length=160)
+    sports: list[Literal["football", "mens_basketball"]] = Field(
+        default_factory=lambda: ["football", "mens_basketball"],
+        min_length=1,
+        max_length=2,
+    )
+
+
+class LightingRule(GameLightingConfig):
+    id: Identifier
+    title: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+
+
+class LightingConfig(GameLightingConfig):
+    rules: list[LightingRule] = Field(default_factory=list, max_length=20)
+
+    @field_validator("rules")
+    @classmethod
+    def unique_rules(cls, rules: list[LightingRule]) -> list[LightingRule]:
+        if len({rule.id for rule in rules}) != len(rules):
+            raise ValueError("Lighting rule IDs must be unique")
+        return rules
 
 
 class ClusterConfig(ResponsibilityConfig):
@@ -122,6 +159,12 @@ class CharterConfig(Contract):
     maxPendingActions: int = Field(default=500, ge=10, le=2000)
     maxRunsStored: int = Field(default=500, ge=10, le=2000)
     maxSummariesStored: int = Field(default=90, ge=7, le=365)
+
+    @model_validator(mode="after")
+    def queue_capacity(self) -> CharterConfig:
+        if self.maxPendingActions <= len(self.responsibilities.lighting.rules) + 5:
+            raise ValueError("Leave queue capacity for discovery and game actions")
+        return self
 
 
 def validate_source_url(value: str) -> str:
@@ -287,10 +330,43 @@ TASK_RESPONSIBILITY: dict[str, str] = {
 }
 
 
-def task_enabled(config: CharterConfig, kind: str) -> bool:
+def task_settings(config: CharterConfig, kind: str, payload: dict | None = None):
+    name = TASK_RESPONSIBILITY.get(kind)
+    if not name:
+        return None
+    settings = getattr(config.responsibilities, name)
+    rule_id = (payload or {}).get("ruleId")
+    if name == "lighting" and rule_id:
+        return next((rule for rule in settings.rules if rule.id == rule_id), None)
+    return settings
+
+
+def in_window(settings: ResponsibilityConfig, timestamp: int) -> bool:
+    local = datetime.fromtimestamp(timestamp / 1000, EASTERN)
+    return local.weekday() in settings.weekdays and local.month in settings.months
+
+
+def task_note_key(task: dict) -> str:
+    rule_id = task.get("payload", {}).get("ruleId")
+    return f"lighting:{rule_id}" if rule_id else task["responsibility"]
+
+
+def task_enabled(
+    config: CharterConfig,
+    kind: str,
+    payload: dict | None = None,
+    timestamp: int | None = None,
+) -> bool:
     if not config.enabled:
         return False
     if kind == "daily_summary":
         return True
     name = TASK_RESPONSIBILITY.get(kind)
-    return bool(name and getattr(config.responsibilities, name).enabled)
+    settings = task_settings(config, kind, payload)
+    return bool(
+        name
+        and getattr(config.responsibilities, name).enabled
+        and settings
+        and settings.enabled
+        and (timestamp is None or in_window(settings, timestamp))
+    )

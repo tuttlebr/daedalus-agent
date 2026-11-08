@@ -10,6 +10,20 @@ export type TaskKind =
 export interface ResponsibilityConfig {
   enabled: boolean;
   intervalSeconds: number;
+  instructions: string;
+  weekdays: number[];
+  months: number[];
+}
+export interface GameLightingConfig extends ResponsibilityConfig {
+  scene: string;
+  catchUpMinutes: number;
+  lightIds: string[];
+  team: string;
+  sports: ('football' | 'mens_basketball')[];
+}
+export interface LightingRule extends GameLightingConfig {
+  id: string;
+  title: string;
 }
 export interface AutonomyConfig {
   version: 2;
@@ -22,11 +36,7 @@ export interface AutonomyConfig {
       preferences: string;
       reminderMinutes: number[];
     };
-    lighting: ResponsibilityConfig & {
-      scene: string;
-      catchUpMinutes: number;
-      lightIds: string[];
-    };
+    lighting: GameLightingConfig & { rules: LightingRule[] };
     cluster: ResponsibilityConfig & {
       contexts: string[];
       excludedNamespaces: string[];
@@ -45,6 +55,15 @@ export interface AutonomyConfig {
   maxRunsStored: number;
   maxSummariesStored: number;
 }
+export type AutomationPlan =
+  | { type: 'lighting_rule'; rule: LightingRule }
+  | {
+      type: 'settings';
+      responsibility: Responsibility;
+      settings: Record<string, unknown>;
+      baseRevision: string;
+    }
+  | { type: 'clarify' | 'unsupported'; message: string };
 export interface Outcome {
   status: 'completed' | 'partial' | 'failed' | 'deferred' | 'uncertain';
   summary: string;

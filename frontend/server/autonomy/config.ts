@@ -55,7 +55,7 @@ function validate(value: unknown, schema: Schema, path: string): void {
   } else if (schema.type === 'string') {
     if (typeof value !== 'string') return fail();
     if (
-      value.length < (schema.minLength ?? 0) ||
+      value.trim().length < (schema.minLength ?? 0) ||
       value.length > (schema.maxLength ?? Infinity) ||
       (schema.pattern && !new RegExp(schema.pattern).test(value))
     )
@@ -108,11 +108,41 @@ export function applyConfigPatch(
   if (!patch || typeof patch !== 'object' || Array.isArray(patch))
     throw new Error('Expected an autonomy settings object');
   const merged = merge(
-    current as unknown as Record<string, unknown>,
+    structuredClone(current) as unknown as Record<string, unknown>,
     patch as Record<string, unknown>,
   );
+  const lighting = (merged.responsibilities as Record<string, unknown>)
+    ?.lighting as Record<string, unknown> | undefined;
+  if (lighting && Array.isArray(lighting.rules)) {
+    const { rules: _rules, ...defaults } =
+      defaultConfig().responsibilities.lighting;
+    lighting.rules = lighting.rules.map((rule) =>
+      rule && typeof rule === 'object' && !Array.isArray(rule)
+        ? merge(defaults as unknown as Record<string, unknown>, rule)
+        : rule,
+    );
+  }
   validate(merged, contract.schema as Schema, 'config');
   const config = merged as unknown as AutonomyConfig;
+  if (
+    config.maxPendingActions <=
+    config.responsibilities.lighting.rules.length + 5
+  )
+    throw new Error('Leave queue capacity for discovery and game actions');
+  for (const settings of [
+    ...Object.values(config.responsibilities),
+    ...config.responsibilities.lighting.rules,
+  ]) {
+    for (const values of [settings.weekdays, settings.months]) {
+      if (new Set(values).size !== values.length)
+        throw new Error('Window values must be unique');
+    }
+  }
+  if (
+    new Set(config.responsibilities.lighting.rules.map((rule) => rule.id))
+      .size !== config.responsibilities.lighting.rules.length
+  )
+    throw new Error('Lighting rule IDs must be unique');
   for (const source of config.responsibilities.calendar.sources) {
     const url = new URL(source);
     if (

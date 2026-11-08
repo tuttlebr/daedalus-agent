@@ -49,6 +49,13 @@
     "pinned": false
   },
   {
+    "name": "humanizer",
+    "path": "skills/humanizer/SKILL.md",
+    "provenance": "imported",
+    "source": "User-supplied humanizer v3.1.0 (MIT), added for UI prose in the 2026-11-08 Autonomy review. The skill attributes its patterns to Wikipedia:Signs_of_AI_writing; an upstream repository was not supplied.",
+    "pinned": false
+  },
+  {
     "name": "image-creation",
     "path": "skills/image-creation/SKILL.md",
     "provenance": "derived",

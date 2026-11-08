@@ -1,7 +1,8 @@
 # Autonomy
 
-The Autonomy tab presents current work, the latest outcome for each area, a
-single daily briefing, and paged improvement ideas. It does not render a growing
+The Autonomy tab presents current work, a short preview of each result, a
+single daily briefing, and paged improvement ideas. **Details** expands the full
+result, evidence and recommendations. It does not render a growing
 schedule or action-history log. Verification evidence remains available alongside
 outcomes; full action and run records remain in the backend for recovery and
 diagnosis. Enabled schedules are configuration state, not a worker-health signal.
@@ -11,12 +12,55 @@ progress and completion or failure. A queued check stays distinct from running
 work and verified completion. The dashboard polls while visible, retains the last
 successful view on errors, and rejects refresh results that predate a mutation.
 
+Use **Describe an automation** to write a request in plain language. **Preview
+automation** translates it into supported settings without running tools or
+saving changes. The preview shows the trigger, scene, days, months and check
+cadence. Missing details produce a question; unsupported requirements produce a
+limitation. **Save automation** applies the reviewed plan. Failed requests retain
+the draft. Saving while Autonomy or Home is paused does not resume it.
+
+For example:
+
+> At Steelers kickoff, set the house lights to the "Go Steelers!" scene. Only
+> check on Sundays, Mondays and Thursdays from September through February.
+
+This adds a separate football lighting rule with weekdays `[6, 0, 3]` and months
+`[9, 10, 11, 12, 1, 2]`. It preserves the existing MSU rule. Discovery and game
+activation both obey these filters in Eastern time, including daylight saving.
+The default preview checks hourly and allows a 15-minute missed-start window.
+The worker verifies the game start and resolves the named Hue scene at runtime;
+the preview does not claim the scene exists. Home lists saved rules with pause,
+resume and removal controls. Removing a rule cancels its pending work; stopping
+an in-flight request does not undo effects already applied.
+
+Natural-language requests currently support game-start lighting for football
+and men's basketball, and settings for calendar discovery, cluster checks and
+improvement reviews. Arbitrary code, new services, presence/TV conditions,
+end-of-game actions and fixed-time recurring lighting are unsupported. The
+planner must report these limits rather than hide unsupported conditions in
+free-text instructions. Review the preview before saving: model interpretation
+can be wrong, while the validated fields determine the worker's schedule.
+
+The signed-in frontend calls `POST /api/autonomy/plan` to preview and `PUT` to
+save. The private Rust route `/internal/autonomy/plan` uses the configured main
+model with no tools, persisted conversation or execution path. It requires Rust
+preparation and does not require enabling the optional public model endpoint.
+Frontend validation rejects unsupported fields, incomplete plans and tool-calling
+responses. New rules append atomically; repeated saves of the same plan do not
+duplicate a rule. Settings edits reject a preview if the configuration changed.
+
 Expand **Automation JSON** to download the current configuration as a template,
 then upload a complete configuration or a partial settings object (up to 128 KB).
 Uploads are validated against the same generated contract as the API and shown
 for review before **Apply JSON**. Omitted fields are preserved, invalid fields
 are rejected, and failed saves retain the upload for retry. JSON configures the
 supported responsibilities; it cannot introduce arbitrary executable tasks.
+
+Workers load the humanizer skill before drafting UI text. The prompt requests
+outcome summaries of at most 35 words and proposal benefits of at most 20 words;
+diagnostics and continuity notes have separate fields. These are writing
+instructions, not schema limits. Existing stored reports remain intact, with
+two-line previews in the UI.
 
 For example, this partial upload changes only cluster-check cadence:
 
@@ -32,9 +76,10 @@ The autonomous worker owns four independently scheduled responsibilities:
 
 - **Local calendar:** discover practical dates and community activities, then
   reconcile individual events through the user's connected Google MCP account.
-- **MSU lighting:** discover football and men's basketball schedules and apply
+- **Game lighting:** discover configured teams’ football and men's basketball schedules and apply
   the configured scene once at each game start. Unreachable lights are skipped.
-  There is no end-of-game action.
+  MSU is the default; additional rules can target other teams. There is no
+  end-of-game action.
 - **Cluster maintenance:** investigate unhealthy workloads, preserve diagnostics,
   clean up failed pods, restart workloads and perform bounded configuration or
   resource repairs. Software upgrades are recommendations only.
@@ -61,7 +106,8 @@ remain date-only; timed entries use explicit offsets and the Michigan timezone.
 Calendar and sports discovery default to six-hour intervals, cluster checks to
 15 minutes, and improvement review to daily. Individual intervals and pauses are
 configurable; **Pause all** also stops an active backend request. **Check now**
-queues an existing responsibility without creating duplicate pending work.
+queues eligible checks without creating duplicate pending work. Home checks each
+enabled rule that is within its configured days and months.
 
 ## Configuration and identity
 
@@ -82,11 +128,17 @@ builder/.venv/bin/python scripts/generate_autonomy_contract.py
 ```
 
 JSON settings include calendar selection, local sources/preferences/reminders, lighting
-scene and device selection, missed-start allowance, cluster contexts and excluded
+team, sports, scene and device selection, extra `lighting.rules`, weekdays
+(Monday=0 through Sunday=6), months (January=1 through December=12),
+missed-start allowance, cluster contexts and excluded
 namespaces, cluster-managed configuration, non-node LAN verification source,
 maintenance boundaries, tool-call budget and run deadline. Defaults limit each
 run to 40 tool calls and 600 seconds. The missed-start allowance is 15 minutes.
 A game that is already beyond that window is recorded as expired.
+Each extra lighting rule needs a unique `id` and a `title`; omitted optional
+fields use the standard lighting defaults. JSON arrays replace the existing
+array, so include all rules when uploading `lighting.rules`. Use natural-language
+creation to append one rule without replacing others.
 
 Calendar destination selection uses the configured ID, a saved user preference,
 or the only writable calendar. Multiple writable calendars with no preference

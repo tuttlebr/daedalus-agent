@@ -707,3 +707,180 @@ test('a delayed Memory detail never interrupts another destination', async ({
     page.getByRole('tabpanel', { name: 'Create', exact: true }),
   ).toBeVisible();
 });
+
+test('Autonomy turns instructions into a reviewable rule and retains failed saves', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  const config = defaultConfig();
+  config.enabled = false;
+  await page.route('**/api/autonomy/config', (route) =>
+    route.fulfill({ json: config }),
+  );
+  let reads = 0;
+  let writes = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { rules: _rules, ...base } = config.responsibilities.lighting;
+  const plan = {
+    type: 'lighting_rule',
+    rule: {
+      ...base,
+      id: 'steelers',
+      title: 'Steelers kickoff',
+      team: 'Pittsburgh Steelers',
+      sports: ['football'],
+      scene: 'Go Steelers!',
+      weekdays: [6, 0, 3],
+      months: [9, 10, 11, 12, 1, 2],
+      intervalSeconds: 3600,
+    },
+  };
+  await page.route('**/api/autonomy/plan', async (route) => {
+    if (route.request().method() === 'PUT') {
+      writes++;
+      if (writes === 1) return route.fulfill({ status: 503, json: {} });
+      config.responsibilities.lighting.rules = [plan.rule as any];
+      return route.fulfill({ json: config });
+    }
+    reads++;
+    if (reads === 1) {
+      await pending;
+      return route.fulfill({
+        json: {
+          type: 'clarify',
+          message: 'Should the lights change at kickoff?',
+        },
+      });
+    }
+    expect(route.request().postDataJSON().instructions).toContain('At kickoff');
+    return route.fulfill({ json: plan });
+  });
+  await navigate(page, 'Autonomy');
+  await page
+    .getByLabel('What should Daedalus do?')
+    .fill(
+      'Set Go Steelers! lights on Sundays, Mondays and Thursdays, September through February.',
+    );
+  await page.getByRole('button', { name: 'Preview automation' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Reading instructions…' }),
+  ).toBeDisabled();
+  release();
+  await page.getByLabel('Your answer').fill('At kickoff');
+  await page.getByRole('button', { name: 'Preview automation' }).click();
+  await expect(
+    page.getByText('Sun, Mon, Thu · Sep, Oct, Nov, Dec, Jan, Feb (Eastern)', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(writes).toBe(0);
+  const save = page.getByRole('button', {
+    name: 'Save automation',
+    exact: true,
+  });
+  await save.click();
+  await expect(
+    page
+      .getByRole('alert')
+      .filter({ hasText: 'Your changes have not been confirmed' }),
+  ).toBeVisible();
+  await expect(save).toBeEnabled();
+  await expect(page.getByLabel('What should Daedalus do?')).toHaveValue(
+    /Go Steelers!/,
+  );
+  await expect(
+    page
+      .getByRole('alert')
+      .filter({ hasText: 'Could not save. Your draft is still here' }),
+  ).toBeVisible();
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page
+    .getByRole('region', { name: 'Describe an automation' })
+    .screenshot({ path: testInfo.outputPath('autonomy-instructions.png') });
+
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  await assertFits(page);
+  await page.screenshot({
+    path: testInfo.outputPath('autonomy-instructions-preview.png'),
+  });
+  await save.click();
+  await expect(page.getByLabel('What should Daedalus do?')).toHaveValue('');
+  expect(writes).toBe(2);
+});
+
+test('Autonomy keeps long results compact with keyboard-accessible details', async ({
+  page,
+}) => {
+  await openApp(page);
+  const summary =
+    'One lamp is offline. ' +
+    'Verified the reachable lights and recorded their current states. '.repeat(
+      35,
+    );
+  const benefit =
+    'Check repeated failures. ' +
+    'Compare recent outcomes with the next check. '.repeat(35);
+  await page.route('**/api/autonomy/state', (route) =>
+    route.fulfill({
+      json: {
+        version: 2,
+        actions: {},
+        summaries: [
+          {
+            id: 'today',
+            date: '2026-11-08',
+            createdAt: 0,
+            title: 'Daily summary',
+            message: '',
+            items: [
+              {
+                responsibility: 'lighting',
+                status: 'partial',
+                summary,
+                skipped: ['Office lamp'],
+                evidence: [{ description: 'Device state read back.' }],
+              },
+            ],
+          },
+        ],
+        proposals: {
+          idea: {
+            id: 'idea',
+            title: 'Recheck failures',
+            benefit,
+            trigger: 'After a failed check',
+            actions: 'Compare outcomes',
+            requiredAccess: 'Existing read access',
+            limits: 'Read only',
+            status: 'proposed',
+            updatedAt: 0,
+          },
+        },
+      },
+    }),
+  );
+  await navigate(page, 'Autonomy');
+  for (const text of [summary, benefit]) {
+    const preview = page.locator('summary').filter({ hasText: text });
+    const line = preview.locator('span').first();
+    await expect(line).toHaveCSS('-webkit-line-clamp', '2');
+    await preview.focus();
+    await preview.press('Enter');
+    await expect(line).toHaveCSS('-webkit-line-clamp', 'none');
+    if (text === summary) {
+      await expect(page.getByText('Skipped: Office lamp')).toBeVisible();
+      await expect(page.getByText('Device state read back.')).toBeVisible();
+    }
+    await preview.press('Enter');
+    await expect(line).toHaveCSS('-webkit-line-clamp', '2');
+  }
+  await assertFits(page);
+});

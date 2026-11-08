@@ -59,6 +59,7 @@ class Peers:
         self.image_disconnected = threading.Event()
         self.image_requests = []
         self.direct_requests = []
+        self.autonomy_plans = []
 
     def handler(self):
         peers = self
@@ -135,6 +136,30 @@ class Peers:
                             body[key] = int(body[key])
                 else:
                     body = json.loads(raw)
+                if (
+                    body.get("messages", [{}])[0]
+                    .get("content", "")
+                    .startswith("Translate the user's automation request")
+                ):
+                    peers.autonomy_plans.append(body)
+                    self.reply(
+                        {
+                            "choices": [
+                                {
+                                    "finish_reason": "stop",
+                                    "message": {
+                                        "content": json.dumps(
+                                            {
+                                                "type": "clarify",
+                                                "message": "Should the lights change at kickoff?",
+                                            }
+                                        )
+                                    },
+                                }
+                            ]
+                        }
+                    )
+                    return
                 if body.get("metadata", {}).get("direct_contract") == "true":
                     peers.direct_requests.append((self.path, body))
                     if body["metadata"].get("ignore_controls") == "true":
@@ -747,7 +772,15 @@ class Peers:
                             )
                         if name == "submit_autonomous_result":
                             arguments = json.dumps(
-                                {"summary": "Validated autonomous result."}
+                                {
+                                    "outcome": {
+                                        "status": "completed",
+                                        "summary": "Validated autonomous result.",
+                                        "evidence": [
+                                            {"description": "Datetime tool completed."}
+                                        ],
+                                    }
+                                }
                             )
                         item = {
                             "type": "function_call",
@@ -1142,7 +1175,14 @@ def write_report(report, captured_requests, status):
     )
 
 
-def check(image=None, binary=None, redis_image=None, preparation="rust", report=None):
+def check(
+    image=None,
+    binary=None,
+    redis_image=None,
+    preparation="rust",
+    report=None,
+    autonomy_plan_only=False,
+):
     if os.sys.flags.optimize:
         raise RuntimeError("Run runtime contracts without Python optimization")
     docker = shutil.which("docker")
@@ -1267,7 +1307,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
         path.write_text(yaml.safe_dump(config))
         path.chmod(0o644)
         env = {
-            "DAEDALUS_COMPAT_MODEL_ENABLED": "true",
+            "DAEDALUS_COMPAT_MODEL_ENABLED": "false" if autonomy_plan_only else "true",
             "DAEDALUS_COMPAT_MODEL_NAME": "",
             "DAEDALUS_PREPARATION": preparation,
             "DAEDALUS_AUTHORIZATION": "rust" if preparation == "rust" else "python",
@@ -1409,6 +1449,58 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     ).status_code
                     == 404
                 )
+
+                plan_url = base + "/internal/autonomy/plan"
+                assert client.post(plan_url, json={}).status_code == 401
+                if preparation == "rust":
+                    assert (
+                        client.post(plan_url, headers=headers, json={}).status_code
+                        == 400
+                    )
+                    before = len(peers.calls)
+                    planned = client.post(
+                        plan_url,
+                        headers=headers,
+                        json={
+                            "instructions": "Use Go Steelers! on Sundays, Mondays and Thursdays from September through February.",
+                            "context": {"settings": {}},
+                            "tools": [{"type": "function", "name": "write_item"}],
+                        },
+                    )
+                    assert planned.status_code == 200, planned.text
+                    assert (
+                        json.loads(planned.json()["choices"][0]["message"]["content"])[
+                            "type"
+                        ]
+                        == "clarify"
+                    )
+                    sent = peers.autonomy_plans[-1]
+                    assert "tools" not in sent and "tool_choice" not in sent
+                    assert sent["stream"] is False and sent["store"] is False
+                    assert sent["model"] == "fixture"
+                    assert len(peers.calls) == before, "Preview executed a tool"
+                    if autonomy_plan_only:
+                        assert (
+                            client.post(
+                                base + "/internal/model/chat/completions",
+                                headers=headers,
+                                json={"model": "daedalus-model"},
+                            ).status_code
+                            == 404
+                        )
+                        print(
+                            "Autonomy planning passed with public model compatibility disabled; authenticated, tool-free, and stateless."
+                        )
+                        return
+                else:
+                    assert (
+                        client.post(
+                            plan_url,
+                            headers=headers,
+                            json={"instructions": "Test", "context": {}},
+                        ).status_code
+                        == 503
+                    )
 
                 if preparation == "rust":
                     for endpoint in ("chat/completions", "responses"):
@@ -1861,8 +1953,29 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     ] == ["fixture/autonomy", "fixture/autonomy"]
                 output_schema = {
                     "type": "object",
-                    "properties": {"summary": {"type": "string"}},
-                    "required": ["summary"],
+                    "properties": {
+                        "outcome": {
+                            "type": "object",
+                            "properties": {
+                                "status": {"const": "completed"},
+                                "summary": {"type": "string"},
+                                "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "description": {"type": "string"}
+                                        },
+                                        "required": ["description"],
+                                        "additionalProperties": False,
+                                    },
+                                },
+                            },
+                            "required": ["status", "summary", "evidence"],
+                            "additionalProperties": False,
+                        }
+                    },
+                    "required": ["outcome"],
                     "additionalProperties": False,
                 }
                 before = len(peers.requests)
@@ -1878,9 +1991,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     if line.startswith("data: ") and line != "data: [DONE]"
                     for choice in json.loads(line[6:]).get("choices", [])
                 )
-                assert json.loads(visible) == {
-                    "summary": "Validated autonomous result."
-                }
+                published = json.loads(visible)
+                assert published["outcome"]["summary"] == "Validated autonomous result."
+                assert published["outcome"]["status"] == "completed"
+                assert (
+                    published["outcome"]["evidence"][0]["description"]
+                    == "Datetime tool completed."
+                )
                 assert len(peers.requests) - before == 3
                 assert response.count("Function Start: current_datetime_tool") == 1
                 before = len(peers.requests)
@@ -2764,5 +2881,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--report", help="Synthetic requests for differential comparison"
     )
+    parser.add_argument(
+        "--autonomy-plan-only",
+        action="store_true",
+        help="Check private planning with public model compatibility disabled",
+    )
     args = parser.parse_args()
-    check(args.image, args.binary, args.redis_image, args.preparation, args.report)
+    check(
+        args.image,
+        args.binary,
+        args.redis_image,
+        args.preparation,
+        args.report,
+        args.autonomy_plan_only,
+    )

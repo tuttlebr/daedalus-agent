@@ -724,6 +724,10 @@ fn router(app: App) -> Router {
             post(model_endpoint::responses).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
         )
         .route(
+            "/internal/autonomy/plan",
+            post(model_endpoint::autonomy_plan).layer(DefaultBodyLimit::max(64 * 1024)),
+        )
+        .route(
             "/v1/runs/{run_id}/control",
             post(control).layer(DefaultBodyLimit::max(32 * 1024)),
         )

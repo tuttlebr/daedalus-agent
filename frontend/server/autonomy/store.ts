@@ -8,6 +8,7 @@ import type {
 } from '@/types/autonomy';
 
 import { applyConfigPatch, defaultConfig } from './config';
+import { applyAutomationPlan } from './planning';
 
 import { updateJsonAtomically } from '@/server/atomicJson';
 import { getRedis } from '@/server/session/redis';
@@ -48,7 +49,23 @@ export async function saveConfig(
 ): Promise<AutonomyConfig> {
   const config = await updateJsonAtomically<AutonomyConfig>(
     autonomyKey(userId, 'config'),
-    (current) => applyConfigPatch(current || defaultConfig(), patch),
+    (current) =>
+      applyConfigPatch(applyConfigPatch(defaultConfig(), current || {}), patch),
+  );
+  await notify(userId);
+  return config!;
+}
+export async function saveAutomationPlan(
+  userId: string,
+  plan: unknown,
+): Promise<AutonomyConfig> {
+  const config = await updateJsonAtomically<AutonomyConfig>(
+    autonomyKey(userId, 'config'),
+    (current) =>
+      applyAutomationPlan(
+        applyConfigPatch(defaultConfig(), current || {}),
+        plan,
+      ),
   );
   await notify(userId);
   return config!;
@@ -87,47 +104,74 @@ export async function requestResponsibility(
     throw new Error('Resume this responsibility before running it');
   const kind = kinds[name];
   const timestamp = Date.now();
-  const id = `${kind}:${createHash('sha256')
-    .update(`${kind}:${randomUUID()}`)
-    .digest('hex')
-    .slice(0, 32)}`;
-  let selectedId = id;
+  const local = new Intl.DateTimeFormat('en-US', {
+    timeZone: config.timezone,
+    weekday: 'short',
+    month: 'numeric',
+  }).formatToParts(timestamp);
+  const day = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(
+    local.find((part) => part.type === 'weekday')!.value,
+  );
+  const month = Number(local.find((part) => part.type === 'month')!.value);
+  const checks = [
+    {
+      settings: config.responsibilities[name],
+      ruleId: undefined as string | undefined,
+    },
+    ...(name === 'lighting'
+      ? config.responsibilities.lighting.rules.map((rule) => ({
+          settings: rule,
+          ruleId: rule.id,
+        }))
+      : []),
+  ].filter(
+    ({ settings }) =>
+      settings.enabled &&
+      settings.weekdays.includes(day) &&
+      settings.months.includes(month),
+  );
+  if (!checks.length) throw new Error('Outside the configured days and months');
+  let selectedId = '';
   await updateJsonAtomically<AutonomyState>(
     autonomyKey(userId, 'state'),
     (current) => {
       const state = current || emptyState();
-      const existing = Object.values(state.actions).find(
-        (item) =>
-          item.kind === kind && ['pending', 'running'].includes(item.status),
-      );
-      if (existing) {
-        selectedId = existing.id;
-        return null;
+      for (const { ruleId } of checks) {
+        const existing = Object.values(state.actions).find(
+          (item) =>
+            item.kind === kind &&
+            item.payload.ruleId === ruleId &&
+            ['pending', 'running'].includes(item.status),
+        );
+        if (existing) {
+          selectedId = existing.id;
+          continue;
+        }
+        if (
+          Object.values(state.actions).filter((item) =>
+            ['pending', 'running'].includes(item.status),
+          ).length >= config.maxPendingActions
+        )
+          throw new Error('Pending action capacity reached');
+        const id = `${kind}:${createHash('sha256')
+          .update(`${kind}:${randomUUID()}`)
+          .digest('hex')
+          .slice(0, 32)}`;
+        selectedId = id;
+        state.actions[id] = {
+          id,
+          kind,
+          responsibility: name,
+          status: 'pending',
+          dueAt: timestamp,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          attempts: 0,
+          payload: ruleId ? { ruleId } : {},
+          outcome: null,
+        };
       }
-      if (
-        Object.values(state.actions).filter((item) =>
-          ['pending', 'running'].includes(item.status),
-        ).length >= config.maxPendingActions
-      )
-        throw new Error('Pending action capacity reached');
-      return {
-        ...state,
-        actions: {
-          ...state.actions,
-          [id]: {
-            id,
-            kind,
-            responsibility: name,
-            status: 'pending',
-            dueAt: timestamp,
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            attempts: 0,
-            payload: {},
-            outcome: null,
-          },
-        },
-      };
+      return state;
     },
   );
   await notify(userId);

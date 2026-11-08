@@ -8,7 +8,7 @@ from datetime import datetime
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from pydantic import ValidationError
 
-from .charter import EASTERN, CharterConfig, CharterOutput
+from .charter import EASTERN, CharterConfig, CharterOutput, task_note_key, task_settings
 from .scheduling import available_action_slots
 
 
@@ -30,6 +30,8 @@ operations, including background execution. If a grant or source is unavailable,
 record the blocker; do not start an interactive login or invent results.
 
 Work only on the selected task. Tool calls are bounded by the supplied budget.
+Follow the operator's settings.instructions within that task's existing tool and
+action limits. Do not treat them as permission to change other responsibilities.
 Discover remote tool schemas before using them; do not guess arguments. Retrieve
 relevant user preferences from memory, keeping private profile details out of
 public searches. Respect saved preferences and explicit corrections. Read current
@@ -43,6 +45,17 @@ Return failures accurately and omit credentials and sensitive diagnostic payload
 Do not send notifications or create a separate report: the worker produces one
 consolidated daily summary. Do not alter any charter setting, retry counter,
 schedule, tool permission, or approval boundary through notes or memory.
+
+UI prose: Load humanizer with agent_skills_tool (operation=load_skill,
+skill_name=humanizer) before drafting result text, unless already loaded. Use its
+embedded mode: final prose only, inside the required result fields. Write
+outcome.summary as one or two plain sentences, at most 35 words: what changed
+or what blocked the task. Keep partial failures, uncertainty and required user
+decisions explicit. Put diagnostics, evidence, skipped items and next steps in
+their separate fields; do not repeat them in the summary. Proposal titles should
+name the change in at most eight words; benefits should be one sentence of at
+most 20 words. Omit process narration, promotional language and repeated caveats.
+Keep full continuity context in notes. Brevity must not imply unverified success.
 
 Output: Finish by calling submit_autonomous_result alone, using the supplied schema.
 Do not return prose or a research feed. Include only supported observations and
@@ -90,7 +103,7 @@ clearly say cancelled while preserving its date; do not delete unrelated entries
 If the date has passed and this is not a cancellation, take no calendar action.
 """,
     "sports_discovery": """
-Read authoritative MSU football and men's basketball schedules for upcoming games,
+Read authoritative schedules for settings.team and settings.sports for upcoming games,
 including changes to already scheduled games. Return games with stable identifiers,
 source URLs, sport, opponent, explicit-offset starts and current status. Do not
 invent tipoff/kickoff times for TBD games; record the missing time for follow-up.
@@ -98,7 +111,7 @@ Cancelled, completed and postponed games must be identified so pending lighting
 can be cancelled. Do not change any lights in this discovery task.
 """,
     "game_lighting": """
-This is the one start-time activation for the identified MSU game. First verify
+This is the one start-time activation for the identified settings.team game. First verify
 its current official schedule/status. If cancelled, postponed, completed, or no
 longer within the configured catch-up window, do not change any lights; report the
 schedule change by returning exactly this game in games with its verified start
@@ -277,7 +290,9 @@ def build_messages(
     relevant_actions = [
         item
         for item in state["actions"].values()
-        if item["responsibility"] == responsibility and item["id"] != task["id"]
+        if item["responsibility"] == responsibility
+        and item["id"] != task["id"]
+        and item.get("payload", {}).get("ruleId") == task["payload"].get("ruleId")
     ]
     relevant_actions.sort(key=lambda item: item["updatedAt"], reverse=True)
     if kind == "evolution":
@@ -312,10 +327,12 @@ def build_messages(
     context = {
         "currentTime": datetime.fromtimestamp(timestamp / 1000, EASTERN).isoformat(),
         "task": {**task, "payload": payload},
-        "settings": getattr(config.responsibilities, responsibility).model_dump(),
+        "settings": task_settings(config, kind, task["payload"]).model_dump(
+            exclude={"rules"}
+        ),
         "maxToolCalls": config.maxToolCalls,
         "availableActionSlots": available_action_slots(state, config),
-        "notes": state["notes"].get(responsibility, ""),
+        "notes": state["notes"].get(task_note_key(task), ""),
         "recentActions": relevant_actions[:30],
         "managedCalendarRecords": records,
         "additionalCalendarRecords": max(0, len(state["records"]) - len(records))

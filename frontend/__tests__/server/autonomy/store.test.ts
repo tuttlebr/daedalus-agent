@@ -187,3 +187,41 @@ it.each(['pending', 'running'])(
     );
   },
 );
+
+it('checks independent lighting rules once and respects their calendar windows', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(
+    Date.parse('2026-11-08T12:00:00-05:00'),
+  );
+  try {
+    await saveConfig('alice', {
+      responsibilities: {
+        lighting: {
+          rules: [
+            {
+              id: 'sunday',
+              title: 'Sunday lights',
+              weekdays: [6],
+              months: [11],
+            },
+            {
+              id: 'monday',
+              title: 'Monday lights',
+              weekdays: [0],
+              months: [11],
+            },
+          ],
+        },
+      },
+    });
+    await requestResponsibility('alice', 'lighting');
+    await requestResponsibility('alice', 'lighting');
+    const actions = Object.values((await getState('alice')).actions);
+    expect(actions).toHaveLength(2);
+    expect(actions.map((item) => item.payload.ruleId)).toEqual([
+      undefined,
+      'sunday',
+    ]);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});

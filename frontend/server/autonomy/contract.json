@@ -7,6 +7,9 @@
       "calendar": {
         "enabled": true,
         "intervalSeconds": 21600,
+        "instructions": "",
+        "weekdays": [0, 1, 2, 3, 4, 5, 6],
+        "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "calendarId": "",
         "sources": ["https://www.salinemi.gov/newslist.php"],
         "preferences": "",
@@ -15,13 +18,22 @@
       "lighting": {
         "enabled": true,
         "intervalSeconds": 21600,
+        "instructions": "",
+        "weekdays": [0, 1, 2, 3, 4, 5, 6],
+        "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "scene": "Go Green!",
         "catchUpMinutes": 15,
-        "lightIds": []
+        "lightIds": [],
+        "team": "Michigan State",
+        "sports": ["football", "mens_basketball"],
+        "rules": []
       },
       "cluster": {
         "enabled": true,
         "intervalSeconds": 900,
+        "instructions": "",
+        "weekdays": [0, 1, 2, 3, 4, 5, 6],
+        "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "contexts": [],
         "excludedNamespaces": [],
         "configurationSource": "cluster_managed",
@@ -30,7 +42,10 @@
       },
       "evolution": {
         "enabled": true,
-        "intervalSeconds": 86400
+        "intervalSeconds": 86400,
+        "instructions": "",
+        "weekdays": [0, 1, 2, 3, 4, 5, 6],
+        "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
       }
     },
     "summary": {
@@ -61,6 +76,34 @@
             "minimum": 300,
             "title": "Intervalseconds",
             "type": "integer"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
           },
           "calendarId": {
             "default": "",
@@ -109,6 +152,34 @@
             "minimum": 300,
             "title": "Intervalseconds",
             "type": "integer"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
           },
           "contexts": {
             "items": {
@@ -163,6 +234,34 @@
             "title": "Intervalseconds",
             "type": "integer"
           },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
+          },
           "scene": {
             "default": "Go Green!",
             "maxLength": 160,
@@ -184,9 +283,134 @@
             "maxItems": 500,
             "title": "Lightids",
             "type": "array"
+          },
+          "team": {
+            "default": "Michigan State",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Team",
+            "type": "string"
+          },
+          "sports": {
+            "items": {
+              "enum": ["football", "mens_basketball"],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Sports",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/LightingRule"
+            },
+            "maxItems": 20,
+            "title": "Rules",
+            "type": "array"
           }
         },
         "title": "LightingConfig",
+        "type": "object"
+      },
+      "LightingRule": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 21600,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
+          },
+          "scene": {
+            "default": "Go Green!",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Scene",
+            "type": "string"
+          },
+          "catchUpMinutes": {
+            "default": 15,
+            "maximum": 60,
+            "minimum": 0,
+            "title": "Catchupminutes",
+            "type": "integer"
+          },
+          "lightIds": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Lightids",
+            "type": "array"
+          },
+          "team": {
+            "default": "Michigan State",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Team",
+            "type": "string"
+          },
+          "sports": {
+            "items": {
+              "enum": ["football", "mens_basketball"],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Sports",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id", "title"],
+        "title": "LightingRule",
         "type": "object"
       },
       "Responsibilities": {
@@ -222,6 +446,34 @@
             "minimum": 300,
             "title": "Intervalseconds",
             "type": "integer"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
           }
         },
         "title": "ResponsibilityConfig",

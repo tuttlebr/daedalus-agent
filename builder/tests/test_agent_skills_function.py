@@ -1,6 +1,7 @@
 """Tests for the agent_skills dispatcher and script-execution safety."""
 
 import asyncio
+from pathlib import Path
 from unittest.mock import MagicMock
 
 
@@ -160,6 +161,28 @@ def test_dispatch_lists_then_loads_skill_instructions(tmp_path):
 
     assert '"name": "safe-skill"' in listed
     assert loaded.startswith("Use safely.")
+
+
+def test_bundled_humanizer_loads_through_the_runtime_dispatcher():
+    async def _run():
+        from agent_skills.agent_skills_function import (
+            AgentSkillsConfig,
+            agent_skills_function,
+        )
+
+        async for item in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(Path(__file__).resolve().parents[2] / "skills"),
+                allow_script_execution=False,
+            ),
+            MagicMock(),
+        ):
+            return await item.fn(operation="load_skill", skill_name="humanizer")
+
+    loaded = run(_run())
+    assert loaded.startswith("# Humanizer:")
+    assert "**Embedded mode.**" in loaded
+    assert "references/upstream.md" in loaded
 
 
 def test_sanitized_env_is_allowlist(monkeypatch):

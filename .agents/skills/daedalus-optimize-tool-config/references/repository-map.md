@@ -82,6 +82,27 @@ six actions per responsibility plus scoped settings and continuity notes; other
 tasks retain their own context. Cluster checks revisit Daedalus diagnostics and
 prior repairs, while evolution remains read-only apart from authorized memory.
 Feedback is preference data, not permission for self-deployment or new actions.
+Autonomous result text uses `skills/humanizer/SKILL.md` in embedded mode while
+retaining the completion schema. The worker prompt requests summaries of at most
+35 words and proposal benefits of at most 20 words. These are writing instructions,
+not schema bounds; the dashboard previews two lines and expands full results and
+evidence through Details, including reports stored before these instructions.
+
+Natural-language automation authoring uses
+`frontend/components/autonomy/AutomationComposer.tsx`,
+`frontend/pages/api/autonomy/plan.ts` and
+`frontend/server/autonomy/planning.ts`. The private planning endpoint in
+`builder/runtime/src/model_endpoint.rs` uses the main model without tools or
+persistence, independently of public model compatibility. Preview never activates
+work; the frontend validates the model output against the generated charter
+contract before applying a reviewed plan. Lighting rules have independent IDs,
+teams, notes and schedules; `builder/autonomous_agent/src/autonomous_agent/scheduling.py`
+and the store/worker gates enforce Eastern weekday/month windows. Keep the
+supported planner fields, worker capabilities and UI preview aligned. Run
+`builder/runtime_http_check.py` with `--autonomy-plan-only` against a built image
+to verify private inference with public compatibility disabled; the normal HTTP
+suite also covers this endpoint. This fixture validates routing and side-effect
+boundaries, not real-model interpretation quality.
 
 The main chat prompt routes prose rewrites and reviews to
 `skills/prose-editing/SKILL.md`. Keep its editing rules available on demand while

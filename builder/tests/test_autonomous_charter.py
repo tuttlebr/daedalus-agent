@@ -549,3 +549,140 @@ def test_periodic_scheduling_respects_pending_capacity_and_retries_when_space_op
     schedule(state, config, NOW)
     assert sum(item["status"] == "pending" for item in state["actions"].values()) == 10
     assert "calendar_discovery" in state["schedules"]
+
+
+def steelers_config():
+    return CharterConfig.model_validate(
+        {
+            "responsibilities": {
+                "lighting": {
+                    "rules": [
+                        {
+                            "id": "steelers",
+                            "title": "Steelers kickoff",
+                            "team": "Pittsburgh Steelers",
+                            "sports": ["football"],
+                            "scene": "Go Steelers!",
+                            "weekdays": [6, 0, 3],
+                            "months": [9, 10, 11, 12, 1, 2],
+                            "intervalSeconds": 3600,
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("when", "allowed"),
+    [
+        ("2026-11-08T13:00:00-05:00", True),  # Sunday
+        ("2026-11-09T20:00:00-05:00", True),  # Monday
+        ("2026-11-12T20:00:00-05:00", True),  # Thursday
+        ("2026-11-07T13:00:00-05:00", False),  # Saturday
+        ("2027-02-28T23:59:59-05:00", True),
+        ("2027-03-01T00:00:00-05:00", False),
+        ("2026-09-03T20:00:00-04:00", True),
+        ("2026-08-31T20:00:00-04:00", False),
+        ("2026-11-10T02:00:00Z", True),  # still Monday locally
+    ],
+)
+def test_rule_windows_gate_discovery_and_claims(when, allowed):
+    from autonomous_agent.charter import task_enabled
+
+    state, config, now = empty_state(), steelers_config(), ms(when)
+    schedule(state, config, now)
+    checks = [
+        item
+        for item in state["actions"].values()
+        if item["payload"].get("ruleId") == "steelers"
+    ]
+    assert bool(checks) == allowed
+    assert (
+        task_enabled(config, "sports_discovery", {"ruleId": "steelers"}, now) == allowed
+    )
+    # A previously queued check also cannot bypass the window.
+    task = action("sports_discovery", "queued", now, payload={"ruleId": "steelers"})
+    state["actions"] = {task["id"]: task}
+    assert bool(select_due(state, config, now)) == allowed
+
+
+def test_lighting_rules_keep_separate_schedules_notes_and_game_identity():
+    state, config = empty_state(), steelers_config()
+    now = ms("2026-11-08T12:00:00-05:00")
+    schedule(state, config, now)
+    checks = [
+        item for item in state["actions"].values() if item["kind"] == "sports_discovery"
+    ]
+    assert len(checks) == 2
+    observed = output(
+        games=[game(start="2026-11-08T13:00:00-05:00")],
+        notes="Keep this rule's schedule.",
+    )
+    for check in checks:
+        accept_observations(state, check, observed, config, now)
+    games = [
+        item for item in state["actions"].values() if item["kind"] == "game_lighting"
+    ]
+    assert len(games) == 2
+    assert {item["payload"].get("ruleId") for item in games} == {None, "steelers"}
+    assert state["notes"]["lighting:steelers"] == observed.notes
+    assert state["notes"]["lighting"] == observed.notes
+    config.responsibilities.lighting.rules.clear()
+    schedule(state, config, now)
+    assert "lighting:steelers" not in state["notes"]
+    assert "sports_discovery:steelers" not in state["schedules"]
+    assert all(
+        item["status"] == "cancelled"
+        for item in state["actions"].values()
+        if item["payload"].get("ruleId")
+    )
+    assert any(
+        item["status"] == "pending"
+        for item in games
+        if not item["payload"].get("ruleId")
+    )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"start": "2026-11-10T13:00:00-05:00"},
+        {"start": "2027-03-01T13:00:00-05:00"},
+        {"sport": "mens_basketball", "start": "2026-11-08T13:00:00-05:00"},
+    ],
+)
+def test_discovered_games_cannot_bypass_rule_filters(override):
+    state, config = empty_state(), steelers_config()
+    task = action("sports_discovery", "steelers", NOW, payload={"ruleId": "steelers"})
+    accept_observations(state, task, output(games=[game(**override)]), config, NOW)
+    assert all(item["status"] == "cancelled" for item in state["actions"].values())
+
+
+def test_legacy_settings_gain_defaults_and_duplicate_windows_are_rejected():
+    config = CharterConfig.model_validate(
+        {"responsibilities": {"lighting": {"scene": "Old scene"}}}
+    )
+    assert config.responsibilities.lighting.team == "Michigan State"
+    assert config.responsibilities.lighting.rules == []
+    with pytest.raises(ValidationError):
+        CharterConfig.model_validate(
+            {"responsibilities": {"lighting": {"weekdays": [0, 0]}}}
+        )
+
+
+def test_pending_game_respects_changed_sport_filter_before_dispatch():
+    state, config = empty_state(), steelers_config()
+    now = ms("2026-11-08T13:00:00-05:00")
+    task = action("sports_discovery", "steelers", now, payload={"ruleId": "steelers"})
+    accept_observations(
+        state,
+        task,
+        output(games=[game(start="2026-11-08T13:00:00-05:00")]),
+        config,
+        now,
+    )
+    config.responsibilities.lighting.rules[0].sports = ["mens_basketball"]
+    assert select_due(state, config, now) is None
+    assert all(item["status"] == "cancelled" for item in state["actions"].values())

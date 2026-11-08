@@ -42,6 +42,11 @@ Before submitting, run the hooks on Python 3.12 as CI does:
 `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`.
 Python hook results depend on the interpreter that runs pre-commit.
 
+Use [humanizer](skills/humanizer/SKILL.md) when writing or reviewing UI prose,
+including instructions that generate user-visible results. Keep labels and
+summaries short and concrete. Put supporting details behind an explicit control;
+avoid slogans, capability explanations and repeated caveats in the default view.
+
 ## Testing Guidelines
 
 Name pytest files `test_*.py`, Vitest tests `*.test.ts`/`*.test.tsx` (build and CI

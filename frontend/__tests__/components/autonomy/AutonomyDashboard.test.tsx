@@ -55,7 +55,7 @@ it('shows compact responsibilities and a single briefing without history or sett
   expect(container.textContent).toContain('Calendar');
   expect(container.textContent).toContain('Home');
   expect(container.textContent).toContain('18:00 Eastern');
-  expect(container.textContent).toContain('Your first summary');
+  expect(container.textContent).toContain('No briefing yet.');
   expect(container.textContent).not.toContain(
     'Scheduled work and action history',
   );
@@ -109,7 +109,7 @@ it('does not present a failed load as an empty successful dashboard', async () =
   expect(container.querySelector('[role="alert"]')?.textContent).toContain(
     'unavailable',
   );
-  expect(container.textContent).not.toContain('Your first summary');
+  expect(container.textContent).not.toContain('No briefing yet.');
 });
 
 it('records useful-idea feedback without representing it as new action authority', async () => {
@@ -149,9 +149,7 @@ it('records useful-idea feedback without representing it as new action authority
           options?.body === '{"operation":"accept","id":"idea"}',
       ),
   ).toBe(true);
-  expect(container.textContent).toContain(
-    'does not yet have permission to act',
-  );
+  expect(container.textContent).toContain('No automation enabled.');
 });
 
 function button(name: string) {
@@ -221,7 +219,7 @@ it('retains the last good state on refresh failure and can recover', async () =>
     'last saved activity',
   );
   expect(button('Refresh').disabled).toBe(false);
-  expect(container.textContent).toContain('In your corner');
+  expect(container.textContent).toContain('Automations');
   vi.mocked(fetch).mockImplementation(async (url) =>
     response(String(url).endsWith('/config') ? config : state),
   );
@@ -254,7 +252,7 @@ it('rejects a stale refresh started before a pause', async () => {
   await act(async () => button('Pause all').click());
   await act(async () => oldRead.resolve(response({ ...config, ...state })));
   expect(button('Resume all')).toBeDefined();
-  expect(container.textContent).toContain('Ready when you are');
+  expect(container.textContent).toContain('Autonomy paused');
 });
 async function upload(patch: string, size = patch.length) {
   const input = container.querySelector('input[type=file]')!;

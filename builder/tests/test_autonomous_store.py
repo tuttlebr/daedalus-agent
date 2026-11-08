@@ -217,3 +217,35 @@ def test_corrupt_state_is_not_silently_replaced(store_user):
     with pytest.raises(ValueError):
         store.prepare(user)
     assert store.redis.get(key(user, "state")) == raw
+
+
+def test_claim_rechecks_rule_window_after_selection(store_user, monkeypatch):
+    from datetime import datetime
+
+    store, user = store_user
+    config = CharterConfig.model_validate(
+        {
+            "responsibilities": {
+                "lighting": {
+                    "rules": [
+                        {
+                            "id": "steelers",
+                            "title": "Steelers kickoff",
+                            "weekdays": [6],
+                            "months": [11],
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    store.redis.set(key(user, "config"), config.model_dump_json())
+    sunday = int(datetime.fromisoformat("2026-11-08T23:59:59-05:00").timestamp() * 1000)
+    item = action(
+        "sports_discovery", "steelers", sunday, payload={"ruleId": "steelers"}
+    )
+    store.update(user, lambda state, _: state["actions"].update({item["id"]: item}))
+    monkeypatch.setattr("autonomous_agent.store.now_ms", lambda: sunday + 2000)
+    assert store.claim(user, item["id"]) is None
+    monkeypatch.setattr("autonomous_agent.store.now_ms", lambda: sunday)
+    assert store.claim(user, item["id"]) is not None

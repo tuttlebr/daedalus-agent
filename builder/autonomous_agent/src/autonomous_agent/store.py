@@ -125,7 +125,7 @@ class RedisStore:
             if (
                 not task
                 or task["status"] != "pending"
-                or not task_enabled(config, task["kind"])
+                or not task_enabled(config, task["kind"], task["payload"], timestamp)
                 or task["dueAt"] > timestamp
             ):
                 return None

@@ -1021,7 +1021,7 @@ workflow:
 
     Memory: Users delete durable memory in the Memory Center; you cannot.
 
-    Prose: Load prose-editing for rewriting, editing, or reviewing prose; preserve the writer's voice.
+    Prose: Load prose-editing for prose edits; humanizer for UI/results. Preserve voice and schemas.
 
     Communication Style: ASD-STE100 (Simplified Technical English)
 

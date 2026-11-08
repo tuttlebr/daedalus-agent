@@ -15,10 +15,13 @@ from .charter import (
     CalendarEvent,
     CharterConfig,
     CharterOutput,
+    in_window,
     instant,
     revision,
     stable_id,
     task_enabled,
+    task_note_key,
+    task_settings,
 )
 
 PERIODIC = {
@@ -33,7 +36,12 @@ EVENT_KINDS = {"calendar_event", "game_lighting"}
 def available_action_slots(state: dict, config: CharterConfig) -> int:
     # Keep one slot per periodic responsibility and one for reporting so a busy
     # calendar cannot prevent health checks or discovery of an upcoming game.
-    capacity = config.maxPendingActions - len(PERIODIC) - 1
+    capacity = (
+        config.maxPendingActions
+        - len(PERIODIC)
+        - len(config.responsibilities.lighting.rules)
+        - 1
+    )
     pending = sum(
         item["kind"] in EVENT_KINDS and item["status"] in {"pending", "running"}
         for item in state["actions"].values()
@@ -82,25 +90,49 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
     if not config.enabled:
         return
     actions = state["actions"]
+    rule_ids = {rule.id for rule in config.responsibilities.lighting.rules}
+    for mapping, prefix in [
+        (state["schedules"], "sports_discovery:"),
+        (state["notes"], "lighting:"),
+    ]:
+        for name in list(mapping):
+            if name.startswith(prefix) and name[len(prefix) :] not in rule_ids:
+                del mapping[name]
+    for item in actions.values():
+        if (
+            item["status"] == "pending"
+            and item["payload"].get("ruleId")
+            and task_settings(config, item["kind"], item["payload"]) is None
+        ):
+            item.update(status="cancelled", updatedAt=timestamp)
     pending = sum(item["status"] in {"pending", "running"} for item in actions.values())
-    for kind, name in PERIODIC.items():
-        settings = getattr(config.responsibilities, name)
-        if not settings.enabled:
+    checks = [(kind, {}) for kind in PERIODIC]
+    checks.extend(
+        ("sports_discovery", {"ruleId": rule.id})
+        for rule in config.responsibilities.lighting.rules
+    )
+    for kind, payload in checks:
+        settings = task_settings(config, kind, payload)
+        if not task_enabled(config, kind, payload, timestamp):
             continue
+        schedule_key = f"{kind}:{payload['ruleId']}" if payload else kind
         if any(
-            item["kind"] == kind and item["status"] in {"pending", "running"}
+            item["kind"] == kind
+            and item["payload"].get("ruleId") == payload.get("ruleId")
+            and item["status"] in {"pending", "running"}
             for item in actions.values()
         ):
             continue
-        last = state["schedules"].get(kind)
+        last = state["schedules"].get(schedule_key)
         if last is not None and timestamp - last < settings.intervalSeconds * 1000:
             continue
         if pending >= config.maxPendingActions:
             continue
-        item = action(kind, str(timestamp), timestamp)
+        identity = f"{payload['ruleId']}:{timestamp}" if payload else str(timestamp)
+        item = action(kind, identity, timestamp, payload=payload)
         actions[item["id"]] = item
         pending += 1
-        state["schedules"][kind] = timestamp
+        state["schedules"][schedule_key] = timestamp
 
     local = datetime.fromtimestamp(timestamp / 1000, EASTERN)
     if local.strftime("%H:%M") >= config.summary.time:
@@ -119,14 +151,20 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
 def select_due(state: dict, config: CharterConfig, timestamp: int) -> dict | None:
     eligible = []
     for item in state["actions"].values():
-        if item["status"] != "pending" or not task_enabled(config, item["kind"]):
+        if item["status"] != "pending" or not task_enabled(
+            config, item["kind"], item["payload"]
+        ):
             continue
         if item["dueAt"] > timestamp:
             continue
         if item["kind"] == "game_lighting":
-            deadline = item["payload"]["startsAt"] + (
-                config.responsibilities.lighting.catchUpMinutes * 60000
-            )
+            settings = task_settings(config, item["kind"], item["payload"])
+            if item["payload"]["sport"] not in settings.sports or not in_window(
+                settings, item["payload"]["startsAt"]
+            ):
+                item.update(status="cancelled", updatedAt=timestamp)
+                continue
+            deadline = item["payload"]["startsAt"] + (settings.catchUpMinutes * 60000)
             if timestamp > deadline:
                 item.update(status="expired", updatedAt=timestamp)
                 item["outcome"] = {
@@ -134,7 +172,8 @@ def select_due(state: dict, config: CharterConfig, timestamp: int) -> dict | Non
                     "summary": "Game lighting was not applied: the start window elapsed.",
                 }
                 continue
-        eligible.append(item)
+        if task_enabled(config, item["kind"], item["payload"], timestamp):
+            eligible.append(item)
     # Time-critical lighting comes first. Otherwise oldest work wins, with a
     # digest after other work already due at its scheduling instant.
     return min(
@@ -246,8 +285,14 @@ def accept_observations(
         candidates.append(item)
 
     for game in output.games:
+        settings = task_settings(config, "sports_discovery", task["payload"])
+        if settings is None:
+            continue
         # Identity excludes start time: a postponed game is the same game.
         identity = f"{game.sport}:{game.sourceKey}"
+        rule_id = task["payload"].get("ruleId")
+        if rule_id:
+            identity = f"{rule_id}:{identity}"
         item_id = stable_id("game_lighting", identity)
         prior = state["actions"].get(item_id)
         if prior and prior.get("cancelledByUser"):
@@ -256,22 +301,28 @@ def accept_observations(
             continue
         starts_at = int(instant(game.start).timestamp() * 1000)
         payload = {**game.model_dump(), "startsAt": starts_at}
+        if rule_id:
+            payload["ruleId"] = rule_id
         item = action(
             "game_lighting", identity, timestamp, due_at=starts_at, payload=payload
         )
-        if game.status != "scheduled":
-            item["status"] = "cancelled"
-        elif (
-            timestamp
-            > starts_at + config.responsibilities.lighting.catchUpMinutes * 60000
+        if (
+            game.status != "scheduled"
+            or game.sport not in settings.sports
+            or not in_window(settings, starts_at)
         ):
+            item["status"] = "cancelled"
+        elif timestamp > starts_at + settings.catchUpMinutes * 60000:
             item["status"] = "expired"
         if prior and prior["status"] == "pending":
             pending -= 1
         candidates.append(item)
     if (
         pending + sum(item["status"] == "pending" for item in candidates)
-        > config.maxPendingActions - len(PERIODIC) - 1
+        > config.maxPendingActions
+        - len(PERIODIC)
+        - len(config.responsibilities.lighting.rules)
+        - 1
     ):
         raise ValueError(
             "Pending action capacity exceeded; observations were not committed"
@@ -288,7 +339,7 @@ def accept_observations(
             "updatedAt": timestamp,
         }
     if output.notes:
-        state["notes"][task["responsibility"]] = output.notes
+        state["notes"][task_note_key(task)] = output.notes
 
 
 def finish(
@@ -343,12 +394,18 @@ def finish(
         task["status"] = "cancelled" if task.get("cancelledByUser") else "failed"
     if rescheduled_game is not None:
         start = int(instant(rescheduled_game.start).timestamp() * 1000)
+        rule_id = task["payload"].get("ruleId")
+        settings = task_settings(config, "game_lighting", task["payload"])
         task["payload"] = {**rescheduled_game.model_dump(), "startsAt": start}
-        if rescheduled_game.status != "scheduled":
-            task["status"] = "cancelled"
-        elif (
-            timestamp > start + config.responsibilities.lighting.catchUpMinutes * 60000
+        if rule_id:
+            task["payload"]["ruleId"] = rule_id
+        if (
+            settings is None
+            or rescheduled_game.status != "scheduled"
+            or not in_window(settings, start)
         ):
+            task["status"] = "cancelled"
+        elif timestamp > start + settings.catchUpMinutes * 60000:
             task["status"] = "expired"
         elif task["status"] == "pending":
             task["dueAt"] = max(start, task["dueAt"])
