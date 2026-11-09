@@ -131,6 +131,13 @@ checks configured service access, and upgrades the release with
 `--wait --atomic`. It verifies deployments and then follows backend
 logs; stop log following with Ctrl+C after the rollout finishes.
 
+Repeated `make deploy` builds the current checkout and upgrades the existing
+release in place. It does not uninstall the release, delete its namespace, or
+remove PVCs. With the release name, namespace and storage settings unchanged,
+existing claims and data are reused. The redeploy annotation rolls application
+pods; it does not itself restart Redis. Storage migration or removal is a
+separate operation, not part of this deployment command.
+
 The command rejects uncommitted source. The development override is
 `DEPLOY_ARGS='--allow-dirty-source'`; review all pending changes before using it.
 `DEPLOY_IMAGE_ARGS` defaults to allowing unsigned development images. For a
