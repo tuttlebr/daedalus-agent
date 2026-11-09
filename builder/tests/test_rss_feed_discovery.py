@@ -414,7 +414,7 @@ def test_runtime_validation_rejects_ambiguous_or_unbounded_requests(monkeypatch)
     asyncio.run(run())
 
 
-def test_reranker_failure_keeps_source_status_and_no_article(monkeypatch):
+def test_reranker_failure_fails_open_to_feed_order_in_discovery(monkeypatch):
     async def run():
         harness = FeedHarness()
         harness.rank_failure = True
@@ -422,9 +422,29 @@ def test_reranker_failure_keeps_source_status_and_no_article(monkeypatch):
             result = json.loads(await info.fn(query="GPU", mode="discover"))["results"][
                 0
             ]
-        assert result["status"] == "unavailable"
-        assert result["success"] is False
+        # Fetched feed evidence survives a reranker outage, labelled as unranked.
+        assert result["status"] == "partial"
+        assert result["success"] is True
+        assert result["ranking"] == "unranked"
+        assert "feed order" in result["warning"]
         assert result["feeds"][0]["status"] == "available"
+        assert (
+            len(result["sources"]) == result["entries_count"]
+            or len(result["sources"]) > 0
+        )
+        assert "error" not in result
+        harness.article.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_reranker_failure_still_blocks_single_article_answers(monkeypatch):
+    async def run():
+        harness = FeedHarness()
+        harness.rank_failure = True
+        async with harness.registered(monkeypatch) as info:
+            result = json.loads(await info.fn("GPU", "nvidia_developer"))
+        assert result["success"] is False
         assert "reranking failed" in result["error"]
         harness.article.assert_not_awaited()
 
