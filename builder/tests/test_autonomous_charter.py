@@ -16,7 +16,6 @@ from autonomous_agent.scheduling import (
     schedule,
     select_due,
 )
-from autonomous_agent.summary import publish_daily_summary
 from pydantic import ValidationError
 
 
@@ -268,54 +267,6 @@ def test_restart_never_replays_dispatched_game_or_cluster_work():
     assert select_due(state, config, ms("2026-11-07T13:00:00-05:00")) is None
 
 
-@pytest.mark.parametrize("day", ["2026-07-01", "2026-11-07"])
-def test_daily_summary_occurs_once_at_configured_eastern_time_across_restarts(day):
-    offset = "-04:00" if day.endswith("07-01") else "-05:00"
-    state, config = empty_state(), CharterConfig()
-    schedule(state, config, ms(f"{day}T17:59:00{offset}"))
-    assert not any(
-        item["kind"] == "daily_summary" for item in state["actions"].values()
-    )
-    schedule(state, config, ms(f"{day}T18:00:00{offset}"))
-    restored = deepcopy(state)
-    schedule(restored, config, ms(f"{day}T19:00:00{offset}"))
-    assert (
-        len(
-            [
-                item
-                for item in restored["actions"].values()
-                if item["kind"] == "daily_summary"
-            ]
-        )
-        == 1
-    )
-
-
-def test_digest_reports_verified_partial_and_unknown_results_without_repeat_findings():
-    state, config = empty_state(), CharterConfig()
-    task = action("game_lighting", "one", NOW)
-    task.update(
-        status="partial",
-        outcome={
-            "status": "partial",
-            "summary": "Reachable lights changed.",
-            "skipped": ["offline-light"],
-        },
-    )
-    state["actions"][task["id"]] = task
-    digest_task = action(
-        "daily_summary", "2026-11-07", NOW, payload={"date": "2026-11-07"}
-    )
-    first = publish_daily_summary(state, digest_task, config, NOW)
-    assert first["items"][0]["status"] == "partial"
-    assert first["items"][0]["skipped"] == ["offline-light"]
-    assert publish_daily_summary(state, digest_task, config, NOW) == first
-    tomorrow = action(
-        "daily_summary", "2026-11-08", NOW, payload={"date": "2026-11-08"}
-    )
-    assert publish_daily_summary(state, tomorrow, config, NOW)["items"] == []
-
-
 def test_completion_requires_evidence_but_failure_does_not_invent_it():
     with pytest.raises(ValidationError, match="evidence"):
         CharterOutput.model_validate(
@@ -328,25 +279,6 @@ def test_completion_requires_evidence_but_failure_does_not_invent_it():
         ).outcome.status
         == "uncertain"
     )
-
-
-def test_digest_reports_recurring_issue_after_recovery_without_replaying_history():
-    state, config = empty_state(), CharterConfig()
-    for day, summary in enumerate(
-        ["Admission failed", "Admission recovered", "Admission failed"], 7
-    ):
-        task = action("cluster_maintenance", str(day), NOW + day)
-        task.update(
-            status="completed", outcome={"status": "completed", "summary": summary}
-        )
-        state["actions"][task["id"]] = task
-        digest = action(
-            "daily_summary", str(day), NOW, payload={"date": f"2026-11-{day:02}"}
-        )
-        result = publish_daily_summary(state, digest, config, NOW + day)
-        assert [item["summary"] for item in result["items"]] == [summary]
-    digest = action("daily_summary", "10", NOW, payload={"date": "2026-11-10"})
-    assert publish_daily_summary(state, digest, config, NOW + 10)["items"] == []
 
 
 def test_calendar_dismissal_survives_a_completion_racing_cancellation():
@@ -519,24 +451,6 @@ def test_frequent_health_history_is_bounded_without_losing_active_work_or_game_i
     assert state["actions"][lighting["id"]]["status"] == "uncertain"
 
 
-def test_interrupted_daily_summary_claim_is_recovered_without_losing_the_days_report():
-    state, config = empty_state(), CharterConfig()
-    task = action("daily_summary", "today", NOW, payload={"date": "2026-11-07"})
-    task.update(status="running", runId="run-summary")
-    state["actions"][task["id"]] = task
-    state["runs"] = [{"id": "run-summary", "status": "running"}]
-    recover(state, NOW)
-    assert task["status"] == "pending"
-    assert select_due(state, config, NOW)["id"] == task["id"]
-    first = publish_daily_summary(state, task, config, NOW)
-    task.update(status="running", runId="run-summary-again")
-    state["runs"].insert(0, {"id": "run-summary-again", "status": "running"})
-    assert publish_daily_summary(state, task, config, NOW) == first
-    assert len(state["summaries"]) == 1
-    assert task["status"] == "completed"
-    assert state["runs"][0]["status"] == "completed"
-
-
 def test_periodic_scheduling_respects_pending_capacity_and_retries_when_space_opens():
     state, config = empty_state(), CharterConfig(maxPendingActions=10)
     for index in range(10):
@@ -686,3 +600,89 @@ def test_pending_game_respects_changed_sport_filter_before_dispatch():
     config.responsibilities.lighting.rules[0].sports = ["mens_basketball"]
     assert select_due(state, config, now) is None
     assert all(item["status"] == "cancelled" for item in state["actions"].values())
+
+
+@pytest.mark.parametrize(
+    "when", ["2026-07-01T18:00:00-04:00", "2026-11-09T23:00:00-05:00"]
+)
+def test_briefings_are_retired_even_with_old_settings_and_pending_work(when):
+    now = ms(when)
+    config = CharterConfig.model_validate(
+        {"summary": {"time": "18:00"}, "maxSummariesStored": 90}
+    )
+    assert "summary" not in config.model_dump()
+    assert "maxSummariesStored" not in config.model_dump()
+    state = empty_state()
+    old = action("daily_summary", "retired", now)
+    state["actions"][old["id"]] = old
+    state["summaries"] = [{"id": "historical", "items": [{"summary": "old evidence"}]}]
+    schedule(state, config, now)
+    assert old["status"] == "cancelled"
+    assert "daily_summary" not in state["schedules"]
+    assert not any(
+        item["kind"] == "daily_summary" and item["status"] == "pending"
+        for item in state["actions"].values()
+    )
+    assert select_due(state, config, now)["kind"] != "daily_summary"
+    assert state["summaries"] == [
+        {"id": "historical", "items": [{"summary": "old evidence"}]}
+    ]
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "word " * 81,
+        "x" * 601,
+        "Blocked.\nLogs follow.",
+        "Blocked. Still blocked. No changes. Same logs. Nothing else.",
+    ],
+)
+def test_public_notes_reject_audit_dumps_with_actionable_correction(note):
+    with pytest.raises(ValueError) as error:
+        parse_structured_output(
+            __import__("json").dumps(
+                {"outcome": {"status": "deferred", "summary": note}}
+            )
+        )
+    assert "human handoff" in str(error.value)
+    assert "80 words" in str(error.value)
+    assert note not in str(error.value)
+
+
+def test_handoff_keeps_owner_guidance_separate_from_operational_evidence():
+    note = (
+        "Document search is blocked because its collection cannot load into memory. "
+        "Raise the querynode memory limit to 32Gi in your deployment chart; I cannot deploy that chart from here. "
+        "After deployment, rerun ingestion and check that a document search answers."
+    )
+    result = output(
+        outcome={
+            "status": "deferred",
+            "summary": note,
+            "evidence": [
+                {
+                    "description": "Observed memory guard rejected the load.",
+                    "reference": "synthetic service logs",
+                }
+            ],
+            "recommendations": ["Keep the existing wrapper post-render step."],
+        }
+    )
+    assert result.outcome.summary == note
+    assert result.outcome.reportVersion == 1
+    assert result.outcome.evidence[0].reference == "synthetic service logs"
+
+
+def test_partial_lighting_handoff_keeps_unavailable_devices_explicit():
+    note = "The game scene is on in the living room. The office lamp is offline; check its power and connection before trying it again."
+    result = output(
+        outcome={
+            "status": "partial",
+            "summary": note,
+            "skipped": ["office-lamp"],
+            "evidence": [{"description": "Read back living-room light state."}],
+        }
+    )
+    assert result.outcome.status == "partial"
+    assert "offline" in result.outcome.summary

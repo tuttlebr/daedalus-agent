@@ -5,20 +5,14 @@ import {
   IconArrowRight,
   IconLoader2,
   IconRefresh,
-  IconSparkles,
 } from '@tabler/icons-react';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { outcomeNote, shortText } from '@/utils/app/autonomyPresentation';
 
 import type {
   AutonomyConfig,
-  AutonomyState,
-  Outcome,
+  AutonomyView,
   Responsibility,
 } from '@/types/autonomy';
 
@@ -31,18 +25,12 @@ const labels: Record<Responsibility, string> = {
   cluster: 'System health',
   evolution: 'Learning',
 };
-const descriptions: Record<Responsibility, string> = {
-  calendar: 'Calendar updates.',
-  lighting: 'Game-day lighting.',
-  cluster: 'Daedalus and cluster health.',
-  evolution: 'Reviews of recent results.',
-};
 const names = Object.keys(labels) as Responsibility[];
 const statusLabels: Record<string, string> = {
   completed: 'Verified',
   partial: 'Partly completed',
   failed: 'Needs attention',
-  deferred: 'Waiting on a prerequisite',
+  deferred: 'Blocked',
   uncertain: 'Needs verification',
 };
 
@@ -80,70 +68,9 @@ function Spinner() {
     />
   );
 }
-function ResultDetails({
-  text,
-  children,
-}: {
-  text: string;
-  children?: ReactNode;
-}) {
-  return (
-    <details className="group space-y-2 text-sm">
-      <summary className="min-h-touch-min cursor-pointer list-none rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
-        <span className="line-clamp-2 whitespace-pre-line group-open:line-clamp-none">
-          {text}
-        </span>
-        <span className="mt-1 block text-xs text-dark-text-secondary group-open:hidden">
-          Details
-        </span>
-        <span className="mt-1 hidden text-xs text-dark-text-secondary group-open:block">
-          Hide details
-        </span>
-      </summary>
-      {children}
-    </details>
-  );
-}
-function Evidence({ outcome }: { outcome: Outcome }) {
-  return (
-    <ResultDetails text={outcome.summary}>
-      {!!outcome.skipped?.length && (
-        <p>Skipped: {outcome.skipped.join(', ')}</p>
-      )}
-      {outcome.recommendations?.map((text, index) => (
-        <p key={index}>{text}</p>
-      ))}
-      {!!outcome.evidence?.length && (
-        <ul aria-label="Evidence" className="list-disc space-y-1 pl-5">
-          {outcome.evidence.map((item, index) => (
-            <li key={index}>
-              {item.description}
-              {item.reference && /^https?:\/\//i.test(item.reference) ? (
-                <>
-                  {' '}
-                  <a
-                    className="underline"
-                    href={item.reference}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Source
-                  </a>
-                </>
-              ) : item.reference ? (
-                <span> ({item.reference})</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </ResultDetails>
-  );
-}
-
 export function AutonomyDashboard() {
   const [config, setConfig] = useState<AutonomyConfig | null>(null);
-  const [state, setState] = useState<AutonomyState | null>(null);
+  const [state, setState] = useState<AutonomyView | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState('');
@@ -163,7 +90,7 @@ export function AutonomyDashboard() {
     try {
       const [settings, activity] = await Promise.all([
         request<AutonomyConfig>('/api/autonomy/config'),
-        request<AutonomyState>('/api/autonomy/state'),
+        request<AutonomyView>('/api/autonomy/state'),
       ]);
       if (current !== generation.current) return;
       setConfig(settings);
@@ -244,13 +171,6 @@ export function AutonomyDashboard() {
     ideaPage,
     Math.max(0, Math.ceil(proposals.length / 3) - 1),
   );
-  const latestSummary = state?.summaries.reduce<
-    AutonomyState['summaries'][number] | undefined
-  >(
-    (latest, item) =>
-      !latest || item.createdAt > latest.createdAt ? item : latest,
-    undefined,
-  );
   const enabledCount = config
     ? names.filter((name) => config.responsibilities[name].enabled).length
     : 0;
@@ -325,67 +245,49 @@ export function AutonomyDashboard() {
         )}
         {config && (
           <>
-            <section
-              aria-label="Autonomy overview"
-              className="relative overflow-hidden rounded-2xl border border-separator bg-panel p-5 sm:p-6"
+            <div
+              aria-label="Autonomy status"
+              className="flex flex-wrap items-center gap-2 text-sm text-dark-text-secondary"
             >
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-nvidia-green/10 blur-3xl"
+              <IconActivity size={18} aria-hidden="true" />
+              <span>
+                {!state
+                  ? 'Activity unavailable'
+                  : !config.enabled || !enabledCount
+                  ? 'Autonomy paused'
+                  : running.length
+                  ? 'Checking…'
+                  : 'Active'}
+              </span>
+              {!!(state?.queuedCount ?? queued.length) && (
+                <span>· {state?.queuedCount ?? queued.length} queued</span>
+              )}
+              {updatedAt && (
+                <span className="ml-auto text-xs">
+                  Updated {timestamp(updatedAt)}
+                </span>
+              )}
+            </div>
+            <details className="rounded-2xl border border-separator bg-panel p-4">
+              <summary className="min-h-touch-min cursor-pointer py-2 font-medium">
+                Add automation
+              </summary>
+              <AutomationComposer
+                lightingPaused={!config.responsibilities.lighting.enabled}
+                busy={busy}
+                paused={!config.enabled}
+                onApply={(plan) =>
+                  perform(
+                    'plan',
+                    '/api/autonomy/plan',
+                    plan,
+                    'Automation saved.',
+                    'PUT',
+                  )
+                }
               />
-              <div className="relative space-y-5">
-                <div className="flex items-center gap-2 text-sm text-dark-text-secondary">
-                  <IconActivity size={18} aria-hidden="true" />
-                  {!state
-                    ? 'Activity unavailable'
-                    : running.length
-                    ? `${running.length} in progress`
-                    : config.enabled && enabledCount
-                    ? 'Scheduled work enabled'
-                    : 'Paused'}
-                  {updatedAt && (
-                    <span className="ml-auto text-xs">
-                      Updated {timestamp(updatedAt)}
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    {!state
-                      ? 'Waiting for activity'
-                      : running.length
-                      ? 'Checks running'
-                      : !config.enabled || !enabledCount
-                      ? 'Autonomy paused'
-                      : 'Waiting for the next check'}
-                  </h2>
-                  <p className="mt-2 max-w-2xl text-sm text-dark-text-secondary">
-                    {!config.enabled
-                      ? 'Resume to restart scheduled checks.'
-                      : `${enabledCount} areas enabled. ${
-                          queued.length
-                            ? `${queued.length} checks queued.`
-                            : 'Checks run on their own schedule.'
-                        }`}
-                  </p>
-                </div>
-              </div>
-            </section>
-            <AutomationComposer
-              lightingPaused={!config.responsibilities.lighting.enabled}
-              busy={busy}
-              paused={!config.enabled}
-              onApply={(plan) =>
-                perform(
-                  'plan',
-                  '/api/autonomy/plan',
-                  plan,
-                  'Automation saved.',
-                  'PUT',
-                )
-              }
-            />
-            <div className="grid items-start gap-5 lg:grid-cols-2">
+            </details>
+            <div className="space-y-4">
               <section
                 aria-labelledby="areas-heading"
                 className="min-w-0 rounded-2xl border border-separator bg-panel"
@@ -445,7 +347,6 @@ export function AutonomyDashboard() {
                         className="space-y-3 p-4"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <h3 className="font-medium">{labels[name]}</h3>
                           <span className="flex items-center gap-2 text-xs text-dark-text-secondary">
                             {active.some(
                               (item) => item.status === 'running',
@@ -456,18 +357,15 @@ export function AutonomyDashboard() {
                               </>
                             ) : active.length ? (
                               'Queued'
-                            ) : !enabled ? (
-                              'Paused'
                             ) : latest?.outcome ? (
                               statusLabels[latest.outcome.status]
+                            ) : !enabled ? (
+                              'Paused'
                             ) : (
                               'Awaiting first check'
                             )}
                           </span>
                         </div>
-                        <p className="text-sm text-dark-text-secondary">
-                          {descriptions[name]}
-                        </p>
                         {name === 'lighting' &&
                           config.responsibilities.lighting.rules.map((rule) => (
                             <div
@@ -537,7 +435,12 @@ export function AutonomyDashboard() {
                             <p className="text-xs text-dark-text-secondary">
                               {timestamp(latest.updatedAt)}
                             </p>
-                            <Evidence outcome={latest.outcome} />
+                            <p
+                              className="text-sm leading-relaxed"
+                              data-testid="autonomy-note"
+                            >
+                              {outcomeNote(latest.outcome)}
+                            </p>
                           </div>
                         )}
                         {active.map((item) => (
@@ -642,16 +545,15 @@ export function AutonomyDashboard() {
                     );
                   })}
               </section>
-              <section
+              <details
                 aria-labelledby="learning-heading"
                 className="min-w-0 space-y-4 rounded-2xl border border-separator bg-panel p-4"
               >
-                <div className="flex items-center gap-2">
-                  <IconSparkles size={20} aria-hidden="true" />
-                  <h2 id="learning-heading" className="font-semibold">
+                <summary className="min-h-touch-min cursor-pointer rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <h2 id="learning-heading" className="inline font-semibold">
                     Ideas
                   </h2>
-                </div>
+                </summary>
                 {!proposals.length && (
                   <p className="rounded-xl bg-control p-4 text-sm text-dark-text-secondary">
                     No new ideas.
@@ -662,15 +564,12 @@ export function AutonomyDashboard() {
                     key={proposal.id}
                     className="space-y-3 rounded-xl border border-separator p-4"
                   >
-                    <h3 className="font-medium">{proposal.title}</h3>
-                    <ResultDetails text={proposal.benefit}>
-                      <div className="space-y-2 text-sm">
-                        <p>When: {proposal.trigger}</p>
-                        <p>Actions: {proposal.actions}</p>
-                        <p>Access: {proposal.requiredAccess}</p>
-                        <p>Limits: {proposal.limits}</p>
-                      </div>
-                    </ResultDetails>
+                    <h3 className="font-medium">
+                      {shortText(proposal.title, 10, 80)}
+                    </h3>
+                    <p className="text-sm leading-relaxed">
+                      {shortText(proposal.benefit, 35, 240)}
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {(['accept', 'dismiss'] as const).map((operation) => {
                         const key = `${operation}:${proposal.id}`;
@@ -724,64 +623,8 @@ export function AutonomyDashboard() {
                     </button>
                   </div>
                 )}
-                {!!proposals.length && (
-                  <p className="text-xs text-dark-text-secondary">
-                    Mark useful saves feedback without enabling the idea.
-                  </p>
-                )}
-              </section>
+              </details>
             </div>
-            <section
-              aria-labelledby="briefing-heading"
-              className="space-y-3 rounded-2xl border border-separator bg-panel p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 id="briefing-heading" className="font-semibold">
-                  Latest briefing
-                </h2>
-                <span className="text-xs text-dark-text-secondary">
-                  Daily at {config.summary.time} Eastern
-                </span>
-              </div>
-              {state && !latestSummary && (
-                <p className="text-sm text-dark-text-secondary">
-                  No briefing yet.
-                </p>
-              )}
-              {latestSummary && (
-                <>
-                  <p className="text-xs text-dark-text-secondary">
-                    {timestamp(latestSummary.createdAt)}
-                  </p>
-                  {latestSummary.message && (
-                    <p className="text-sm">{latestSummary.message}</p>
-                  )}
-                  {latestSummary.items
-                    .filter((item) => !item.proposal)
-                    .map((item, index) => (
-                      <div
-                        key={index}
-                        className="space-y-2 border-t border-separator pt-3"
-                      >
-                        <p className="text-sm font-medium">
-                          {labels[item.responsibility as Responsibility] ||
-                            item.responsibility}{' '}
-                          · {statusLabels[item.status] || item.status}
-                        </p>
-                        {item.summary && (
-                          <Evidence
-                            outcome={{
-                              ...item,
-                              status: item.status as Outcome['status'],
-                              summary: item.summary,
-                            }}
-                          />
-                        )}
-                      </div>
-                    ))}
-                </>
-              )}
-            </section>
             <AutonomyJson
               config={config}
               busy={busy}

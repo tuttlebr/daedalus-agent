@@ -44,8 +44,12 @@ Python hook results depend on the interpreter that runs pre-commit.
 
 Use [humanizer](skills/humanizer/SKILL.md) when writing or reviewing UI prose,
 including instructions that generate user-visible results. Keep labels and
-summaries short and concrete. Put supporting details behind an explicit control;
-avoid slogans, capability explanations and repeated caveats in the default view.
+summaries short and concrete. A blocked automation should give the human two or
+three sentences: what is affected, the supported step they can take, and how to
+verify it. Assume the human owns an environment the agent can access only partly.
+Keep operational evidence and audit trails in backend records, out of the UI;
+do not disguise a growing log as a briefing or expandable result. Avoid slogans,
+capability explanations, rejected-action lists and repeated caveats.
 
 ## Testing Guidelines
 

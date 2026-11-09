@@ -38,6 +38,17 @@ beforeEach(() => {
     username: 'alice',
   } as any);
   vi.mocked(enforceRateLimit).mockResolvedValue(true);
+  vi.mocked(store.getState).mockResolvedValue({
+    version: 2,
+    actions: {},
+    proposals: {},
+    schedules: {},
+    records: {},
+    notes: {},
+    runs: [],
+    summaries: [],
+    reported: {},
+  });
 });
 
 it.each([stateHandler, configHandler])(
@@ -122,4 +133,38 @@ it('returns a bounded settings error without exposing stored secrets', async () 
   expect(JSON.stringify(res.json.mock.calls)).not.toContain(
     'PRIVATE_STORAGE_DETAIL',
   );
+});
+
+it('serves only current public notes, not stored briefings or diagnostics', async () => {
+  vi.mocked(store.getState).mockResolvedValue({
+    version: 2,
+    actions: {},
+    proposals: {},
+    schedules: {},
+    records: { private: 'DO_NOT_DELIVER' },
+    notes: { cluster: 'DO_NOT_DELIVER' },
+    runs: [],
+    summaries: [
+      {
+        id: 'old',
+        date: '2026-11-09',
+        title: 'Latest briefing',
+        message: 'DO_NOT_DELIVER',
+        createdAt: 0,
+        items: [],
+      },
+    ],
+    reported: {},
+  });
+  const { req, res } = request('GET');
+  await stateHandler(req, res);
+  expect(store.getState).toHaveBeenCalledWith('alice');
+  expect(res.json).toHaveBeenCalledWith({
+    version: 2,
+    actions: {},
+    proposals: {},
+    runningCount: 0,
+    queuedCount: 0,
+  });
+  expect(JSON.stringify(res.json.mock.calls)).not.toContain('DO_NOT_DELIVER');
 });

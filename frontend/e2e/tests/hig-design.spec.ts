@@ -1487,50 +1487,40 @@ test('populated activity stays readable and supports keyboard search and details
   await expect(more).toBeFocused();
 });
 
-test('populated Autonomy summaries support appearance and text scaling', async ({
+test('Autonomy handoffs support appearance and text scaling', async ({
   page,
 }, testInfo) => {
   await openApp(page);
+  const note =
+    'The game scene is on in the living room. The office lamp is offline; check its power and connection before trying it again.';
   await page.route('**/api/autonomy/state', (route) =>
     route.fulfill({
       json: {
         version: 2,
-        actions: {},
         proposals: {},
-        summaries: [
-          {
-            id: 'day-one',
-            date: '2026-11-07',
-            title: 'Daily summary',
-            message: '',
-            createdAt: Date.now(),
-            items: [
-              {
-                responsibility: 'lighting',
-                status: 'partial',
-                summary: 'Reachable lights changed.',
-                skipped: ['Offline lamp'],
-                evidence: [
-                  { description: 'Verified reachable device states.' },
-                ],
-              },
-            ],
+        actions: {
+          lights: {
+            id: 'lights',
+            kind: 'game_lighting',
+            responsibility: 'lighting',
+            status: 'completed',
+            dueAt: 0,
+            createdAt: 0,
+            updatedAt: 1,
+            attempts: 1,
+            payload: {},
+            outcome: { status: 'partial', summary: note, reportVersion: 1 },
           },
-        ],
+        },
       },
     }),
   );
   await navigate(page, 'Autonomy');
-  await expect(page.getByText('Skipped: Offline lamp')).toBeHidden();
-  const resultDetails = page
-    .locator('summary')
-    .filter({ hasText: 'Reachable lights changed.' });
-  await resultDetails.focus();
-  await resultDetails.press('Enter');
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page.getByTestId('autonomy-note')).toHaveText(note);
   await expect(
-    page.getByText('Verified reachable device states.'),
+    page.getByText('Partly completed', { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText('Skipped: Offline lamp')).toBeVisible();
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await settleTransitions(page);

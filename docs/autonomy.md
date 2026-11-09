@@ -1,18 +1,26 @@
 # Autonomy
 
-The Autonomy tab presents current work, a short preview of each result, a
-single daily briefing, and paged improvement ideas. **Details** expands the full
-result, evidence and recommendations. It does not render a growing
-schedule or action-history log. Verification evidence remains available alongside
-outcomes; full action and run records remain in the backend for recovery and
-diagnosis. Enabled schedules are configuration state, not a worker-health signal.
+The Autonomy tab shows the latest short note for each area, current work and
+paged ideas behind a closed **Ideas** control. **Add automation** also starts
+closed, leaving current results in view. A blocked task explains what is affected, what the human can do,
+and how to verify the fix in two or three sentences. The agent runs inside a
+human-owned environment with partial access; missing repository, deployment or
+service access should produce useful guidance for the owner.
+
+There is no briefing or action-history view. Diagnostic evidence, skipped-action
+lists, recommendations, continuity notes and full run records remain in backend
+storage for recovery. They are excluded from the dashboard response and DOM.
+The response contains the latest outcome per area, running actions, a bounded
+sample of queued work with its total count, and up to 30 short pending ideas.
+Existing long notes are bounded for display; legacy blocked notes carry forward
+the first recommended step when available. Stored records remain unchanged.
 
 Refresh, checks, pause/resume, cancellation, import and feedback actions show
 progress and completion or failure. A queued check stays distinct from running
 work and verified completion. The dashboard polls while visible, retains the last
 successful view on errors, and rejects refresh results that predate a mutation.
 
-Use **Describe an automation** to write a request in plain language. **Preview
+Open **Add automation**, then use **Describe an automation** to write a request in plain language. **Preview
 automation** translates it into supported settings without running tools or
 saving changes. The preview shows the trigger, scene, days, months and check
 cadence. Missing details produce a question; unsupported requirements produce a
@@ -56,11 +64,14 @@ for review before **Apply JSON**. Omitted fields are preserved, invalid fields
 are rejected, and failed saves retain the upload for retry. JSON configures the
 supported responsibilities; it cannot introduce arbitrary executable tasks.
 
-Workers load the humanizer skill before drafting UI text. The prompt requests
-outcome summaries of at most 35 words and proposal benefits of at most 20 words;
-diagnostics and continuity notes have separate fields. These are writing
-instructions, not schema limits. Existing stored reports remain intact, with
-two-line previews in the UI.
+Workers load humanizer before writing public notes. Publication validation limits
+outcome notes to one paragraph, three sentences, 80 words and 600 characters.
+Routine success can use one sentence; blockers should name a supported owner
+step and verification. Proposal titles allow ten words/80 characters and benefits
+35 words/240 characters. Overlong completions receive correction feedback within
+the same run; they cannot bypass validation or replay earlier mutations. The
+limits preserve partial-failure and uncertainty status. They do not establish that
+a suggested fix will work: the note must retain that uncertainty.
 
 For example, this partial upload changes only cluster-check cadence:
 
@@ -100,9 +111,9 @@ plan. Repairs remain within the existing cluster task boundary; code, prompts,
 deployment changes and additional permissions remain proposals. The agent does
 not autonomously rewrite or deploy itself, or change its evaluation criteria.
 
-The Autonomy dashboard is the daily-summary destination. Defaults are 18:00 in
-`America/Detroit`, including daylight-saving changes. All-day calendar entries
-remain date-only; timed entries use explicit offsets and the Michigan timezone.
+Dates and schedule windows use `America/Detroit`, including daylight-saving
+changes. All-day calendar entries remain date-only; timed entries use explicit
+offsets and the Michigan timezone.
 Calendar and sports discovery default to six-hour intervals, cluster checks to
 15 minutes, and improvement review to daily. Individual intervals and pauses are
 configurable; **Pause all** also stops an active backend request. **Check now**
@@ -201,14 +212,11 @@ and verification from a non-node LAN source. If those prerequisites cannot be
 satisfied, defer that change rather than claiming a successful repair. Never
 interpret failed-pod deletion as root-cause recovery without verification.
 
-`GET /api/autonomy/state` returns the user's current charter state. Its POST
-operations request an existing responsibility, cancel an action, or record
-whether a proposal is useful or dismissed. Marking an idea useful records a
-preference; it does not grant a new kind of execution authority. Running cancellation closes the backend stream; any uncertain remote
-effects remain recorded. Daily summaries are built from persisted outcomes and
-published atomically with their completion record. Unchanged findings are not
-repeated on subsequent days. Action history retains verification evidence and
-partial/failure status independently of summary delivery. Periodic action and
+`GET /api/autonomy/state` returns the compact dashboard projection. POST requests
+an existing responsibility, cancels an action, or records whether an idea is
+useful or dismissed. Marking an idea useful does not grant new execution
+authority. Cancellation closes the backend stream; uncertain remote effects
+remain recorded. Periodic action and
 run histories use `maxRunsStored`; event identities remain for a year or while
 their calendar event is still upcoming. Expired calendar snapshots are removed,
 while user dismissal identities remain. Prompt context includes the selected
@@ -243,3 +251,10 @@ checks use the actual worker schema and Pydantic validators, including safe
 correction of invalid fields, timestamps, source URLs, duplicate identities,
 missing evidence, event ordering and oversized observed state. Correction reuses
 completed research within the same run.
+
+The former autonomy briefing publisher and schedule are removed. Pending legacy
+`daily_summary` jobs are cancelled without model dispatch or publication. Old
+`summary` and `maxSummariesStored` configuration fields are ignored on read/import
+and omitted from exports. Historical briefing data stays inert in storage for
+compatibility and is never returned to the dashboard. This does not change the
+separate, user-requested news briefing capability in chat.

@@ -439,6 +439,10 @@ def main(image, redis_image, preparation):
         invalid = copy.deepcopy(valid)
         invalid["arguments"]["outcome"]["observedState"] = {"fixture": "x" * 32768}
         variants.append((invalid, "32768 serialized UTF-8 bytes"))
+        for note in ["word " * 81, "One. Two. Three. Four."]:
+            invalid = copy.deepcopy(valid)
+            invalid["arguments"]["outcome"]["summary"] = note
+            variants.append((invalid, "human handoff"))
         for invalid, hint in variants:
             result = execute(
                 "sports_discovery",

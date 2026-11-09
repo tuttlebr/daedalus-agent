@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date, datetime
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -37,7 +38,6 @@ TaskKind = Literal[
     "game_lighting",
     "cluster_maintenance",
     "evolution",
-    "daily_summary",
 ]
 OutcomeStatus = Literal["completed", "partial", "failed", "deferred", "uncertain"]
 
@@ -140,17 +140,11 @@ class Responsibilities(Contract):
     )
 
 
-class SummaryConfig(Contract):
-    time: str = Field(default="18:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    destination: Literal["autonomy_dashboard"] = "autonomy_dashboard"
-
-
 class CharterConfig(Contract):
     version: Literal[2] = 2
     enabled: bool = True
     timezone: Literal["America/Detroit"] = TIMEZONE
     responsibilities: Responsibilities = Field(default_factory=Responsibilities)
-    summary: SummaryConfig = Field(default_factory=SummaryConfig)
     # New kinds of actions require user activation. Model output cannot set this.
     expansionPolicy: Literal["propose"] = "propose"
     maxToolCalls: int = Field(default=40, ge=5, le=100)
@@ -158,11 +152,22 @@ class CharterConfig(Contract):
     maxAttempts: int = Field(default=3, ge=1, le=5)
     maxPendingActions: int = Field(default=500, ge=10, le=2000)
     maxRunsStored: int = Field(default=500, ge=10, le=2000)
-    maxSummariesStored: int = Field(default=90, ge=7, le=365)
+
+    @model_validator(mode="before")
+    @classmethod
+    def retire_briefing_settings(cls, value):
+        # Read existing configuration without reviving the removed briefing.
+        if isinstance(value, dict):
+            return {
+                key: item
+                for key, item in value.items()
+                if key not in {"summary", "maxSummariesStored"}
+            }
+        return value
 
     @model_validator(mode="after")
     def queue_capacity(self) -> CharterConfig:
-        if self.maxPendingActions <= len(self.responsibilities.lighting.rules) + 5:
+        if self.maxPendingActions <= len(self.responsibilities.lighting.rules) + 4:
             raise ValueError("Leave queue capacity for discovery and game actions")
         return self
 
@@ -259,7 +264,12 @@ class Evidence(Contract):
 
 class ActionOutcome(Contract):
     status: OutcomeStatus
-    summary: Text
+    summary: Annotated[
+        str, StringConstraints(min_length=1, max_length=600, pattern=r"\S")
+    ] = Field(
+        description="A human-facing note: result or blocker, the owner's next step, and how to verify it. At most three sentences and 80 words in one paragraph; diagnostics belong in evidence/notes."
+    )
+    reportVersion: Literal[1] = 1
     # The runtime overwrites this field from actual dispatch history.
     mutationAttempted: bool = False
     evidence: list[Evidence] = Field(default_factory=list, max_length=30)
@@ -268,6 +278,20 @@ class ActionOutcome(Contract):
     observedState: dict = Field(default_factory=dict)
     skipped: list[str] = Field(default_factory=list, max_length=500)
     recommendations: list[Text] = Field(default_factory=list, max_length=20)
+
+    @field_validator("summary")
+    @classmethod
+    def concise_summary(cls, value: str) -> str:
+        if (
+            len(value.split()) > 80
+            or "\n" in value
+            or "\r" in value
+            or len(re.findall(r"[.!?](?:\s+|$)", value)) > 3
+        ):
+            raise ValueError(
+                "Write one paragraph of at most three sentences and 80 words"
+            )
+        return value
 
     @model_validator(mode="after")
     def verified_completion(self) -> ActionOutcome:
@@ -282,12 +306,22 @@ class ActionOutcome(Contract):
 
 class Proposal(Contract):
     id: Identifier
-    title: Annotated[str, StringConstraints(min_length=1, max_length=160)]
-    benefit: Text
+    title: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    benefit: Annotated[
+        str, StringConstraints(min_length=1, max_length=240, pattern=r"\S")
+    ]
     trigger: Text
     requiredAccess: Text
     actions: Text
     limits: Text
+
+    @field_validator("title", "benefit")
+    @classmethod
+    def concise_proposal(cls, value: str, info) -> str:
+        maximum = 10 if info.field_name == "title" else 35
+        if len(value.split()) > maximum or "\n" in value or "\r" in value:
+            raise ValueError("Write a short title and one-sentence benefit")
+        return value
 
 
 class CharterOutput(Contract):
@@ -359,8 +393,6 @@ def task_enabled(
 ) -> bool:
     if not config.enabled:
         return False
-    if kind == "daily_summary":
-        return True
     name = TASK_RESPONSIBILITY.get(kind)
     settings = task_settings(config, kind, payload)
     return bool(

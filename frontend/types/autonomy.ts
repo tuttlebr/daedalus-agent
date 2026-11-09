@@ -46,14 +46,12 @@ export interface AutonomyConfig {
     };
     evolution: ResponsibilityConfig;
   };
-  summary: { time: string; destination: 'autonomy_dashboard' };
   expansionPolicy: 'propose';
   maxToolCalls: number;
   maxRunSeconds: number;
   maxAttempts: number;
   maxPendingActions: number;
   maxRunsStored: number;
-  maxSummariesStored: number;
 }
 export type AutomationPlan =
   | { type: 'lighting_rule'; rule: LightingRule }
@@ -67,6 +65,7 @@ export type AutomationPlan =
 export interface Outcome {
   status: 'completed' | 'partial' | 'failed' | 'deferred' | 'uncertain';
   summary: string;
+  reportVersion?: 1;
   mutationAttempted?: boolean;
   evidence?: { description: string; reference?: string }[];
   externalId?: string;
@@ -136,4 +135,15 @@ export interface AutonomyState {
   runs: AutonomyRun[];
   summaries: DailySummary[];
   reported: Record<string, { signature: string; updatedAt: number }>;
+}
+
+export interface AutonomyView {
+  version: 2;
+  actions: Record<string, AutonomyAction>;
+  proposals: Record<
+    string,
+    Pick<Proposal, 'id' | 'title' | 'benefit' | 'status' | 'updatedAt'>
+  >;
+  runningCount: number;
+  queuedCount: number;
 }

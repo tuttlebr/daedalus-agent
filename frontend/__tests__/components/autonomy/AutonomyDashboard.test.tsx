@@ -50,12 +50,12 @@ async function render() {
     root.render(<AutonomyDashboard />);
   });
 }
-it('shows compact responsibilities and a single briefing without history or settings forms', async () => {
+it('shows current work without a briefing, history or settings forms', async () => {
   await render();
   expect(container.textContent).toContain('Calendar');
   expect(container.textContent).toContain('Home');
-  expect(container.textContent).toContain('18:00 Eastern');
-  expect(container.textContent).toContain('No briefing yet.');
+  expect(container.textContent).not.toContain('Latest briefing');
+  expect(container.textContent).not.toContain('Daily at');
   expect(container.textContent).not.toContain(
     'Scheduled work and action history',
   );
@@ -65,27 +65,36 @@ it('shows compact responsibilities and a single briefing without history or sett
     '/api/autonomy/state',
   ]);
 });
-it('reports partial lighting and skipped devices in a daily summary', async () => {
-  state.summaries = [
-    {
-      id: 'one',
-      date: '2026-11-07',
-      title: 'Daily summary',
-      message: '',
-      createdAt: 0,
-      items: [
-        {
-          responsibility: 'lighting',
-          status: 'partial',
-          summary: 'Reachable lights changed.',
-          skipped: ['offline lamp'],
-        },
+it('shows a human handoff without mounting diagnostic records', async () => {
+  state.actions.issue = {
+    id: 'issue',
+    kind: 'cluster_maintenance',
+    responsibility: 'cluster',
+    status: 'failed',
+    dueAt: 0,
+    createdAt: 0,
+    updatedAt: 1,
+    attempts: 1,
+    payload: {},
+    outcome: {
+      status: 'deferred',
+      summary: 'Document search cannot load its collection.',
+      recommendations: [
+        'Raise the querynode limit in your chart and verify a search after deploying.',
       ],
+      skipped: ['DIAGNOSTIC_SKIP'],
+      evidence: [{ description: 'DIAGNOSTIC_LOG' }],
     },
-  ];
+  };
   await render();
-  expect(container.textContent).toContain('Home · Partly completed');
-  expect(container.textContent).toContain('offline lamp');
+  expect(container.textContent).toContain(
+    'Document search cannot load its collection.',
+  );
+  expect(container.textContent).toContain(
+    'Raise the querynode limit in your chart',
+  );
+  expect(container.textContent).not.toContain('DIAGNOSTIC_');
+  expect(container.textContent).not.toContain('Details');
 });
 it('pauses all through the config API', async () => {
   await render();
@@ -226,7 +235,7 @@ it('retains the last good state on refresh failure and can recover', async () =>
   await act(async () => button('Refresh').click());
   expect(container.querySelector('[role=alert]')).toBeNull();
 });
-it('keeps only the newest briefing visible regardless of storage order', async () => {
+it('never renders stored briefings, even from an older API response', async () => {
   state.summaries = [1, 3, 2].map((n) => ({
     id: String(n),
     date: '2026-11-07',
@@ -236,7 +245,8 @@ it('keeps only the newest briefing visible regardless of storage order', async (
     items: [],
   }));
   await render();
-  expect(container.textContent).toContain('Briefing number 3');
+  expect(container.textContent).not.toContain('Briefing number 3');
+  expect(container.textContent).not.toContain('Latest briefing');
   expect(container.textContent).not.toContain('Briefing number 1');
   expect(container.textContent).not.toContain('Briefing number 2');
 });
@@ -313,7 +323,7 @@ it('shows one area at a time and makes the other controls reachable', async () =
   expect(button('Check Calendar now').disabled).toBe(false);
   expect(button('Calendar').getAttribute('aria-pressed')).toBe('true');
 });
-it('pages pending ideas independently of daily summaries and hides reviewed ideas', async () => {
+it('pages pending ideas and hides reviewed ideas', async () => {
   state.proposals = Object.fromEntries(
     Array.from({ length: 8 }, (_, index) => [
       `idea-${index}`,

@@ -107,9 +107,16 @@ export function applyConfigPatch(
 ): AutonomyConfig {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch))
     throw new Error('Expected an autonomy settings object');
+  // Existing files can contain retired briefing settings. Ignore them on read
+  // and import; they no longer appear in the supported schema or downloads.
+  const {
+    summary: _summary,
+    maxSummariesStored: _maxSummariesStored,
+    ...activePatch
+  } = patch as Record<string, unknown>;
   const merged = merge(
     structuredClone(current) as unknown as Record<string, unknown>,
-    patch as Record<string, unknown>,
+    activePatch,
   );
   const lighting = (merged.responsibilities as Record<string, unknown>)
     ?.lighting as Record<string, unknown> | undefined;
@@ -126,7 +133,7 @@ export function applyConfigPatch(
   const config = merged as unknown as AutonomyConfig;
   if (
     config.maxPendingActions <=
-    config.responsibilities.lighting.rules.length + 5
+    config.responsibilities.lighting.rules.length + 4
   )
     throw new Error('Leave queue capacity for discovery and game actions');
   for (const settings of [

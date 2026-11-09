@@ -50,7 +50,6 @@ describe('strict charter config', () => {
     { timezone: 'UTC' },
     { maxAttempts: 99 },
     { maxToolCalls: -1 },
-    { summary: { time: '25:00' } },
     { responsibilities: { calendar: { sources: ['file:///private'] } } },
     {
       responsibilities: {
@@ -224,4 +223,13 @@ it('checks independent lighting rules once and respects their calendar windows',
   } finally {
     vi.restoreAllMocks();
   }
+});
+
+it('reads old briefing configuration without returning unsupported settings', () => {
+  const config = applyConfigPatch(defaultConfig(), {
+    summary: { time: '18:00', destination: 'autonomy_dashboard' },
+    maxSummariesStored: 90,
+  });
+  expect(config).not.toHaveProperty('summary');
+  expect(config).not.toHaveProperty('maxSummariesStored');
 });

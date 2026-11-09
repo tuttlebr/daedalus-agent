@@ -48,17 +48,12 @@
         "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
       }
     },
-    "summary": {
-      "time": "18:00",
-      "destination": "autonomy_dashboard"
-    },
     "expansionPolicy": "propose",
     "maxToolCalls": 40,
     "maxRunSeconds": 600,
     "maxAttempts": 3,
     "maxPendingActions": 500,
-    "maxRunsStored": 500,
-    "maxSummariesStored": 90
+    "maxRunsStored": 500
   },
   "schema": {
     "$defs": {
@@ -478,25 +473,6 @@
         },
         "title": "ResponsibilityConfig",
         "type": "object"
-      },
-      "SummaryConfig": {
-        "additionalProperties": false,
-        "properties": {
-          "time": {
-            "default": "18:00",
-            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-            "title": "Time",
-            "type": "string"
-          },
-          "destination": {
-            "const": "autonomy_dashboard",
-            "default": "autonomy_dashboard",
-            "title": "Destination",
-            "type": "string"
-          }
-        },
-        "title": "SummaryConfig",
-        "type": "object"
       }
     },
     "additionalProperties": false,
@@ -520,9 +496,6 @@
       },
       "responsibilities": {
         "$ref": "#/$defs/Responsibilities"
-      },
-      "summary": {
-        "$ref": "#/$defs/SummaryConfig"
       },
       "expansionPolicy": {
         "const": "propose",
@@ -563,13 +536,6 @@
         "maximum": 2000,
         "minimum": 10,
         "title": "Maxrunsstored",
-        "type": "integer"
-      },
-      "maxSummariesStored": {
-        "default": 90,
-        "maximum": 365,
-        "minimum": 7,
-        "title": "Maxsummariesstored",
         "type": "integer"
       }
     },

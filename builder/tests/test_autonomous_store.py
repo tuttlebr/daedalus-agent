@@ -194,22 +194,6 @@ def test_invalid_output_never_leaks_model_text_or_publishes_success(store_user):
     assert state["actions"][item["id"]]["status"] == "uncertain"
 
 
-def test_daily_digest_publication_and_completion_are_one_commit(store_user):
-    store, user = store_user
-    item = action(
-        "daily_summary", "2026-11-07", now_ms(), payload={"date": "2026-11-07"}
-    )
-    store.update(
-        user, lambda state, _config: state["actions"].update({item["id"]: item})
-    )
-    run_once(store=store, user_id=user, task_id=item["id"])
-    assert run_once(store=store, user_id=user, task_id=item["id"]) is None
-    state = store.get_state(user)
-    assert len(state["summaries"]) == 1
-    assert state["actions"][item["id"]]["status"] == "completed"
-    assert state["runs"][0]["status"] == "completed"
-
-
 def test_corrupt_state_is_not_silently_replaced(store_user):
     store, user = store_user
     raw = '{"version": 1, "important": "retain this"}'
@@ -249,3 +233,16 @@ def test_claim_rechecks_rule_window_after_selection(store_user, monkeypatch):
     assert store.claim(user, item["id"]) is None
     monkeypatch.setattr("autonomous_agent.store.now_ms", lambda: sunday)
     assert store.claim(user, item["id"]) is not None
+
+
+def test_retired_briefing_cannot_dispatch_or_publish(store_user):
+    store, user = store_user
+    item = action("daily_summary", "old", now_ms(), payload={"date": "2026-11-09"})
+    store.update(
+        user, lambda state, _config: state["actions"].update({item["id"]: item})
+    )
+    assert run_once(store=store, user_id=user, task_id=item["id"]) is None
+    store.prepare(user)
+    state = store.get_state(user)
+    assert state["actions"][item["id"]]["status"] == "cancelled"
+    assert state["summaries"] == []

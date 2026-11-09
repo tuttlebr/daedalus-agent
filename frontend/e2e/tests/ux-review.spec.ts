@@ -759,6 +759,7 @@ test('Autonomy turns instructions into a reviewable rule and retains failed save
     return route.fulfill({ json: plan });
   });
   await navigate(page, 'Autonomy');
+  await page.getByText('Add automation', { exact: true }).click();
   await page
     .getByLabel('What should Daedalus do?')
     .fill(
@@ -816,50 +817,58 @@ test('Autonomy turns instructions into a reviewable rule and retains failed save
   expect(writes).toBe(2);
 });
 
-test('Autonomy keeps long results compact with keyboard-accessible details', async ({
+test('Autonomy shows the owner handoff without briefing or audit dumps', async ({
   page,
-}) => {
+}, testInfo) => {
   await openApp(page);
-  const summary =
-    'One lamp is offline. ' +
-    'Verified the reachable lights and recorded their current states. '.repeat(
-      35,
-    );
-  const benefit =
-    'Check repeated failures. ' +
-    'Compare recent outcomes with the next check. '.repeat(35);
+  const note =
+    'Document search is blocked because its collection cannot load into memory. Raise the querynode memory limit to 32Gi in your deployment chart; I cannot deploy that chart from here. After deployment, rerun ingestion and check that a document search answers.';
+  const dump = 'DIAGNOSTIC_DUMP '.repeat(500);
   await page.route('**/api/autonomy/state', (route) =>
     route.fulfill({
       json: {
         version: 2,
-        actions: {},
-        summaries: [
-          {
-            id: 'today',
-            date: '2026-11-08',
+        actions: {
+          issue: {
+            id: 'issue',
+            kind: 'cluster_maintenance',
+            responsibility: 'cluster',
+            status: 'failed',
+            dueAt: 0,
             createdAt: 0,
-            title: 'Daily summary',
-            message: '',
-            items: [
-              {
-                responsibility: 'lighting',
-                status: 'partial',
-                summary,
-                skipped: ['Office lamp'],
-                evidence: [{ description: 'Device state read back.' }],
-              },
-            ],
+            updatedAt: 1,
+            attempts: 1,
+            payload: {},
+            outcome: {
+              reportVersion: 1,
+              status: 'deferred',
+              summary: note,
+              evidence: [{ description: dump }],
+              skipped: [dump],
+              recommendations: [dump],
+            },
           },
-        ],
+        },
+        summaries: Array.from({ length: 100 }, (_, n) => ({
+          id: String(n),
+          date: '2026-11-09',
+          createdAt: n,
+          title: 'Daily summary',
+          message: dump,
+          items: [
+            { responsibility: 'cluster', status: 'partial', summary: dump },
+          ],
+        })),
         proposals: {
           idea: {
             id: 'idea',
-            title: 'Recheck failures',
-            benefit,
-            trigger: 'After a failed check',
-            actions: 'Compare outcomes',
-            requiredAccess: 'Existing read access',
-            limits: 'Read only',
+            title: 'Check ingestion after deployment',
+            benefit:
+              'Confirm that document search recovers after the deployment.',
+            trigger: dump,
+            actions: dump,
+            requiredAccess: dump,
+            limits: dump,
             status: 'proposed',
             updatedAt: 0,
           },
@@ -868,19 +877,28 @@ test('Autonomy keeps long results compact with keyboard-accessible details', asy
     }),
   );
   await navigate(page, 'Autonomy');
-  for (const text of [summary, benefit]) {
-    const preview = page.locator('summary').filter({ hasText: text });
-    const line = preview.locator('span').first();
-    await expect(line).toHaveCSS('-webkit-line-clamp', '2');
-    await preview.focus();
-    await preview.press('Enter');
-    await expect(line).toHaveCSS('-webkit-line-clamp', 'none');
-    if (text === summary) {
-      await expect(page.getByText('Skipped: Office lamp')).toBeVisible();
-      await expect(page.getByText('Device state read back.')).toBeVisible();
-    }
-    await preview.press('Enter');
-    await expect(line).toHaveCSS('-webkit-line-clamp', '2');
-  }
+  await expect(page.getByTestId('autonomy-note')).toHaveText(note);
+  await expect(page.getByText('Latest briefing', { exact: true })).toHaveCount(
+    0,
+  );
+  expect(await page.locator('body').textContent()).not.toContain(
+    'DIAGNOSTIC_DUMP',
+  );
+  await expect(page.getByLabel('What should Daedalus do?')).toBeHidden();
+  await expect(page.getByText('Blocked', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Check ingestion after deployment', { exact: true }),
+  ).toBeHidden();
+  const ideas = page.locator('summary').filter({ hasText: 'Ideas' });
+  await ideas.focus();
+  await ideas.press('Enter');
+  await expect(
+    page.getByText('Check ingestion after deployment', { exact: true }),
+  ).toBeVisible();
+  expect(await page.locator('body').textContent()).not.toContain(
+    'DIAGNOSTIC_DUMP',
+  );
+  await ideas.press('Enter');
   await assertFits(page);
+  await page.screenshot({ path: testInfo.outputPath('autonomy-handoff.png') });
 });

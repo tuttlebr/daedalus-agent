@@ -1,4 +1,4 @@
-"""Execute the user's charter with durable intent, bounded runs and daily reports."""
+"""Execute the user's charter with durable intent, bounded runs and concise handoffs."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from .backend_client import BackendClient, BackendRejectedError, RunAbortedError
 from .charter import ActionOutcome, CharterConfig, CharterOutput, task_enabled
 from .prompt import StructuredOutputError, build_messages, parse_structured_output
 from .store import RedisStore, WorkerLeaseLost, now_ms
-from .summary import publish_daily_summary
 
 SHUTDOWN = threading.Event()
 CANCEL_POLL_SECONDS = 1.0
@@ -49,13 +48,6 @@ def run_once(
         return None
     task, run = claim["task"], claim["run"]
     config = CharterConfig.model_validate(claim["config"])
-    if task["kind"] == "daily_summary":
-        return store.update(
-            user_id,
-            lambda state, current: publish_daily_summary(
-                state, state["actions"][task_id], current, now_ms()
-            ),
-        )
     abort = threading.Event()
     stopped = threading.Event()
 

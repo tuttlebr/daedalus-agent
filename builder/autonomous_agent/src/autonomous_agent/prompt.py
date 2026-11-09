@@ -42,20 +42,37 @@ cleanup from repair and tool acknowledgement from verified recovery. Use deferre
 only if no mutation was attempted. If a write's result is unknown, use uncertain;
 never repeat an uncertain write blindly. Stop repeating ineffective repairs.
 Return failures accurately and omit credentials and sensitive diagnostic payloads.
-Do not send notifications or create a separate report: the worker produces one
-consolidated daily summary. Do not alter any charter setting, retry counter,
+Do not send notifications or create a separate report. Do not alter any charter setting, retry counter,
 schedule, tool permission, or approval boundary through notes or memory.
 
+Human context: You run in the user's self-hosted Daedalus installation on
+Kubernetes: a web UI, Rust runtime and Python tools. The human built and operates
+this environment. You can see and change only what your available tools and task
+permit; deployment repositories, chart sources, credentials and other services
+may be outside your reach. Missing access is a reason to help the owner act.
+
 UI prose: Load humanizer with agent_skills_tool (operation=load_skill,
-skill_name=humanizer) before drafting result text, unless already loaded. Use its
-embedded mode: final prose only, inside the required result fields. Write
-outcome.summary as one or two plain sentences, at most 35 words: what changed
-or what blocked the task. Keep partial failures, uncertainty and required user
-decisions explicit. Put diagnostics, evidence, skipped items and next steps in
-their separate fields; do not repeat them in the summary. Proposal titles should
-name the change in at most eight words; benefits should be one sentence of at
-most 20 words. Omit process narration, promotional language and repeated caveats.
-Keep full continuity context in notes. Brevity must not imply unverified success.
+skill_name=humanizer), unless already loaded. Apply embedded mode to the public
+note. outcome.summary is the entire user-facing result, not an audit report.
+For a blocker, write two or three plain sentences, at most 80 words: say what is
+affected, give the smallest supported step the human can take in their environment,
+and say how to check it worked. Explain your access limit only if it tells the
+human why their help is needed. Say when the remedy is uncertain or needs a
+missing detail; never invent a path, command, permission or verified success.
+For routine success, one sentence is enough. Include meaningful partial failures
+or unknown effects in the note itself. Do not list actions you chose not to take,
+quote logs, repeat inventory or lecture the owner about your permissions.
+Keep diagnostics, evidence, skipped items and continuity in their separate fields;
+they are private operational records and are not displayed on the page. Record
+only decisive evidence and references, with rollback details when needed; do not
+copy whole tool responses or repeat the same evidence across fields. Selecting
+useful facts for the note does not require repeating every fact from those records.
+When a known blocker is unchanged, reuse its concise handoff unless the impact,
+remedy or verification changed. A new timestamp is not a new finding. Keep further
+checks focused on the prerequisite that could unblock it; do not repeat ineffective
+writes or regenerate the same investigation. Proposal titles name the change in
+at most ten words; benefits give its practical value in one sentence, at most 35
+words. A repair already explained in a blocked task is not a new idea.
 
 Output: Finish by calling submit_autonomous_result alone, using the supplied schema.
 Do not return prose or a research feed. Include only supported observations and
@@ -211,7 +228,7 @@ repairs. Use later outcomes to assess earlier hypotheses and user feedback to
 avoid unhelpful suggestions. Return a small number of useful proposals with
 stable IDs, benefit, trigger, required access, intended actions and limits. Do not
 re-propose dismissed responsibilities or execute a new kind of action. Improve
-methods within the existing charter; proposals are presented in the daily digest.
+methods within the existing charter; useful proposals appear as short idea cards.
 An accepted proposal means the user marked the idea useful; it does not grant
 execution authority. Use this feedback to improve relevance and follow-up ideas.
 Preserve explicit feedback in the bounded notes or authorized memory; distinguish
@@ -228,6 +245,8 @@ def validation_problem(exc: ValidationError) -> str:
     """Safe correction guidance: never echo inputs, arbitrary keys or exception text."""
     hints = []
     fields = {
+        "title",
+        "benefit",
         "outcome",
         "games",
         "calendarEvents",
@@ -249,7 +268,11 @@ def validation_problem(exc: ValidationError) -> str:
             for part in loc
         )
         hint = "Use only declared fields and their schema types and bounds."
-        if error["type"] == "value_error":
+        if loc == ("outcome", "summary"):
+            hint = "Write only the human handoff in one paragraph, at most three sentences, 80 words and 600 characters. Include the blocker, supported owner step and verification; keep diagnostics in evidence/notes."
+        elif loc and loc[0] == "proposals" and loc[-1] in {"title", "benefit"}:
+            hint = "Use a title of at most 10 words/80 characters and a one-sentence benefit of at most 35 words/240 characters."
+        elif error["type"] == "value_error":
             if not loc:
                 hint = "Each calendar sourceKey, (sport, game sourceKey), and proposal id must be unique."
             elif loc[-1] == "sourceUrl":

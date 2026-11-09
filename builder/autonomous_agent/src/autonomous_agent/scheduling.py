@@ -6,11 +6,9 @@ model supplies observations, never queue identities, enabled flags, or clocks.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from .charter import (
-    EASTERN,
     TASK_RESPONSIBILITY,
     CalendarEvent,
     CharterConfig,
@@ -34,13 +32,12 @@ EVENT_KINDS = {"calendar_event", "game_lighting"}
 
 
 def available_action_slots(state: dict, config: CharterConfig) -> int:
-    # Keep one slot per periodic responsibility and one for reporting so a busy
+    # Keep one slot per periodic responsibility so a busy
     # calendar cannot prevent health checks or discovery of an upcoming game.
     capacity = (
         config.maxPendingActions
         - len(PERIODIC)
         - len(config.responsibilities.lighting.rules)
-        - 1
     )
     pending = sum(
         item["kind"] in EVENT_KINDS and item["status"] in {"pending", "running"}
@@ -87,9 +84,13 @@ def action(
 
 def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
     """Add independently due work; an unavailable source cannot starve another."""
+    actions = state["actions"]
+    for item in actions.values():
+        if item["kind"] == "daily_summary" and item["status"] in {"pending", "running"}:
+            item.update(status="cancelled", updatedAt=timestamp)
+    state["schedules"].pop("daily_summary", None)
     if not config.enabled:
         return
-    actions = state["actions"]
     rule_ids = {rule.id for rule in config.responsibilities.lighting.rules}
     for mapping, prefix in [
         (state["schedules"], "sports_discovery:"),
@@ -134,17 +135,6 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
         pending += 1
         state["schedules"][schedule_key] = timestamp
 
-    local = datetime.fromtimestamp(timestamp / 1000, EASTERN)
-    if local.strftime("%H:%M") >= config.summary.time:
-        day = local.date().isoformat()
-        item = action("daily_summary", day, timestamp, payload={"date": day})
-        # The daily marker outlives bounded run history and survives restarts.
-        if (
-            state["schedules"].get("daily_summary") != day
-            and pending < config.maxPendingActions
-        ):
-            actions[item["id"]] = item
-            state["schedules"]["daily_summary"] = day
     prune(state, config, timestamp)
 
 
@@ -174,15 +164,13 @@ def select_due(state: dict, config: CharterConfig, timestamp: int) -> dict | Non
                 continue
         if task_enabled(config, item["kind"], item["payload"], timestamp):
             eligible.append(item)
-    # Time-critical lighting comes first. Otherwise oldest work wins, with a
-    # digest after other work already due at its scheduling instant.
+    # Time-critical lighting comes first. Otherwise oldest work wins.
     return min(
         eligible,
         key=lambda item: (
             item["kind"] != "game_lighting",
             item["kind"] != "sports_discovery",
             item["dueAt"],
-            item["kind"] == "daily_summary",
             item["id"],
         ),
         default=None,
@@ -205,9 +193,7 @@ def recover(state: dict, timestamp: int) -> None:
                     status="uncertain", completedAt=timestamp, outcome=item["outcome"]
                 )
         if item["kind"] == "daily_summary":
-            # Summary creation and completion are one Redis transaction and
-            # have no external effects. An interrupted claim can safely retry.
-            item.update(status="pending", dueAt=timestamp)
+            item.update(status="cancelled", updatedAt=timestamp)
         # Calendar discovery sees this intent and reads remote state before
         # proposing another write. Lighting remains terminal for this game.
         # Cluster maintenance inspects fresh state before deciding on a repair.
@@ -279,7 +265,6 @@ def accept_observations(
                 if not reconcile_unknown:
                     prior["attempts"] = 0
                 prior.update(status="pending", dueAt=timestamp, updatedAt=timestamp)
-                state["reported"].pop(f"action:{prior['id']}", None)
                 pending += 1
             continue
         candidates.append(item)
@@ -317,12 +302,10 @@ def accept_observations(
         if prior and prior["status"] == "pending":
             pending -= 1
         candidates.append(item)
-    if (
-        pending + sum(item["status"] == "pending" for item in candidates)
-        > config.maxPendingActions
-        - len(PERIODIC)
-        - len(config.responsibilities.lighting.rules)
-        - 1
+    if pending + sum(
+        item["status"] == "pending" for item in candidates
+    ) > config.maxPendingActions - len(PERIODIC) - len(
+        config.responsibilities.lighting.rules
     ):
         raise ValueError(
             "Pending action capacity exceeded; observations were not committed"
@@ -461,14 +444,4 @@ def prune(state: dict, config: CharterConfig, timestamp: int) -> None:
                 }
             else:
                 del state["records"][key]
-    state["reported"] = {
-        key: value
-        for key, value in state["reported"].items()
-        if (
-            key.startswith("action:")
-            and key.removeprefix("action:") in state["actions"]
-        )
-        or (not key.startswith("action:") and value["updatedAt"] >= cutoff)
-    }
     state["runs"] = state["runs"][: config.maxRunsStored]
-    state["summaries"] = state["summaries"][: config.maxSummariesStored]

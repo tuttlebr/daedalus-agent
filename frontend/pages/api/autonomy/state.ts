@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { dashboardState } from '@/server/autonomy/presentation';
 import {
   cancelAction,
   reviewProposal,
@@ -17,7 +18,9 @@ export default async function handler(
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
   if (req.method === 'GET')
-    return res.status(200).json(await getState(session.username));
+    return res
+      .status(200)
+      .json(dashboardState(await getState(session.username)));
   if (req.method === 'POST') {
     if (!(await enforceRateLimit(res, limit, session.username))) return;
     try {
