@@ -161,6 +161,24 @@ Exercise each newly configured capability with a small request of its own.
 
 ## Runtime configuration
 
+When using Daedalus Context, run its `make render-agent-env` for the selected
+environment and reconcile the output with this application's workflow and chart.
+The generated settings do not deploy the agent or provide credentials. In
+particular, ingestion consumes `NV_INGEST_HOST` and `NV_INGEST_PORT`; an endpoint
+URL alone does not configure those consumers. Keep query and ingestion embedding
+spaces aligned with context's RAG contract before switching collections.
+
+With `retrieval.enabled`, the chart owns Milvus and RAG readiness settings through
+`retrieval.*` values and filters duplicate keys from `backend.default.env.overrides`. Translate the
+generated `MILVUS_URI`, `MILVUS_DATABASE`, `DAEDALUS_RAG_READINESS_MODE` and
+`DAEDALUS_REQUIRED_COLLECTIONS` into those values; do not assume a generic env
+entry overrides them. Other generated service endpoints belong in the configured
+backend environment. Verify rendered settings and Secret references separately
+from source defaults, without printing credentials. A context provider probe
+from the backend pod proves reachability and protocol acceptance; also exercise
+the agent's retrieval tool and check source citations before claiming integration
+health.
+
 For offline experiments, provision the separate exploration service before
 enabling its workflow tool. The chart defaults `exploration.enabled` to true and
 expects the `exploration-grants` Secret in the backend namespace. Installations

@@ -18,9 +18,12 @@ flowchart LR
     Frontend --> Redis[(Redis: jobs, leases, streams, history)]
     Redis --> Worker[Stream worker]
     Worker -->|SSE + authenticated control| Rust[Rust: Axum / Tokio / Rig]
-    Rust --> Model[Model gateway]
-    Rust --> MCP[MCP servers]
-    Rust --> Services[Memory, retrieval, documents, sandbox, weather]
+    Rust --> Gateway[Switchyard or configured model endpoint]
+    Gateway --> Provider[Answering model provider]
+    Rust --> Context[Context: embeddings, Milvus, reranker, ingestion]
+    Rust --> MCP[Context infrastructure MCP + other MCP servers]
+    Rust --> Sandbox[Sandbox: Bubblewrap v1 / exploration v2]
+    Rust --> Services[External Hindsight, weather]
     Rust -->|loopback, authenticated| Python[Python leaf tools + image API]
     Autonomy[Python autonomous worker] --> Rust
 ```
@@ -120,6 +123,44 @@ when a sixth submission is rejected.
 Activity text, tool categories and accessibility announcements are scoped to
 their conversation, so background runs cannot replace the selected chat's
 indicator or clear it when another run completes.
+
+## Cooperating repositories
+
+The full stack separates four owners. The minimal local setup can use a model
+provider directly and does not require all four services.
+
+| Owner               | Responsibilities                                                                        | Agent boundary                                                            |
+| ------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Daedalus Agent      | Authentication, queue, agent loop, tool authorization, user scope, result publication   | Calls the configured model endpoint and service APIs                      |
+| Daedalus Switchyard | Automatic classification, explicit aliases, provider transport and model streaming      | Model requests and continuations only                                     |
+| Daedalus Sandbox    | Bubblewrap execution/offline checks; separate exploration v2 jobs and durable artifacts | Direct authenticated execution calls; agent publishes collected artifacts |
+| Daedalus Context    | Curated ingestion, Milvus, embedding/reranking and infrastructure MCP services          | Direct retrieval, ingestion and MCP calls                                 |
+
+Hindsight is an externally owned memory service integrated by context operations;
+its implementation is not part of Daedalus Context. Agent-private document uploads
+retain the agent's authenticated user scope and lifecycle even when they share
+context's ingestion, embedding and storage services.
+
+A curated search resolves a domain to a collection alias, embeds the query with
+the query role, searches Milvus, optionally reranks, and returns passages and
+source metadata to the agent. The next model round carries that tool result
+through Switchyard. Sandbox results follow the same continuation boundary;
+Switchyard does not execute tools or proxy context/sandbox service calls.
+
+Keep the ingestion and query embedding model/revision, role templates, dimension,
+normalization and truncation compatible. Equal dimensions alone do not establish
+a shared vector space. The context stack's topology, RAG schema, collections and
+environment contracts are the authority for service configuration. Its generated
+agent environment supplies non-secret endpoints and readiness settings; merge
+these into the selected agent deployment and provision credentials separately.
+See [runtime configuration](operations.md#runtime-configuration) for precedence.
+
+Reranker failures preserve the retrieved order. Native retrieval uses `/rerank`
+with raw logit scores; NIM-compatible clients use `/v1/ranking`. Do not interpret
+these scores as probabilities or add a probability cutoff. Readiness, successful
+ingestion submission, searchable content and a correct cited answer are separate
+checks. A failed refresh can leave existing collections searchable while new
+content remains unavailable.
 
 ## Code map
 
@@ -263,14 +304,17 @@ field when translating Responses to Fireworks Chat Completions; its Fireworks
 configuration must not override it with a shared static session-affinity header.
 
 The Rust provider wire also sends this opaque identity in
-`x-switchyard-session-id`, keeping Composite routing state separate from the
-provider's cache hint. The header is scoped to each run's wire, so a shared HTTP
-client cannot mix users. It stays stable across tool rounds and conversation
-follow-ups; a run without a conversation gets its own identity. Switchyard judges
-new user turns for the automatic profile and reuses that tier during tool
-continuations. Explicit profiles bypass the judge. Gateway state is in memory;
-missing state after restart defaults to the capable tier in our patched build.
-Because a judged turn can move the run to a provider that rejects the current
+`x-switchyard-session-id`, separate from the provider's cache hint. The header is
+scoped to each run's wire, so a shared HTTP client cannot mix users. It stays
+stable across tool rounds and conversation follow-ups; a run without a
+conversation gets its own identity. Current standalone Switchyard routes classify
+every automatic request, including tool continuations, into max, high, low or
+instant. Explicit aliases bypass classification. There is no retained effort
+floor or sticky selection; fallback targets come from the selected provider's
+`routes_*.toml`. Public effort aliases and provider-native reasoning settings are
+separate contracts. Omit `model_profile` for automatic routing, and preserve
+explicit selections among the profiles configured by the workflow.
+Because a classified continuation can move the run to a provider that rejects the current
 provider's retained reasoning state, the runtime never opens a user turn for
 its own recovery guidance after tool results: argument corrections, disabled
 tool notices, interrupted-stream and decode-retry instructions, evidence
