@@ -661,12 +661,23 @@ async def rss_feed_function(config: RssFeedFunctionConfig, builder: ToolRegistry
                         status="unavailable" if failed else "empty", success=not failed
                     )
                 return result
+            ranking = "reranked"
             try:
                 ranked = await rerank_entries(query, entries, top_k if discover else 1)
             except Exception as exc:
                 logger.warning("RSS reranking failed (%s)", type(exc).__name__)
-                result["error"] = "RSS search configuration or reranking failed."
-                return result
+                if not discover:
+                    # A single scraped answer needs relevance ordering; without
+                    # it, do not fetch and present an arbitrary article.
+                    result["error"] = "RSS search configuration or reranking failed."
+                    return result
+                # Reranking fails open, like domain retrieval: keep the fetched
+                # feed evidence in feed order and label it so the model knows.
+                ranked = entries[:top_k]
+                ranking = "unranked"
+                result["warning"] = (
+                    "Reranking unavailable; sources are in feed order, not relevance order."
+                )
             if not ranked:
                 result["error"] = "No suitable entry found after reranking"
                 if discover:
@@ -677,7 +688,8 @@ async def rss_feed_function(config: RssFeedFunctionConfig, builder: ToolRegistry
             if discover:
                 result.update(
                     success=True,
-                    status="partial" if failed else "ok",
+                    status="partial" if failed or ranking == "unranked" else "ok",
+                    ranking=ranking,
                     sources=[
                         {
                             "title": entry.title[:500],
