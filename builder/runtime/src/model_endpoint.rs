@@ -217,16 +217,42 @@ async fn forward(
             .unwrap_or("")
             .trim_end_matches('/')
     );
+    // No run owns a stateless forward. Give it the same opaque correlation as
+    // an agent model call so gateway spans join to this request by exact ID.
+    let call_id = crate::provider::model_call_id(&uuid::Uuid::new_v4().to_string(), 1);
+    let started = std::time::Instant::now();
+    tracing::info!(
+        event = "model_forward_started",
+        correlation_id = %call_id,
+        origin = if require_compat_enabled { "direct_model" } else { "autonomy_plan" },
+        endpoint = path,
+        streaming = body["stream"] == true,
+    );
     let upstream = match HTTP
         .post(url)
         .bearer_auth(model["api_key"].as_str().unwrap_or(""))
+        .header("x-request-id", &call_id)
+        .header("x-switchyard-request-id", &call_id)
         .json(&body)
         .send()
         .await
     {
         Ok(response) => response,
-        Err(_) => return error(502, "Model endpoint request failed"),
+        Err(_) => {
+            tracing::warn!(
+                event = "model_forward_failed",
+                correlation_id = %call_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+            );
+            return error(502, "Model endpoint request failed");
+        }
     };
+    tracing::info!(
+        event = "model_forward_responded",
+        correlation_id = %call_id,
+        http_status = upstream.status().as_u16(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+    );
     if !upstream.status().is_success() {
         // Provider diagnostics may contain private service URLs or credentials.
         let status = if upstream.status().is_client_error()
@@ -278,4 +304,106 @@ async fn forward(
         .headers_mut()
         .insert("x-accel-buffering", "no".parse().unwrap());
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn forwards_carry_one_opaque_correlation_id_per_request() {
+        let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let recorder = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move {
+            let service = Router::new().fallback(move |request: Request<Body>| {
+                let recorder = recorder.clone();
+                async move {
+                    let header = |name: &str| {
+                        request
+                            .headers()
+                            .get(name)
+                            .and_then(|value| value.to_str().ok())
+                            .unwrap_or("")
+                            .to_owned()
+                    };
+                    recorder
+                        .lock()
+                        .unwrap()
+                        .push((header("x-request-id"), header("x-switchyard-request-id")));
+                    axum::Json(json!({"choices":[{"finish_reason":"stop"}]}))
+                }
+            });
+            axum::serve(listener, service).await.unwrap()
+        });
+        let config = crate::config::Config::new(
+            json!({"llms":{"main":{"base_url":base,"api_key":"synthetic","model_name":"fixture"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            [
+                ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
+                ("DAEDALUS_COMPAT_MODEL_ENABLED".into(), "true".into()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        let app = crate::router(crate::App {
+            http: reqwest::Client::new(),
+            tools_url: "http://127.0.0.1:1".into(),
+            internal_token: Arc::new("synthetic-internal".into()),
+            insecure: false,
+            runs: Arc::default(),
+            preparation: Some(crate::preparation::Preparation::new(config).unwrap()),
+            executions: Arc::default(),
+        });
+        for (path, body) in [
+            (
+                "/internal/autonomy/plan",
+                json!({"instructions":"Dim the lights at kickoff.","context":{}}),
+            ),
+            (
+                "/internal/model/chat/completions",
+                json!({"model":"daedalus-model","messages":[{"role":"user","content":"hi"}]}),
+            ),
+            (
+                "/internal/model/responses",
+                json!({"model":"daedalus-model","input":"hi"}),
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post(path)
+                        .header("content-type", "application/json")
+                        .header("x-daedalus-internal-token", "synthetic-internal")
+                        .header("x-user-id", "synthetic-user")
+                        // A caller cannot choose the upstream correlation.
+                        .header("x-request-id", "caller-supplied")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+        }
+        peer.abort();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3);
+        for (request_id, gateway_id) in seen.iter() {
+            assert_eq!(request_id, gateway_id);
+            assert_eq!(request_id.len(), 67);
+            assert!(request_id.starts_with("dc-"));
+            assert!(request_id[3..].bytes().all(|b| b.is_ascii_hexdigit()));
+        }
+        assert_ne!(seen[0].0, seen[1].0);
+        assert_ne!(seen[1].0, seen[2].0);
+    }
 }
