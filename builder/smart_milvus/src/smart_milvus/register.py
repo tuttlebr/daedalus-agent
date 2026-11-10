@@ -114,6 +114,20 @@ class DomainRetrieverConfig(ToolConfig, name="domain_retriever"):
     reranker_api_key: str | None = Field(default=None, description="Reranker API key")
 
 
+def _source_text(source: object, content_metadata: object) -> str:
+    """Name an ingested source object by its citable identifier."""
+    if isinstance(source, dict):
+        for holder, key in (
+            (source, "source_id"),
+            (source, "source_name"),
+            (content_metadata, "source_url"),
+        ):
+            value = holder.get(key) if isinstance(holder, dict) else None
+            if isinstance(value, str) and value.strip():
+                return value
+    return str(source)
+
+
 def _format_domain_results(output: object, domain: str) -> str:
     results = getattr(output, "results", None) or []
     formatted = []
@@ -123,7 +137,11 @@ def _format_domain_results(output: object, domain: str) -> str:
         source = metadata.get("source") or metadata.get("url") or metadata.get("title")
         item = {
             "content": str(content)[:_MAX_DOMAIN_CONTENT_CHARS],
-            "source": str(source)[:2048] if source else None,
+            "source": (
+                _source_text(source, metadata.get("content_metadata"))[:2048]
+                if source
+                else None
+            ),
             "distance": (
                 float(metadata["distance"])
                 if metadata.get("distance") is not None

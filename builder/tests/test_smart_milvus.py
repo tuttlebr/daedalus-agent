@@ -87,6 +87,43 @@ def test_domain_results_expose_ranking_confidence():
     ]
 
 
+@pytest.mark.parametrize(
+    ("metadata", "source"),
+    [
+        (
+            {
+                "source": {
+                    "source_type": "html",
+                    "source_id": "https://example.com/guide",
+                    "source_name": "https://example.com/guide",
+                },
+                "content_metadata": {"source_url": "https://example.com/guide"},
+            },
+            "https://example.com/guide",
+        ),
+        ({"source": {"source_id": "pdf://vet/a.pdf"}}, "pdf://vet/a.pdf"),
+        (
+            {
+                "source": {"source_id": " "},
+                "content_metadata": {"source_url": "https://example.com/b"},
+            },
+            "https://example.com/b",
+        ),
+        # Without an identifier the object keeps its previous representation.
+        ({"source": {"kind": "x"}}, "{'kind': 'x'}"),
+        ({"source": "https://example.com/plain"}, "https://example.com/plain"),
+    ],
+)
+def test_domain_results_cite_ingested_source_objects_by_identifier(metadata, source):
+    output = SimpleNamespace(
+        results=[Document(page_content="Passage", metadata=metadata)]
+    )
+
+    payload = json.loads(_format_domain_results(output, "nvidia"))
+
+    assert payload["results"] == [{"content": "Passage", "source": source}]
+
+
 # ---------------------------------------------------------------------------
 # _wrap_milvus_single_results
 # ---------------------------------------------------------------------------

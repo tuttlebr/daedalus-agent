@@ -155,7 +155,10 @@ agent environment supplies non-secret endpoints and readiness settings; merge
 these into the selected agent deployment and provision credentials separately.
 See [runtime configuration](operations.md#runtime-configuration) for precedence.
 
-Reranker failures preserve the retrieved order. Native retrieval uses `/rerank`
+Reranker failures preserve the retrieved order, and so does a reranker that
+cannot answer before the search deadline: the Rust retriever stops waiting
+shortly before that deadline and returns the vector order. Curated results cite
+an ingested source object by its `source_id`. Native retrieval uses `/rerank`
 with raw logit scores; NIM-compatible clients use `/v1/ranking`. Do not interpret
 these scores as probabilities or add a probability cutoff. Readiness, successful
 ingestion submission, searchable content and a correct cited answer are separate

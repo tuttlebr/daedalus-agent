@@ -195,6 +195,32 @@ async def export(root):
                     "expected": expected,
                 }
             )
+    # Ingested rows store the citable URL or document ID inside a source object.
+    url = "https://example.test/guide"
+    for metadata in [
+        {
+            "source": {"source_type": "html", "source_id": url, "source_name": url},
+            "content_metadata": {"retrieval_contract": "synthetic", "source_url": url},
+        },
+        {"source": {"source_id": "pdf://vet/雪.pdf"}},
+        {"source": {"source_name": url}, "content_metadata": None},
+        {
+            "source": {"source_id": " ", "kind": "x"},
+            "content_metadata": {"source_url": url},
+        },
+        {"source": {"kind": "x"}, "content_metadata": {}},
+        {"source": {"source_id": 7}, "content_metadata": "text"},
+    ]:
+        document = Document(page_content="Synthetic", metadata=metadata)
+        formatting.append(
+            {
+                "documents": [document.model_dump()],
+                "domain": "custom",
+                "expected": domain._format_domain_results(
+                    SimpleNamespace(results=[document]), "custom"
+                ),
+            }
+        )
     document = Document(page_content="🌲" * 12001, metadata={"source": "雪" * 2049})
     formatting.append(
         {

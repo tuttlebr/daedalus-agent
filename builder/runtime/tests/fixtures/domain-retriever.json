@@ -1,5 +1,5 @@
 {
-  "source_sha256": "5bb646c0a3fe3972edb8cd6521c06dfb28ed51e4cd5c955e26b131777531daf5",
+  "source_sha256": "aee483e43ccdf16ea4bb43c51c4fdf63bdfa6173e425bd9be9eecd5ede430911",
   "configuration": [
     {
       "input": {
@@ -7993,6 +7993,136 @@
       "domain": "custom",
       "expected": {
         "error": "TypeError"
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "source_type": "html",
+              "source_id": "https://example.test/guide",
+              "source_name": "https://example.test/guide"
+            },
+            "content_metadata": {
+              "retrieval_contract": "synthetic",
+              "source_url": "https://example.test/guide"
+            }
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"https://example.test",
+          "/guide\"}]}"
+        ]
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "source_id": "pdf://vet/雪.pdf"
+            }
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"pdf://vet/雪.pdf\"}]}"
+        ]
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "source_name": "https://example.test/guide"
+            },
+            "content_metadata": null
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"https://example.test",
+          "/guide\"}]}"
+        ]
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "source_id": " ",
+              "kind": "x"
+            },
+            "content_metadata": {
+              "source_url": "https://example.test/guide"
+            }
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"https://example.test",
+          "/guide\"}]}"
+        ]
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "kind": "x"
+            },
+            "content_metadata": {}
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"{'kind': 'x'}\"}]}"
+        ]
+      }
+    },
+    {
+      "documents": [
+        {
+          "page_content": "Synthetic",
+          "metadata": {
+            "source": {
+              "source_id": 7
+            },
+            "content_metadata": "text"
+          }
+        }
+      ],
+      "domain": "custom",
+      "expected": {
+        "$string_parts": [
+          "{\"domain\":\"custom\",\"ranking_status\":\"vector_only\",\"retrieved_count\":1,\"results_t",
+          "runcated\":false,\"results\":[{\"content\":\"Synthetic\",\"source\":\"{'source_id': 7}\"}]}"
+        ]
       }
     },
     {

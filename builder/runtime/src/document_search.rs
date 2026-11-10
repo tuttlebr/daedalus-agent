@@ -246,6 +246,29 @@ fn field_text(value: &Field, repr: bool) -> String {
         }
     }
 }
+/// Ingestion stores `source` as an object whose `source_id` names the citable
+/// URL or document. Give the model that identifier, not the object's
+/// representation; every other value keeps its retained spelling.
+fn source_text(source: &Field, content_metadata: Option<&Field>) -> String {
+    let named = |value: &Value, key: &str| {
+        value[key]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_owned)
+    };
+    if let Field::Json(value @ Value::Object(_)) = source {
+        let cited = named(value, "source_id")
+            .or_else(|| named(value, "source_name"))
+            .or_else(|| match content_metadata {
+                Some(Field::Json(metadata)) => named(metadata, "source_url"),
+                _ => None,
+            });
+        if let Some(cited) = cited {
+            return cited;
+        }
+    }
+    field_text(source, false)
+}
 fn field_truthy(value: &Field) -> bool {
     match value {
         Field::Json(value) => truthy(value),
@@ -292,7 +315,7 @@ pub fn format(documents: &[Document], collection: &str) -> String {
             .filter_map(metadata)
             .find(|v| field_truthy(v))
         {
-            heading.push(field_text(source, false));
+            heading.push(source_text(source, metadata("content_metadata")));
         }
         if let Some(distance) =
             metadata("distance").filter(|v| !matches!(v, Field::Json(Value::Null)))
@@ -376,7 +399,7 @@ pub fn format_domain(documents: &[Document], domain: &str) -> Result<String, Fai
             fields.push(format!(
                 "\"source\":{}",
                 crate::output::compact(&json!(
-                    field_text(source, false)
+                    source_text(source, metadata("content_metadata"))
                         .chars()
                         .take(2048)
                         .collect::<String>()
@@ -422,6 +445,52 @@ mod tests {
             }
             Err(error) => json!({"error":error.class}),
         }
+    }
+    #[test]
+    fn ingested_source_objects_are_cited_by_identifier() {
+        let document = |source: Value, content_metadata: Value| Document {
+            content: Some("passage".into()),
+            metadata: vec![
+                ("source".into(), Field::Json(source)),
+                ("content_metadata".into(), Field::Json(content_metadata)),
+                ("distance".into(), Field::Float(0.5)),
+            ],
+        };
+        let cited = |source: Value, content_metadata: Value| {
+            let text = format_domain(&[document(source, content_metadata)], "nvidia").unwrap();
+            serde_json::from_str::<Value>(&text).unwrap()["results"][0]["source"].clone()
+        };
+        let url = "https://example.test/guide";
+        // The refresh row: the object carries the URL twice beside other keys.
+        assert_eq!(
+            cited(
+                json!({"source_type":"html","source_id":url,"source_name":url}),
+                json!({"retrieval_contract":"synthetic","source_url":url}),
+            ),
+            url
+        );
+        assert_eq!(
+            cited(json!({"source_id":"pdf://vet/a.pdf"}), json!({})),
+            "pdf://vet/a.pdf"
+        );
+        assert_eq!(cited(json!({"source_name":url}), json!(null)), url);
+        assert_eq!(
+            cited(
+                json!({"source_id":" ","kind":"x"}),
+                json!({"source_url":url})
+            ),
+            url
+        );
+        // Without an identifier the retained representation is unchanged.
+        assert_eq!(cited(json!({"kind":"x"}), json!({})), "{'kind': 'x'}");
+        assert_eq!(cited(json!(url), json!({"source_url":"ignored"})), url);
+        assert_eq!(cited(json!([1, true]), json!({})), "[1, True]");
+        let heading = format(
+            &[document(json!({"source_id":url}), json!({}))],
+            "synthetic",
+        );
+        assert!(heading.contains(&format!("1. {url}")), "{heading}");
+        assert!(!heading.contains("source_id"), "{heading}");
     }
     #[test]
     fn retained_document_results() {
