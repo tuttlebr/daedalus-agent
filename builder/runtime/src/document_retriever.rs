@@ -326,7 +326,7 @@ impl Retriever {
                 .as_f64()
                 .or_else(|| self.settings["distance_cutoff"].as_str()?.parse().ok()),
         )?;
-        Ok(self.reranker.apply(query, documents).await)
+        Ok(self.reranker.apply(query, documents, deadline).await)
     }
 }
 

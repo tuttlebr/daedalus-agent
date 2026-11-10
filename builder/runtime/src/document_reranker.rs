@@ -204,14 +204,31 @@ impl Client {
         Some(rankings)
     }
 
-    pub async fn apply(&self, query: &str, documents: Vec<Document>) -> Vec<Document> {
+    /// Reranking only reorders evidence that the search already found. When
+    /// it cannot answer before the caller's deadline, keep the vector order
+    /// like any other reranker failure instead of timing out the search.
+    pub async fn apply(
+        &self,
+        query: &str,
+        documents: Vec<Document>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Vec<Document> {
         if !truthy(&self.settings["use_reranker"])
             || !truthy(&self.settings["reranker_endpoint"])
             || documents.is_empty()
         {
             return documents;
         }
-        let Some(rankings) = self.rankings(query, &documents).await else {
+        let rankings = match deadline.and_then(|deadline| deadline.checked_sub(DEADLINE_MARGIN)) {
+            Some(limit) => tokio::time::timeout_at(limit, self.rankings(query, &documents))
+                .await
+                .unwrap_or_else(|_| {
+                    tracing::warn!(event = "reranker_deadline_fallback");
+                    None
+                }),
+            None => self.rankings(query, &documents).await,
+        };
+        let Some(rankings) = rankings else {
             return documents;
         };
         let mut documents = documents.into_iter().map(Some).collect::<Vec<_>>();
@@ -248,6 +265,10 @@ impl Client {
             .collect()
     }
 }
+
+/// Time left for the caller to return vector-ordered results after giving up
+/// on the reranker, so its own deadline does not expire first.
+const DEADLINE_MARGIN: Duration = Duration::from_millis(250);
 
 /// Rankings are small; this bounds a decompression bomb in the response.
 const MAX_DECODED: usize = 16 * 1024 * 1024;
@@ -698,7 +719,7 @@ mod tests {
         ];
         for (index, (client, reply, expected)) in cases.into_iter().enumerate() {
             replies.lock().await.0.push(reply);
-            let actual = client.apply("synthetic query", documents()).await;
+            let actual = client.apply("synthetic query", documents(), None).await;
             assert_eq!(json!(observed(&actual)), expected, "rerank case {index}");
         }
         // Invalid rankings and failed requests retain the vector order unchanged.
@@ -715,7 +736,7 @@ mod tests {
             (500, r#"{"results":[{"index":1,"relevance_score":0.9}]}"#),
         ] {
             replies.lock().await.0.push(reply);
-            let actual = limited.apply("synthetic query", documents()).await;
+            let actual = limited.apply("synthetic query", documents(), None).await;
             assert_eq!(observed(&actual), original, "fallback {}", reply.1);
         }
         let state = replies.lock().await;
@@ -731,6 +752,56 @@ mod tests {
         );
         assert_eq!(state.1[1].1["top_n"], json!(5));
         drop(state);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_reranker_slower_than_the_search_deadline_keeps_vector_order() {
+        let ranked =
+            r#"{"results":[{"index":1,"relevance_score":0.9},{"index":0,"relevance_score":0.1}]}"#;
+        let server = Router::new().route(
+            "/rerank",
+            post(move || async move {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                ([("content-type", "application/json")], ranked)
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/rerank", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: Default::default(),
+        };
+        let client = Client::new(
+            &config,
+            &json!({"use_reranker":true,"reranker_endpoint":endpoint,"reranker_model":"synthetic-reranker"}),
+        );
+        let documents = || vec![document("alpha"), document("beta")];
+        let after =
+            |milliseconds| tokio::time::Instant::now() + Duration::from_millis(milliseconds);
+
+        // The search deadline ends before the reply: the caller still gets its
+        // hits, unranked, with time left to return them.
+        let started = tokio::time::Instant::now();
+        let deadline = after(450);
+        let actual = client
+            .apply("synthetic query", documents(), Some(deadline))
+            .await;
+        assert_eq!(observed(&actual), observed(&documents()));
+        assert!(tokio::time::Instant::now() < deadline);
+        assert!(started.elapsed() < Duration::from_millis(450));
+
+        // A deadline that leaves room, or none at all, waits for the ranking.
+        for deadline in [Some(after(5_000)), None] {
+            let actual = client.apply("synthetic query", documents(), deadline).await;
+            assert_eq!(
+                json!(observed(&actual)),
+                json!([["beta", 0.9, 1], ["alpha", 0.1, 2]])
+            );
+        }
         task.abort();
     }
 }

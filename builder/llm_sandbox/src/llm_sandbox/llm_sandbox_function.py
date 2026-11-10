@@ -475,7 +475,13 @@ def _validate_execute_result(data: Any) -> dict[str, Any]:
             raise ValueError(
                 "execution response collected file has invalid base64 content"
             ) from exc
-        if len(content) != item["size"]:
+        # The service reports a cut file's full size beside the bytes that fit
+        # its collection budget.
+        if (
+            len(content) > item["size"]
+            if item["truncated"]
+            else len(content) != item["size"]
+        ):
             raise ValueError(
                 "execution response collected file size does not match its content"
             )

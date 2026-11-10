@@ -382,6 +382,14 @@ kubectl -n daedalus logs deployment/daedalus-backend-default -c backend --since=
   jq -R 'fromjson? | select((.span.run_id // .fields.run_id) == "RUN_ID")'
 ```
 
+Each model attempt logs `model_call_started` with an opaque `correlation_id` and
+sends the same value to the model endpoint as `x-request-id` and
+`x-switchyard-request-id`. Join it to the gateway's request spans by exact value;
+a retry or tool continuation is a new attempt with a new ID. Direct model
+requests and automation planning have no run. They log `model_forward_started`
+and `model_forward_responded` with an ID of the same form and an `origin` of
+`direct_model` or `autonomy_plan`.
+
 For local Compose, use `docker compose logs --tail=100 backend stream-worker frontend`.
 When diagnosing a failed response, correlate the frontend job ID with the
 backend run ID and inspect the failure stage before changing model or retry

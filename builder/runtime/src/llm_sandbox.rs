@@ -749,7 +749,15 @@ fn execution(data: &Value) -> Checked<Value> {
                 ));
             }
             let bytes = decode_file(&item["contentBase64"])?;
-            if item["size"].as_u64() != Some(bytes.len() as u64) {
+            // The service reports a cut file's full size beside the bytes
+            // that fit its collection budget.
+            let (size, length) = (item["size"].as_u64(), bytes.len() as u64);
+            let consistent = if item["truncated"] == true {
+                size.is_some_and(|size| size >= length)
+            } else {
+                size == Some(length)
+            };
+            if !consistent {
                 return Err(invalid(
                     "execution response collected file size does not match its content",
                 ));
