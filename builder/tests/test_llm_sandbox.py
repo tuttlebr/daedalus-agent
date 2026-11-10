@@ -593,6 +593,22 @@ def test_publish_file_copies_exact_bytes_to_durable_frontend_endpoint(
             True,
             "truncated the collected artifact",
         ),
+        (
+            # The service reports a cut file's on-disk size beside the bytes
+            # that fit its collection budget.
+            [
+                {
+                    "path": "output.html",
+                    "size": 7340032,
+                    "mode": "0644",
+                    "contentBase64": "YWJj",
+                    "truncated": True,
+                }
+            ],
+            [],
+            True,
+            "truncated the collected artifact",
+        ),
     ],
 )
 def test_publish_file_fails_closed_for_missing_or_truncated_bytes(

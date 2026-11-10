@@ -449,6 +449,16 @@ async def export(root):
         if "ok" in expected:
             expected["render"] = observe(module._format_execute_result, value)
         validations.append({"kind": "execution", "input": value, "expected": expected})
+    # A cut file keeps its on-disk size; only the bytes that fit are returned.
+    for size, truncated in [(1, True), (0, True), (1, False), (-1, True)]:
+        value = execution()
+        value["truncated"] = truncated
+        value["files"][0]["truncated"] = truncated
+        value["files"][0]["size"] += size
+        expected = observe(module._validate_execute_result, value)
+        if "ok" in expected:
+            expected["render"] = observe(module._format_execute_result, value)
+        validations.append({"kind": "execution", "input": value, "expected": expected})
     for url in [
         "/api/session/documentStorage?sessionId=synthetic-session&documentId=synthetic-document",
         "/api/session/documentStorage?documentId=synthetic-document&sessionId=synthetic-session&extra=1",
