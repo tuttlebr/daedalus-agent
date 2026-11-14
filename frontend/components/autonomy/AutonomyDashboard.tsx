@@ -9,6 +9,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { outcomeNote, shortText } from '@/utils/app/autonomyPresentation';
+import {
+  AutonomyRequestError,
+  autonomyResponseError,
+} from '@/utils/app/autonomyRequest';
 
 import type {
   AutonomyConfig,
@@ -44,7 +48,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       signal: controller.signal,
     });
     if (!response.ok)
-      throw new Error('The request could not be completed. Try again.');
+      throw await autonomyResponseError(
+        response,
+        'The request could not be completed. Your changes have not been confirmed. Try again.',
+      );
     return await response.json();
   } finally {
     window.clearTimeout(timer);
@@ -143,9 +150,11 @@ export function AutonomyDashboard() {
       setNotice(message);
       await refresh();
       return true;
-    } catch {
+    } catch (error) {
       setError(
-        'The request could not be completed. Your changes have not been confirmed. Try again.',
+        error instanceof AutonomyRequestError
+          ? error.message
+          : 'The request could not be completed. Your changes have not been confirmed. Try again.',
       );
       return false;
     } finally {

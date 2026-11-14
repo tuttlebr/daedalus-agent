@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import {
+  AutonomyRequestError,
+  autonomyResponseError,
+} from '@/utils/app/autonomyRequest';
+
 import type { AutomationPlan } from '@/types/autonomy';
 
 import { buttonClass } from './AutonomyJson';
@@ -80,6 +85,7 @@ export function AutomationComposer({
     setPlanning(true);
     setError('');
     setNotice('');
+    if (plan?.type !== 'clarify') setPlan(null);
     const controller = new AbortController();
     activeRequest.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 125000);
@@ -91,13 +97,39 @@ export function AutomationComposer({
         signal: controller.signal,
       });
       if (!response.ok)
-        throw new Error('Could not prepare the automation. Try again.');
-      setPlan(await response.json());
+        throw await autonomyResponseError(
+          response,
+          'The automation preview failed. Your instructions are still here; try again.',
+        );
+      let result: AutomationPlan;
+      try {
+        result = await response.json();
+        if (
+          !result ||
+          ![
+            'automation',
+            'lighting_rule',
+            'settings',
+            'clarify',
+            'unsupported',
+          ].includes(result.type)
+        )
+          throw new Error('Invalid preview');
+      } catch {
+        throw new AutonomyRequestError(
+          'Daedalus returned an unreadable automation preview. Your instructions are still here; try again.',
+        );
+      }
+      setPlan(result);
       setInstructions(text);
       setAnswer('');
-    } catch {
+    } catch (error) {
       setError(
-        'Could not prepare the automation. Your instructions are still here; try again.',
+        controller.signal.aborted
+          ? 'The automation preview timed out. Your instructions are still here; try previewing again.'
+          : error instanceof AutonomyRequestError
+          ? error.message
+          : 'Could not reach Daedalus. Check your connection, then preview again. Your instructions are still here.',
       );
     } finally {
       window.clearTimeout(timeout);
@@ -191,7 +223,7 @@ export function AutomationComposer({
       )}
       {plan?.type === 'unsupported' && (
         <p role="status" className="text-sm">
-          {plan.message}
+          Automation blocked: {plan.message}
         </p>
       )}
       {plan &&

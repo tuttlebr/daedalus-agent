@@ -68,8 +68,241 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+it('identifies a backend connection failure without leaking its exception', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch).mockRejectedValue(new Error('private backend URL'));
+  const { req, res } = call();
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'planning_unreachable' }),
+  );
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+    'private backend',
+  );
+  const requestId = res.setHeader.mock.calls.find(
+    ([name]: [string]) => name === 'X-Request-Id',
+  )[1];
+  expect(console.warn).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ requestId }),
+  );
+});
+
+it('reports the preview deadline as a timeout and cancels the backend request', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.useFakeTimers();
+  vi.mocked(fetch).mockImplementation(
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      }),
+  );
+  const { req, res } = call();
+  const pending = handler(req, res);
+  await vi.advanceTimersByTimeAsync(120000);
+  await pending;
+  expect(res.status).toHaveBeenCalledWith(504);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'planning_timeout' }),
+  );
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
+});
+
+it('identifies unavailable capabilities on save without treating that as a policy block', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch).mockRejectedValue(new Error('private service URL'));
+  const { req, res } = call('PUT', {
+    type: 'automation',
+    rule: { allowedTools: ['weather'] },
+  });
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'capabilities_unavailable' }),
+  );
+  expect(saveAutomationPlan).not.toHaveBeenCalled();
+});
+
+it('attributes a failed capabilities lookup to connected services and logs its status', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch).mockResolvedValue(
+    new Response('private diagnostics', { status: 500 }),
+  );
+  const { req, res } = call('PUT', {
+    type: 'automation',
+    rule: { allowedTools: ['weather'] },
+  });
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'capabilities_unavailable' }),
+  );
+  expect(console.warn).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ upstreamStatus: 500 }),
+  );
+  expect(saveAutomationPlan).not.toHaveBeenCalled();
+});
+
+function modelResponse(content: unknown, finishReason = 'stop') {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          finish_reason: finishReason,
+          message: { content: JSON.stringify(content) },
+        },
+      ],
+    }),
+  );
+}
+
+it.each([
+  [401, 502, 'service_authentication'],
+  [403, 502, 'service_authentication'],
+  [404, 503, 'planning_unavailable'],
+  [429, 429, 'planning_busy'],
+  [500, 502, 'model_failed'],
+  [503, 503, 'capabilities_unavailable'],
+  [504, 504, 'planning_timeout'],
+])(
+  'explains backend HTTP %i without exposing its body',
+  async (status, expected, code) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(fetch).mockResolvedValue(
+      new Response('private upstream credentials', { status }),
+    );
+    const { req, res } = call();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(expected);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code, error: expect.any(String) }),
+    );
+    expect(JSON.stringify(res.json.mock.calls)).not.toContain(
+      'private upstream',
+    );
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code, upstreamStatus: status }),
+    );
+  },
+);
+
+it('distinguishes invalid model output from an intentional unsupported decision', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch).mockResolvedValue(modelResponse({ type: 'shell' }));
+  const invalid = call();
+  await handler(invalid.req, invalid.res);
+  expect(invalid.res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'invalid_plan' }),
+  );
+  const blocked = {
+    type: 'unsupported',
+    message:
+      'Pod deletion requires interactive approval. Review the Kubernetes service permissions, then preview again.',
+  };
+  vi.mocked(fetch).mockResolvedValue(modelResponse(blocked));
+  const unsupported = call('POST', {
+    instructions:
+      'Clean up pods across all Kubernetes namespaces where their status is "Completed"',
+  });
+  await handler(unsupported.req, unsupported.res);
+  expect(unsupported.res.status).toHaveBeenCalledWith(200);
+  expect(unsupported.res.json).toHaveBeenCalledWith(blocked);
+  expect(saveAutomationPlan).not.toHaveBeenCalled();
+});
+
+it('explains an unavailable operation when preview validation blocks a plan', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(
+      modelResponse({
+        type: 'automation',
+        settings: {
+          title: 'Completed pod cleanup',
+          instructions: 'Remove completed pods across all namespaces.',
+          allowedTools: ['k8s_mcp_server__deleteResource'],
+          intervalSeconds: 3600,
+          dailyTimes: [],
+          weekdays: [0, 1, 2, 3, 4, 5, 6],
+          months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        },
+      }),
+    )
+    .mockResolvedValueOnce(new Response(JSON.stringify({ tools: [] })));
+  const { req, res } = call();
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(422);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({
+      code: 'operation_unavailable',
+      error: expect.stringContaining('blocked'),
+    }),
+  );
+  expect(saveAutomationPlan).not.toHaveBeenCalled();
+});
+
+it.each(['content_filter', 'refusal'])(
+  'reports a model %s as a block',
+  async (reason) => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: reason === 'content_filter' ? reason : 'stop',
+              message: {
+                content: null,
+                refusal:
+                  reason === 'refusal'
+                    ? 'This request cannot be prepared.'
+                    : undefined,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    const { req, res } = call();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'unsupported',
+        message: expect.stringContaining('model'),
+      }),
+    );
+  },
+);
+
+it('identifies a truncated response and settings storage failure separately', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(fetch).mockResolvedValue(modelResponse({}, 'length'));
+  const truncated = call();
+  await handler(truncated.req, truncated.res);
+  expect(truncated.res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'incomplete_response' }),
+  );
+  vi.mocked(getConfig).mockRejectedValue(new Error('private Redis address'));
+  const storage = call();
+  await handler(storage.req, storage.res);
+  expect(storage.res.status).toHaveBeenCalledWith(503);
+  expect(storage.res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'settings_unavailable' }),
+  );
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+    'private Redis',
+  );
 });
 it('uses the signed-in identity and previews without saving', async () => {
   const { req, res } = call();
@@ -173,6 +406,9 @@ it('checks current service tools when saving a custom automation', async () => {
   );
   const revoked = call('PUT', plan);
   await handler(revoked.req, revoked.res);
-  expect(revoked.res.status).toHaveBeenCalledWith(400);
+  expect(revoked.res.status).toHaveBeenCalledWith(422);
+  expect(revoked.res.json).toHaveBeenCalledWith(
+    expect.objectContaining({ code: 'operation_unavailable' }),
+  );
   expect(saveAutomationPlan).not.toHaveBeenCalled();
 });

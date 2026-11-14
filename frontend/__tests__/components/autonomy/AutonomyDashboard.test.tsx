@@ -396,3 +396,38 @@ it('shows a custom automation schedule and supports its own pause and removal co
     }),
   );
 });
+
+it('preserves the API reason when saving an automation is blocked', async () => {
+  await render();
+  const field = container.querySelector<HTMLTextAreaElement>(
+    '#automation-instructions',
+  )!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )!.set!.call(field, 'Clean up completed pods hourly.');
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  vi.mocked(fetch).mockResolvedValueOnce(
+    response({
+      type: 'settings',
+      responsibility: 'cluster',
+      settings: { intervalSeconds: 3600 },
+      baseRevision: 'one',
+    }),
+  );
+  await act(async () => button('Preview automation').click());
+  const error =
+    'Settings changed after this preview. Preview your instructions again before saving.';
+  vi.mocked(fetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ error }), { status: 409 }),
+  );
+  await act(async () => button('Save automation').click());
+  expect(
+    Array.from(container.querySelectorAll('[role=alert]')).some(
+      (alert) => alert.textContent === error,
+    ),
+  ).toBe(true);
+  expect(field.value).toBe('Clean up completed pods hourly.');
+});

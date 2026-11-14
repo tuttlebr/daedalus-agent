@@ -7,6 +7,7 @@ import type {
 } from '@/types/autonomy';
 
 import { applyConfigPatch, defaultConfig } from './config';
+import { PlanningFailure } from './planErrors';
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -56,9 +57,7 @@ export function validateAutomationTools(
   available: string[],
 ): void {
   if (rule.allowedTools.some((name) => !available.includes(name)))
-    throw new Error(
-      'A required automation tool is unavailable for unattended work',
-    );
+    throw new PlanningFailure('operation_unavailable');
 }
 export function parseAutomationPlan(
   value: unknown,
@@ -263,7 +262,7 @@ export function applyAutomationPlan(
   if (plan.type === 'settings') {
     keys(plan, ['type', 'responsibility', 'settings', 'baseRevision']);
     if (plan.baseRevision !== configRevision(config))
-      throw new Error('Settings changed. Preview the instructions again.');
+      throw new PlanningFailure('settings_changed');
     const checked = parseAutomationPlan(
       {
         type: plan.type,

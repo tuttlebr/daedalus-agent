@@ -817,6 +817,67 @@ test('Autonomy turns instructions into a reviewable rule and retains failed save
   expect(writes).toBe(2);
 });
 
+test('Autonomy explains preview failures and intentional blocks while retaining the draft', async ({
+  page,
+}) => {
+  await openApp(page);
+  await page.route('**/api/autonomy/config', (route) =>
+    route.fulfill({ json: defaultConfig() }),
+  );
+  const errors = [
+    {
+      status: 502,
+      json: {
+        code: 'service_authentication',
+        error:
+          'The backend rejected access to automation planning. Check the internal service authentication settings, then preview again.',
+      },
+    },
+    {
+      status: 422,
+      json: {
+        code: 'operation_unavailable',
+        error:
+          'This automation is blocked because pod deletion requires approval. Review the Kubernetes service permissions, then preview again.',
+      },
+    },
+    {
+      status: 200,
+      json: {
+        type: 'unsupported',
+        message:
+          'Pod deletion requires interactive approval. Review the Kubernetes service permissions, then preview again.',
+      },
+    },
+  ];
+  let attempts = 0;
+  await page.route('**/api/autonomy/plan', (route) => {
+    expect(route.request().method()).toBe('POST');
+    return route.fulfill(errors[attempts++]);
+  });
+  await navigate(page, 'Autonomy');
+  await page.getByText('Add automation', { exact: true }).click();
+  const composer = page.getByRole('region', { name: 'Describe an automation' });
+  const instructions =
+    'Clean up pods across all Kubernetes namespaces where their status is "Completed"';
+  const input = composer.getByLabel('What should Daedalus do?');
+  await input.fill(instructions);
+  for (const outcome of errors) {
+    await composer.getByRole('button', { name: 'Preview automation' }).click();
+    const message =
+      outcome.status === 200
+        ? `Automation blocked: ${outcome.json.message}`
+        : outcome.json.error!;
+    await expect(
+      composer.getByRole(outcome.status === 200 ? 'status' : 'alert'),
+    ).toHaveText(message);
+    await expect(input).toHaveValue(instructions);
+    await expect(
+      composer.getByRole('button', { name: 'Save automation', exact: true }),
+    ).toHaveCount(0);
+  }
+});
+
 test('Autonomy shows the owner handoff without briefing or audit dumps', async ({
   page,
 }, testInfo) => {

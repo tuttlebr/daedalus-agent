@@ -25,7 +25,12 @@ automation** translates it into supported settings without running tools or
 saving changes. The preview shows the requested task, schedule, days and months. Game-lighting
 previews also show the team and scene. Missing details produce a question; unsupported requirements produce a
 limitation. **Save automation** applies the reviewed plan. Failed requests retain
-the draft. Saving while Autonomy or Home is paused does not resume it.
+the draft and any clarification answer. Planning failures identify unavailable
+services, access failures, timeouts or invalid model output and give a next step.
+Intentional limitations and model refusals display **Automation blocked** with
+the reason. An unavailable operation found during validation also explains the
+block; retrying alone does not grant access. Saving while Autonomy or Home is
+paused does not resume it.
 
 For example:
 
@@ -79,6 +84,10 @@ preparation and does not require enabling the optional public model endpoint.
 Frontend validation rejects unsupported fields, incomplete plans and tool-calling
 responses. New rules append atomically; repeated saves of the same plan do not
 duplicate a rule. Settings edits reject a preview if the configuration changed.
+Planning errors return a stable `code` and a public `error` message. Server logs
+record the failure stage, code, upstream HTTP status when available, and an
+opaque request ID also returned in `X-Request-Id`; they omit instructions,
+credentials and raw provider responses. These diagnostics stay out of the UI.
 
 Expand **Automation JSON** to download the current configuration as a template,
 then upload a complete configuration or a partial settings object (up to 128 KB).
