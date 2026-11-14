@@ -14,7 +14,7 @@ import shlex
 import time
 import uuid
 
-from autonomous_agent.charter import CharterConfig
+from autonomous_agent.charter import AutomationRule, CharterConfig
 from autonomous_agent.prompt import (
     build_messages,
     output_schema,
@@ -353,7 +353,7 @@ def main(image, redis_image, preparation):
                 ),
             )
 
-        def execute(kind, plan, user="synthetic-alice", budget=40):
+        def execute(kind, plan, user="synthetic-alice", budget=40, allowed_tools=None):
             peers.plan, peers.remote, peers.requests = plan, [], []
             timestamp = int(time.time() * 1000)
             task = action(kind, f"fixture:{uuid.uuid4().hex}", timestamp)
@@ -367,13 +367,24 @@ def main(image, redis_image, preparation):
                     "start": "2099-11-09",
                     "end": "2099-11-10",
                 }
+            config = CharterConfig(maxToolCalls=budget)
+            if kind == "automation":
+                config.responsibilities.automations.rules = [
+                    AutomationRule(
+                        id="custom",
+                        title="Calendar task",
+                        instructions="Create the requested event and verify it.",
+                        allowedTools=allowed_tools,
+                    )
+                ]
+                task["payload"] = {"ruleId": "custom"}
             result = measure(
                 fixture,
                 user=user,
                 extra_headers={"x-daedalus-execution-scope": "autonomy"},
                 request_fields={
                     "messages": build_messages(
-                        config=CharterConfig(maxToolCalls=budget),
+                        config=config,
                         task=task,
                         state=empty_state(),
                         timestamp=timestamp,
@@ -382,6 +393,11 @@ def main(image, redis_image, preparation):
                         "id": task["id"],
                         "kind": kind,
                         "max_tool_calls": budget,
+                        **(
+                            {"allowed_tools": allowed_tools}
+                            if kind == "automation"
+                            else {}
+                        ),
                     },
                     "autonomy_output_schema": output_schema(),
                 },
@@ -392,6 +408,57 @@ def main(image, redis_image, preparation):
             )
             parse_structured_output(result["answer"])
             return json.loads(result["answer"])
+
+        if preparation == "rust":
+            available = fixture["client"].get(
+                fixture["base"] + "/internal/autonomy/capabilities",
+                headers={**fixture["headers"], "x-user-id": "synthetic-alice"},
+            )
+            require(available.status_code == 200, "Capability discovery failed")
+            require(
+                "calendar_mcp_server__create_event" in available.json()["tools"],
+                "Connected non-Hue service missing from automation catalog",
+            )
+            missing_grant = fixture["client"].get(
+                fixture["base"] + "/internal/autonomy/capabilities",
+                headers={**fixture["headers"], "x-user-id": "synthetic-no-grant"},
+            )
+            require(
+                missing_grant.status_code == 200,
+                "Missing grant broke other capabilities",
+            )
+            require(
+                not any(
+                    name.startswith("calendar_mcp_server__")
+                    for name in missing_grant.json()["tools"]
+                ),
+                "Automation catalog leaked another user's calendar access",
+            )
+            require(not peers.remote, "Capability discovery executed a service tool")
+
+        # A user-created non-Hue task can write through its saved tools. Other
+        # operations in that same connected service remain outside its scope.
+        result = execute(
+            "automation",
+            [
+                call("calendar_mcp_server__connect"),
+                call("calendar_mcp_server__update_event", id="outside-scope"),
+                call("calendar_mcp_server__create_event", id="custom-event"),
+                call("calendar_mcp_server__list_events"),
+                completion(),
+            ],
+            allowed_tools=[
+                "calendar_mcp_server__create_event",
+                "calendar_mcp_server__list_events",
+            ],
+        )
+        require(
+            [item["name"] for item in peers.remote] == ["create_event", "list_events"],
+            "Custom task failed its saved service/tool scope",
+        )
+        require(
+            result["outcome"]["mutationAttempted"], "Custom mutation was not tracked"
+        )
 
         # Reproduce structural and semantic failures with the actual worker
         # schema. Only completion is retried; the initial clock read runs once.

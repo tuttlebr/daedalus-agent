@@ -1,5 +1,6 @@
 import type {
   AutomationPlan,
+  AutomationRule,
   AutonomyConfig,
   LightingRule,
   Responsibility,
@@ -41,10 +42,29 @@ function validateRule(
   });
   return next.responsibilities.lighting.rules[0];
 }
+function validateAutomation(
+  config: AutonomyConfig,
+  candidate: unknown,
+): AutomationRule {
+  const next = applyConfigPatch(config, {
+    responsibilities: { automations: { rules: [object(candidate)] } },
+  });
+  return next.responsibilities.automations.rules[0];
+}
+export function validateAutomationTools(
+  rule: AutomationRule,
+  available: string[],
+): void {
+  if (rule.allowedTools.some((name) => !available.includes(name)))
+    throw new Error(
+      'A required automation tool is unavailable for unattended work',
+    );
+}
 export function parseAutomationPlan(
   value: unknown,
   config: AutonomyConfig,
   instructions: string,
+  availableTools: string[] = [],
 ): AutomationPlan {
   const plan = object(value);
   if (plan.type === 'clarify' || plan.type === 'unsupported') {
@@ -56,6 +76,39 @@ export function parseAutomationPlan(
     )
       throw new Error('Invalid planning response');
     return { type: plan.type, message: plan.message };
+  }
+  if (plan.type === 'automation') {
+    keys(plan, ['type', 'settings']);
+    const settings = object(plan.settings);
+    keys(settings, [
+      'title',
+      'instructions',
+      'allowedTools',
+      'intervalSeconds',
+      'dailyTimes',
+      'weekdays',
+      'months',
+      'catchUpMinutes',
+    ]);
+    for (const key of [
+      'title',
+      'instructions',
+      'allowedTools',
+      'intervalSeconds',
+      'dailyTimes',
+      'weekdays',
+      'months',
+    ]) {
+      if (!Object.hasOwn(settings, key))
+        throw new Error('Incomplete automation plan');
+    }
+    const rule = validateAutomation(config, {
+      ...settings,
+      id: randomUUID(),
+      enabled: true,
+    });
+    validateAutomationTools(rule, availableTools);
+    return { type: 'automation', rule };
   }
   if (plan.type === 'lighting_rule') {
     keys(plan, ['type', 'settings']);
@@ -118,6 +171,50 @@ export function applyAutomationPlan(
   candidate: unknown,
 ): AutonomyConfig {
   const plan = object(candidate);
+  if (plan.type === 'automation_state' || plan.type === 'remove_automation') {
+    keys(
+      plan,
+      plan.type === 'automation_state'
+        ? ['type', 'id', 'enabled']
+        : ['type', 'id'],
+    );
+    if (
+      typeof plan.id !== 'string' ||
+      (plan.type === 'automation_state' && typeof plan.enabled !== 'boolean')
+    )
+      throw new Error('Invalid automation change');
+    const rules = config.responsibilities.automations.rules;
+    if (!rules.some((rule) => rule.id === plan.id))
+      throw new Error('Automation no longer exists');
+    return applyConfigPatch(config, {
+      responsibilities: {
+        automations: {
+          rules:
+            plan.type === 'remove_automation'
+              ? rules.filter((rule) => rule.id !== plan.id)
+              : rules.map((rule) =>
+                  rule.id === plan.id
+                    ? { ...rule, enabled: plan.enabled }
+                    : rule,
+                ),
+        },
+      },
+    });
+  }
+  if (plan.type === 'automation') {
+    keys(plan, ['type', 'rule']);
+    const rule = validateAutomation(config, plan.rule);
+    const rules = config.responsibilities.automations.rules;
+    const existing = rules.find((item) => item.id === rule.id);
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(rule))
+        throw new Error('A different automation already uses this ID');
+      return config;
+    }
+    return applyConfigPatch(config, {
+      responsibilities: { automations: { rules: [...rules, rule] } },
+    });
+  }
   if (plan.type === 'rule_state' || plan.type === 'remove_rule') {
     keys(
       plan,

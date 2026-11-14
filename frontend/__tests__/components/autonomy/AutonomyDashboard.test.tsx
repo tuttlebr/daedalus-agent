@@ -351,3 +351,48 @@ it('pages pending ideas and hides reviewed ideas', async () => {
   expect(container.textContent).toContain('Idea 0');
   expect(button('More ideas').disabled).toBe(true);
 });
+
+it('shows a custom automation schedule and supports its own pause and removal controls', async () => {
+  config.responsibilities.automations.rules = [
+    {
+      id: 'weather',
+      title: 'Morning forecast',
+      instructions: 'Summarize the forecast.',
+      allowedTools: ['nws_weather_tool'],
+      enabled: true,
+      intervalSeconds: 3600,
+      dailyTimes: ['08:00'],
+      catchUpMinutes: 15,
+      weekdays: [0, 1, 2, 3, 4],
+      months: [11],
+    },
+  ];
+  await render();
+  act(() => button('Custom automations').click());
+  expect(container.textContent).toContain('Morning forecast');
+  expect(container.textContent).toContain('08:00 Eastern');
+  expect(container.textContent).not.toContain('nws_weather_tool');
+  vi.mocked(fetch).mockImplementation(async (url) =>
+    response(String(url).endsWith('/state') ? state : config),
+  );
+  await act(async () => button('Pause').click());
+  expect(fetch).toHaveBeenCalledWith(
+    '/api/autonomy/plan',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({
+        type: 'automation_state',
+        id: 'weather',
+        enabled: false,
+      }),
+    }),
+  );
+  await act(async () => button('Remove').click());
+  expect(fetch).toHaveBeenCalledWith(
+    '/api/autonomy/plan',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ type: 'remove_automation', id: 'weather' }),
+    }),
+  );
+});

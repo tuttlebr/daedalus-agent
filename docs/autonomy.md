@@ -22,8 +22,8 @@ successful view on errors, and rejects refresh results that predate a mutation.
 
 Open **Add automation**, then use **Describe an automation** to write a request in plain language. **Preview
 automation** translates it into supported settings without running tools or
-saving changes. The preview shows the trigger, scene, days, months and check
-cadence. Missing details produce a question; unsupported requirements produce a
+saving changes. The preview shows the requested task, schedule, days and months. Game-lighting
+previews also show the team and scene. Missing details produce a question; unsupported requirements produce a
 limitation. **Save automation** applies the reviewed plan. Failed requests retain
 the draft. Saving while Autonomy or Home is paused does not resume it.
 
@@ -41,17 +41,40 @@ the preview does not claim the scene exists. Home lists saved rules with pause,
 resume and removal controls. Removing a rule cancels its pending work; stopping
 an in-flight request does not undo effects already applied.
 
-Natural-language requests currently support game-start lighting for football
-and men's basketball, and settings for calendar discovery, cluster checks and
-improvement reviews. Arbitrary code, new services, presence/TV conditions,
-end-of-game actions and fixed-time recurring lighting are unsupported. The
-planner must report these limits rather than hide unsupported conditions in
-free-text instructions. Review the preview before saving: model interpretation
-can be wrong, while the validated fields determine the worker's schedule.
+Natural-language requests can create independent custom automations using the
+configured service tools. For example, a weekday weather check can use the weather
+tool, and a calendar task can use the connected calendar service. The planner
+reads the current tool catalog for the signed-in user, including deferred MCP
+schemas and configured unattended approval policies. Missing access or tools
+produce a concrete limitation; the built-in lighting recipe does not restrict
+other tasks to Hue or particular sports.
+
+Custom automations run at a regular interval (five minutes to seven days) or at
+specified daily times in Eastern time, with weekday and month filters. Conditions
+are evaluated when the task runs; this is polling, not continuous monitoring or
+an event subscription. Daily times have a configurable one-to-sixty-minute
+missed-start window, defaulting to fifteen minutes. Nonexistent spring-forward
+times are skipped and repeated fall-back times run once. The planner asks for
+missing scheduling details and must preserve all requested conditions.
+
+The preview records the necessary tool names and complete task instructions.
+Saving rechecks tool availability. Runtime calls remain scoped to that saved
+list and pass the existing exposure, schema, service authorization and
+non-interactive approval gates. Discovery of a selected service does not authorize
+its other operations. New tools become eligible through the service catalog
+without adding a domain-specific acceptance rule. Existing game-lighting rules
+and built-in responsibility settings retain their behavior.
+
+**Custom automations** lists saved tasks, schedules, pause/resume and removal
+controls, and each task's latest result. Global and area pauses remain effective
+when saving. Review the preview before saving: model interpretation can be wrong,
+and validated schedule fields determine when the worker runs.
 
 The signed-in frontend calls `POST /api/autonomy/plan` to preview and `PUT` to
 save. The private Rust route `/internal/autonomy/plan` uses the configured main
-model with no tools, persisted conversation or execution path. It requires Rust
+model with discovered schemas as context, without tool execution, persisted
+conversation or activation. `/internal/autonomy/capabilities` returns the current
+unattended tool names for preview and save validation. It requires Rust
 preparation and does not require enabling the optional public model endpoint.
 Frontend validation rejects unsupported fields, incomplete plans and tool-calling
 responses. New rules append atomically; repeated saves of the same plan do not
@@ -61,8 +84,8 @@ Expand **Automation JSON** to download the current configuration as a template,
 then upload a complete configuration or a partial settings object (up to 128 KB).
 Uploads are validated against the same generated contract as the API and shown
 for review before **Apply JSON**. Omitted fields are preserved, invalid fields
-are rejected, and failed saves retain the upload for retry. JSON configures the
-supported responsibilities; it cannot introduce arbitrary executable tasks.
+are rejected, and failed saves retain the upload for retry. JSON configures built-in responsibilities and custom tasks through the same
+schema. Tool availability and service permissions are checked again at execution.
 
 Workers load humanizer before writing public notes. Publication validation limits
 outcome notes to one paragraph, three sentences, 80 words and 600 characters.
@@ -83,8 +106,10 @@ For example, this partial upload changes only cluster-check cadence:
 }
 ```
 
-The autonomous worker owns four independently scheduled responsibilities:
+The autonomous worker owns built-in responsibilities and user-created tasks:
 
+- **Custom automations:** execute the saved instructions with selected service
+  tools, according to each rule’s own schedule.
 - **Local calendar:** discover practical dates and community activities, then
   reconcile individual events through the user's connected Google MCP account.
 - **Game lighting:** discover configured teams’ football and men's basketball schedules and apply
@@ -146,6 +171,11 @@ namespaces, cluster-managed configuration, non-node LAN verification source,
 maintenance boundaries, tool-call budget and run deadline. Defaults limit each
 run to 40 tool calls and 600 seconds. The missed-start allowance is 15 minutes.
 A game that is already beyond that window is recorded as expired.
+Custom tasks live in `responsibilities.automations.rules`. Each requires `id`,
+`title`, `instructions` and `allowedTools`; `dailyTimes: []` selects interval
+checks. Daily times are `HH:MM` strings. Rule IDs must be unique within their area.
+The area itself has an `enabled` switch and its rule list. JSON arrays replace
+existing arrays, while natural-language creation appends one rule atomically.
 Each extra lighting rule needs a unique `id` and a `title`; omitted optional
 fields use the standard lighting defaults. JSON arrays replace the existing
 array, so include all rules when uploading `lighting.rules`. Use natural-language
@@ -182,15 +212,23 @@ service before accepting completed or partial status. The agent still must
 compare that evidence with the intended result; a successful read alone does not
 establish application recovery.
 
+Custom tasks also retain their own notes and recent outcomes. Editing a rule
+invalidates queued work from its previous configuration; removal cancels pending
+work and stops an active request. An uncertain result, or a failed run that
+attempted a mutation, holds that rule to avoid repeating unknown effects. Inspect
+remote state, then remove and recreate the rule after reconciling it. Pausing and
+resuming alone does not clear this hold. Other rules continue independently.
+
 The runtime enforces the selected task's tool boundary and budget. Discovery
-cannot execute calendar or lighting writes. Charter runs cannot use generic
-shell/delegation tools or skill scripts, Helm mutations, software image changes or persistent-volume
-deletion. Cluster repairs use workload restarts, pod cleanup, ConfigMap data merge
+cannot execute calendar or lighting writes. The built-in responsibilities cannot use generic
+shell/delegation tools or skill scripts, Helm mutations, software image changes or
+persistent-volume deletion. Custom tasks can use explicitly selected tools that
+the service permits unattended; saving a rule never changes service permissions. Cluster repairs use workload restarts, pod cleanup, ConfigMap data merge
 patches, or strategic patches of named containers' resource requests/limits.
 Strategic patches preserve container images and unmentioned containers.
-Application checks may use `execInPod` only for a bounded HTTP(S) GET with
+Built-in cluster application checks may use `execInPod` only for a bounded HTTP(S) GET with
 `curl --fail --silent --show-error --max-time 10 <health-url>`. Shells, uploads,
-redirects and arbitrary commands remain unavailable. A pod-origin health check
+redirects and arbitrary commands remain unavailable to built-in cluster tasks. A pod-origin health check
 does not qualify as non-node LAN verification.
 
 Cluster-managed configuration is the durable source. Before a configuration or
@@ -230,6 +268,15 @@ removed. The charter uses a separate namespace and does not read or migrate old
 queued research into executable tasks. Old Redis data remains inert so replacing
 code does not delete user history. No compatibility switch activates the retired
 worker.
+
+## Rollout compatibility
+
+Deploy the updated backend/runtime and autonomous worker before the frontend.
+The new worker reads existing version-2 configurations with an empty custom-rule
+list by default. Older workers and frontends reject the new `automations` field,
+so upgrade them before saving a configuration with custom tasks. Keep a copy of
+the pre-upgrade configuration for rollback; pause custom work and restore a
+compatible configuration before reverting application versions.
 
 ## Validation
 

@@ -244,6 +244,11 @@ impl Agent {
             // one action, evidence and mutations must retain causal ordering.
             prepared.parallel_tool_calls = false;
         }
+        let charter_policies = preparation
+            .as_ref()
+            .filter(|_| charter_task.is_some())
+            .map(|p| crate::authorization::Policies::new(&p.config.raw))
+            .transpose()?;
         let mut charter_tool_calls = 0;
         let mut charter_mutated = false;
         let mut charter_mutations = std::collections::HashSet::new();
@@ -1170,10 +1175,11 @@ impl Agent {
                     {
                         charter_backups.insert(target);
                     }
-                    if charter_task.is_some()
-                        && let Some(group) = crate::autonomy_policy::Task::verification_group(
+                    if let Some(task) = &charter_task
+                        && let Some(group) = task.verification_group_for(
                             &name,
                             &call.function.arguments,
+                            charter_policies.as_ref(),
                         )
                     {
                         charter_unverified_groups.remove(&group);

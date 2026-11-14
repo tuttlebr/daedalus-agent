@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "builder/autonomous_agent/src"))
 
-from autonomous_agent.charter import CharterConfig  # noqa: E402
+from autonomous_agent.charter import AutomationRule, CharterConfig  # noqa: E402
 
 
 def main() -> int:
@@ -21,6 +21,12 @@ def main() -> int:
         json.dumps(
             {
                 "defaults": CharterConfig().model_dump(),
+                "automationDefaults": AutomationRule(
+                    id="template",
+                    title="Template",
+                    instructions="Template",
+                    allowedTools=["template"],
+                ).model_dump(exclude={"id", "title", "instructions", "allowedTools"}),
                 "schema": CharterConfig.model_json_schema(),
             },
             indent=2,

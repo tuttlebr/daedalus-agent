@@ -69,6 +69,42 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect(saved.responsibilities.lighting.rules).toHaveLength(2);
       expect(saved.responsibilities.lighting.scene).toBe('Go Green!');
     });
+    it('concurrent custom saves preserve each independent task and retry once', async () => {
+      const { parseAutomationPlan } = await import(
+        '@/server/autonomy/planning'
+      );
+      const user = `charter-custom-${process.pid}-${Date.now()}`;
+      users.push(user);
+      const config = await store.getConfig(user);
+      const draft = {
+        type: 'automation',
+        settings: {
+          title: 'Forecast',
+          instructions: 'Summarize the weather.',
+          allowedTools: ['nws_weather_tool'],
+          intervalSeconds: 3600,
+          dailyTimes: [],
+          weekdays: [0, 1, 2, 3, 4, 5, 6],
+          months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        },
+      };
+      const first = parseAutomationPlan(draft, config, 'First', [
+        'nws_weather_tool',
+      ]);
+      const second = parseAutomationPlan(draft, config, 'Second', [
+        'nws_weather_tool',
+      ]);
+      await Promise.all([
+        store.saveAutomationPlan(user, first),
+        store.saveAutomationPlan(user, second),
+        store.saveAutomationPlan(user, first),
+      ]);
+      const saved = await store.getConfig(user);
+      expect(saved.responsibilities.automations.rules).toHaveLength(2);
+      expect(saved.responsibilities.lighting).toEqual(
+        config.responsibilities.lighting,
+      );
+    });
     it('concurrent check-now requests schedule only one action', async () => {
       const user = `charter-queue-${process.pid}-${Date.now()}`;
       users.push(user);

@@ -83,7 +83,7 @@ export async function getState(userId: string): Promise<AutonomyState> {
     throw new Error('Invalid charter state');
   return state;
 }
-const kinds: Record<Responsibility, TaskKind> = {
+const kinds: Record<Exclude<Responsibility, 'automations'>, TaskKind> = {
   calendar: 'calendar_discovery',
   lighting: 'sports_discovery',
   cluster: 'cluster_maintenance',
@@ -98,7 +98,7 @@ export async function requestResponsibility(
     !Object.hasOwn(kinds, responsibility)
   )
     throw new Error('Select an existing responsibility');
-  const name = responsibility as Responsibility;
+  const name = responsibility as Exclude<Responsibility, 'automations'>;
   const config = await getConfig(userId);
   if (!config.enabled || !config.responsibilities[name].enabled)
     throw new Error('Resume this responsibility before running it');

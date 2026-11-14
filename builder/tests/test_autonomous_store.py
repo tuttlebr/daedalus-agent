@@ -246,3 +246,45 @@ def test_retired_briefing_cannot_dispatch_or_publish(store_user):
     state = store.get_state(user)
     assert state["actions"][item["id"]]["status"] == "cancelled"
     assert state["summaries"] == []
+
+
+def test_custom_automation_claim_forwards_only_its_saved_tools(store_user):
+    from autonomous_agent.charter import AutomationRule
+
+    store, user = store_user
+    config = CharterConfig()
+    for name in ("calendar", "lighting", "cluster", "evolution"):
+        getattr(config.responsibilities, name).enabled = False
+    config.responsibilities.automations.rules = [
+        AutomationRule(
+            id="weather",
+            title="Weather check",
+            instructions="Summarize the weather.",
+            allowedTools=["nws_weather_tool"],
+        )
+    ]
+    store.redis.set(key(user, "config"), config.model_dump_json())
+    item = store.prepare(user)
+    assert item["kind"] == "automation"
+    calls = []
+
+    class Backend:
+        def call(self, messages, *, charter_task, **_kwargs):
+            calls.append(charter_task)
+            assert (
+                json.loads(messages[1]["content"])["settings"]["instructions"]
+                == "Summarize the weather."
+            )
+            return completed().model_dump_json()
+
+    run_once(store=store, user_id=user, task_id=item["id"], backend=Backend())
+    assert calls == [
+        {
+            "id": item["id"],
+            "kind": "automation",
+            "max_tool_calls": 40,
+            "allowed_tools": ["nws_weather_tool"],
+        }
+    ]
+    assert store.get_state(user)["actions"][item["id"]]["status"] == "completed"
+    assert store.prepare(user) is None

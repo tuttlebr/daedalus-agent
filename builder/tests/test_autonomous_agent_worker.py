@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from autonomous_agent.charter import CharterConfig
+from autonomous_agent.charter import AutomationRule, CharterConfig
 from autonomous_agent.prompt import (
     build_messages,
     output_schema,
@@ -21,6 +21,12 @@ def test_schema_matches_frontend_configuration_contract():
     contract = json.loads(path.read_text())
     assert contract == {
         "defaults": CharterConfig().model_dump(),
+        "automationDefaults": AutomationRule(
+            id="template",
+            title="Template",
+            instructions="Template",
+            allowedTools=["template"],
+        ).model_dump(exclude={"id", "title", "instructions", "allowedTools"}),
         "schema": CharterConfig.model_json_schema(),
     }
 

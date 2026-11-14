@@ -1,5 +1,11 @@
-export type Responsibility = 'calendar' | 'lighting' | 'cluster' | 'evolution';
+export type Responsibility =
+  | 'calendar'
+  | 'lighting'
+  | 'cluster'
+  | 'evolution'
+  | 'automations';
 export type TaskKind =
+  | 'automation'
   | 'calendar_discovery'
   | 'calendar_event'
   | 'sports_discovery'
@@ -25,6 +31,13 @@ export interface LightingRule extends GameLightingConfig {
   id: string;
   title: string;
 }
+export interface AutomationRule extends ResponsibilityConfig {
+  id: string;
+  title: string;
+  allowedTools: string[];
+  dailyTimes: string[];
+  catchUpMinutes: number;
+}
 export interface AutonomyConfig {
   version: 2;
   enabled: boolean;
@@ -45,6 +58,7 @@ export interface AutonomyConfig {
       maintenancePolicy: string;
     };
     evolution: ResponsibilityConfig;
+    automations: { enabled: boolean; rules: AutomationRule[] };
   };
   expansionPolicy: 'propose';
   maxToolCalls: number;
@@ -54,6 +68,7 @@ export interface AutonomyConfig {
   maxRunsStored: number;
 }
 export type AutomationPlan =
+  | { type: 'automation'; rule: AutomationRule }
   | { type: 'lighting_rule'; rule: LightingRule }
   | {
       type: 'settings';

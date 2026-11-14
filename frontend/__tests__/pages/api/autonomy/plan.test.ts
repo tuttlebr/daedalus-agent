@@ -147,3 +147,32 @@ it('saves only on PUT and reports failed application', async () => {
   await handler(retry.req, retry.res);
   expect(retry.res.status).toHaveBeenCalledWith(400);
 });
+
+it('checks current service tools when saving a custom automation', async () => {
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(JSON.stringify({ tools: ['nws_weather_tool'] })),
+  );
+  vi.mocked(saveAutomationPlan).mockResolvedValue(defaultConfig());
+  const plan = {
+    type: 'automation',
+    rule: { allowedTools: ['nws_weather_tool'] },
+  };
+  const request = call('PUT', plan);
+  await handler(request.req, request.res);
+  expect(request.res.status).toHaveBeenCalledWith(200);
+  expect(saveAutomationPlan).toHaveBeenCalledWith('alice', plan);
+  expect(fetch).toHaveBeenCalledWith(
+    'http://backend:8000/internal/autonomy/capabilities',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'x-user-id': 'alice' }),
+    }),
+  );
+  vi.mocked(saveAutomationPlan).mockClear();
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(JSON.stringify({ tools: [] })),
+  );
+  const revoked = call('PUT', plan);
+  await handler(revoked.req, revoked.res);
+  expect(revoked.res.status).toHaveBeenCalledWith(400);
+  expect(saveAutomationPlan).not.toHaveBeenCalled();
+});

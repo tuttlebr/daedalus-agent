@@ -30,8 +30,9 @@ Text = Annotated[str, StringConstraints(min_length=1, max_length=4000, pattern=r
 Identifier = Annotated[
     str, StringConstraints(min_length=1, max_length=160, pattern=r"^[a-zA-Z0-9_.:-]+$")
 ]
-Responsibility = Literal["calendar", "lighting", "cluster", "evolution"]
+Responsibility = Literal["calendar", "lighting", "cluster", "evolution", "automations"]
 TaskKind = Literal[
+    "automation",
     "calendar_discovery",
     "calendar_event",
     "sports_discovery",
@@ -122,6 +123,44 @@ class LightingConfig(GameLightingConfig):
         return rules
 
 
+class AutomationRule(ResponsibilityConfig):
+    id: Identifier
+    title: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    instructions: Text
+    allowedTools: list[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=200, pattern=r"^[a-zA-Z0-9_.:-]+$"
+            ),
+        ]
+    ] = Field(min_length=1, max_length=100)
+    # Empty means interval-based checks. Otherwise run at these local times.
+    dailyTimes: list[
+        Annotated[str, StringConstraints(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
+    ] = Field(default_factory=list, max_length=24)
+    catchUpMinutes: int = Field(default=15, ge=1, le=60)
+
+    @field_validator("allowedTools", "dailyTimes")
+    @classmethod
+    def unique_values(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values):
+            raise ValueError("Automation values must be unique")
+        return values
+
+
+class AutomationsConfig(Contract):
+    enabled: bool = True
+    rules: list[AutomationRule] = Field(default_factory=list, max_length=50)
+
+    @field_validator("rules")
+    @classmethod
+    def unique_rules(cls, rules: list[AutomationRule]) -> list[AutomationRule]:
+        if len({rule.id for rule in rules}) != len(rules):
+            raise ValueError("Automation IDs must be unique")
+        return rules
+
+
 class ClusterConfig(ResponsibilityConfig):
     intervalSeconds: int = Field(default=900, ge=300, le=604800)
     contexts: list[str] = Field(default_factory=list, max_length=30)
@@ -132,6 +171,7 @@ class ClusterConfig(ResponsibilityConfig):
 
 
 class Responsibilities(Contract):
+    automations: AutomationsConfig = Field(default_factory=AutomationsConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     lighting: LightingConfig = Field(default_factory=LightingConfig)
     cluster: ClusterConfig = Field(default_factory=ClusterConfig)
@@ -167,7 +207,11 @@ class CharterConfig(Contract):
 
     @model_validator(mode="after")
     def queue_capacity(self) -> CharterConfig:
-        if self.maxPendingActions <= len(self.responsibilities.lighting.rules) + 4:
+        if self.maxPendingActions <= (
+            len(self.responsibilities.lighting.rules)
+            + len(self.responsibilities.automations.rules)
+            + 4
+        ):
             raise ValueError("Leave queue capacity for discovery and game actions")
         return self
 
@@ -355,6 +399,7 @@ def revision(value: dict) -> str:
 
 
 TASK_RESPONSIBILITY: dict[str, str] = {
+    "automation": "automations",
     "calendar_discovery": "calendar",
     "calendar_event": "calendar",
     "sports_discovery": "lighting",
@@ -370,9 +415,9 @@ def task_settings(config: CharterConfig, kind: str, payload: dict | None = None)
         return None
     settings = getattr(config.responsibilities, name)
     rule_id = (payload or {}).get("ruleId")
-    if name == "lighting" and rule_id:
+    if name in {"lighting", "automations"} and rule_id:
         return next((rule for rule in settings.rules if rule.id == rule_id), None)
-    return settings
+    return None if name == "automations" else settings
 
 
 def in_window(settings: ResponsibilityConfig, timestamp: int) -> bool:
@@ -382,7 +427,7 @@ def in_window(settings: ResponsibilityConfig, timestamp: int) -> bool:
 
 def task_note_key(task: dict) -> str:
     rule_id = task.get("payload", {}).get("ruleId")
-    return f"lighting:{rule_id}" if rule_id else task["responsibility"]
+    return f"{task['responsibility']}:{rule_id}" if rule_id else task["responsibility"]
 
 
 def task_enabled(
@@ -400,5 +445,17 @@ def task_enabled(
         and getattr(config.responsibilities, name).enabled
         and settings
         and settings.enabled
-        and (timestamp is None or in_window(settings, timestamp))
+        and (
+            kind != "automation"
+            or (payload or {}).get("ruleRevision") == revision(settings.model_dump())
+        )
+        and (
+            timestamp is None
+            or in_window(
+                settings,
+                (payload or {}).get("scheduledAt", timestamp)
+                if kind == "automation" and settings.dailyTimes
+                else timestamp,
+            )
+        )
     )

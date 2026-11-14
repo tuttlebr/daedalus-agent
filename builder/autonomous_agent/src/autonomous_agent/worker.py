@@ -10,7 +10,13 @@ import time
 from typing import Any
 
 from .backend_client import BackendClient, BackendRejectedError, RunAbortedError
-from .charter import ActionOutcome, CharterConfig, CharterOutput, task_enabled
+from .charter import (
+    ActionOutcome,
+    CharterConfig,
+    CharterOutput,
+    task_enabled,
+    task_settings,
+)
 from .prompt import StructuredOutputError, build_messages, parse_structured_output
 from .store import RedisStore, WorkerLeaseLost, now_ms
 
@@ -92,6 +98,15 @@ def run_once(
                 "id": task_id,
                 "kind": task["kind"],
                 "max_tool_calls": config.maxToolCalls,
+                **(
+                    {
+                        "allowed_tools": task_settings(
+                            config, task["kind"], task["payload"]
+                        ).allowedTools
+                    }
+                    if task["kind"] == "automation"
+                    else {}
+                ),
             },
         )
         if abort.is_set() or store.cancel_requested(user_id, run["id"]):

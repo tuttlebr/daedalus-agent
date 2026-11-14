@@ -7,13 +7,37 @@ import {
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
 import contract from '@/server/autonomy/contract.json';
-import { parseAutomationPlan } from '@/server/autonomy/planning';
+import {
+  parseAutomationPlan,
+  validateAutomationTools,
+} from '@/server/autonomy/planning';
 import { getConfig, saveAutomationPlan } from '@/server/autonomy/store';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 const limit = ruleFromEnv('autonomy-plan', 'RATE_LIMIT_AUTONOMY_PLAN', 10, 60);
+async function capabilities(username: string): Promise<string[]> {
+  const response = await fetch(
+    buildBackendUrlFromBase(
+      buildBackendBaseUrlForMode(),
+      '/internal/autonomy/capabilities',
+    ),
+    {
+      redirect: 'error',
+      signal: AbortSignal.timeout(25000),
+      headers: withInternalBackendAuth({ 'x-user-id': username }),
+    },
+  );
+  if (!response.ok) throw new Error('Automation capabilities unavailable');
+  const result = await response.json();
+  if (
+    !Array.isArray(result.tools) ||
+    result.tools.some((name: unknown) => typeof name !== 'string')
+  )
+    throw new Error('Invalid automation capabilities');
+  return result.tools;
+}
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -28,6 +52,12 @@ export default async function handler(
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'PUT') {
     try {
+      if (req.body?.type === 'automation') {
+        validateAutomationTools(
+          req.body.rule,
+          await capabilities(session.username),
+        );
+      }
       return res
         .status(200)
         .json(await saveAutomationPlan(session.username, req.body));
@@ -73,6 +103,12 @@ export default async function handler(
           context: {
             settings: {
               ...current.responsibilities,
+              automations: {
+                enabled: current.responsibilities.automations.enabled,
+                rules: current.responsibilities.automations.rules.map(
+                  ({ id, title, enabled }) => ({ id, title, enabled }),
+                ),
+              },
               lighting: {
                 ...lighting,
                 rules: rules.map(({ id, title, team, scene, enabled }) => ({
@@ -112,15 +148,14 @@ export default async function handler(
       choice.message?.tool_calls?.length
     )
       throw new Error('Incomplete planning response');
+    const candidate = JSON.parse(choice.message.content);
+    const available =
+      candidate.type === 'automation'
+        ? await capabilities(session.username)
+        : [];
     return res
       .status(200)
-      .json(
-        parseAutomationPlan(
-          JSON.parse(choice.message.content),
-          current,
-          instructions,
-        ),
-      );
+      .json(parseAutomationPlan(candidate, current, instructions, available));
   } catch {
     if (!res.destroyed)
       return res.status(502).json({
