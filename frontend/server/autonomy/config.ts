@@ -129,16 +129,32 @@ export function applyConfigPatch(
         : rule,
     );
   }
+  const automations = (merged.responsibilities as Record<string, unknown>)
+    ?.automations as Record<string, unknown> | undefined;
+  if (automations && Array.isArray(automations.rules)) {
+    const defaults = contract.automationDefaults;
+    automations.rules = automations.rules.map((rule) =>
+      rule && typeof rule === 'object' && !Array.isArray(rule)
+        ? merge(defaults, rule)
+        : rule,
+    );
+  }
   validate(merged, contract.schema as Schema, 'config');
   const config = merged as unknown as AutonomyConfig;
   if (
     config.maxPendingActions <=
-    config.responsibilities.lighting.rules.length + 4
+    config.responsibilities.lighting.rules.length +
+      config.responsibilities.automations.rules.length +
+      4
   )
     throw new Error('Leave queue capacity for discovery and game actions');
   for (const settings of [
-    ...Object.values(config.responsibilities),
+    ...Object.values(config.responsibilities).filter(
+      (settings): settings is AutonomyConfig['responsibilities']['evolution'] =>
+        'weekdays' in settings,
+    ),
     ...config.responsibilities.lighting.rules,
+    ...config.responsibilities.automations.rules,
   ]) {
     for (const values of [settings.weekdays, settings.months]) {
       if (new Set(values).size !== values.length)
@@ -150,6 +166,18 @@ export function applyConfigPatch(
       .size !== config.responsibilities.lighting.rules.length
   )
     throw new Error('Lighting rule IDs must be unique');
+  const automationsRules = config.responsibilities.automations.rules;
+  if (
+    new Set(automationsRules.map((rule) => rule.id)).size !==
+    automationsRules.length
+  )
+    throw new Error('Automation IDs must be unique');
+  for (const rule of automationsRules) {
+    for (const values of [rule.allowedTools, rule.dailyTimes]) {
+      if (new Set(values).size !== values.length)
+        throw new Error('Automation values must be unique');
+    }
+  }
   for (const source of config.responsibilities.calendar.sources) {
     const url = new URL(source);
     if (

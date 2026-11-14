@@ -24,6 +24,7 @@ const labels: Record<Responsibility, string> = {
   lighting: 'Home',
   cluster: 'System health',
   evolution: 'Learning',
+  automations: 'Custom automations',
 };
 const names = Object.keys(labels) as Responsibility[];
 const statusLabels: Record<string, string> = {
@@ -36,7 +37,7 @@ const statusLabels: Record<string, string> = {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), 35000);
   try {
     const response = await fetch(path, {
       ...options,
@@ -274,6 +275,7 @@ export function AutonomyDashboard() {
               </summary>
               <AutomationComposer
                 lightingPaused={!config.responsibilities.lighting.enabled}
+                automationsPaused={!config.responsibilities.automations.enabled}
                 busy={busy}
                 paused={!config.enabled}
                 onApply={(plan) =>
@@ -366,8 +368,8 @@ export function AutonomyDashboard() {
                             )}
                           </span>
                         </div>
-                        {name === 'lighting' &&
-                          config.responsibilities.lighting.rules.map((rule) => (
+                        {(name === 'lighting' || name === 'automations') &&
+                          config.responsibilities[name].rules.map((rule) => (
                             <div
                               key={rule.id}
                               className="space-y-2 rounded-xl border border-separator p-3 text-sm"
@@ -379,11 +381,43 @@ export function AutonomyDashboard() {
                                 </span>
                               </div>
                               <p>
-                                {rule.team} · {rule.scene}
+                                {'team' in rule
+                                  ? `${rule.team} · ${rule.scene}`
+                                  : rule.instructions}
                               </p>
                               <p className="text-dark-text-secondary">
                                 {describeWindow(rule.weekdays, rule.months)}
                               </p>
+                              {'dailyTimes' in rule && (
+                                <>
+                                  <p>
+                                    {rule.dailyTimes.length
+                                      ? `At ${rule.dailyTimes.join(
+                                          ', ',
+                                        )} Eastern`
+                                      : `Every ${
+                                          rule.intervalSeconds / 60
+                                        } minutes`}
+                                  </p>
+                                  {actions.find(
+                                    (item) =>
+                                      item.kind === 'automation' &&
+                                      item.payload.ruleId === rule.id &&
+                                      item.outcome,
+                                  )?.outcome && (
+                                    <p>
+                                      {outcomeNote(
+                                        actions.find(
+                                          (item) =>
+                                            item.kind === 'automation' &&
+                                            item.payload.ruleId === rule.id &&
+                                            item.outcome,
+                                        )!.outcome!,
+                                      )}
+                                    </p>
+                                  )}
+                                </>
+                              )}
                               <div className="flex flex-wrap gap-2">
                                 <button
                                   className={buttonClass}
@@ -393,7 +427,10 @@ export function AutonomyDashboard() {
                                       `rule:${rule.id}`,
                                       '/api/autonomy/plan',
                                       {
-                                        type: 'rule_state',
+                                        type:
+                                          name === 'automations'
+                                            ? 'automation_state'
+                                            : 'rule_state',
                                         id: rule.id,
                                         enabled: !rule.enabled,
                                       },
@@ -417,7 +454,13 @@ export function AutonomyDashboard() {
                                     void perform(
                                       `remove:${rule.id}`,
                                       '/api/autonomy/plan',
-                                      { type: 'remove_rule', id: rule.id },
+                                      {
+                                        type:
+                                          name === 'automations'
+                                            ? 'remove_automation'
+                                            : 'remove_rule',
+                                        id: rule.id,
+                                      },
                                       'Automation removed.',
                                       'PUT',
                                     )
@@ -430,7 +473,7 @@ export function AutonomyDashboard() {
                               </div>
                             </div>
                           ))}
-                        {latest?.outcome && (
+                        {latest?.outcome && name !== 'automations' && (
                           <div>
                             <p className="text-xs text-dark-text-secondary">
                               {timestamp(latest.updatedAt)}
@@ -477,32 +520,36 @@ export function AutonomyDashboard() {
                           </div>
                         ))}
                         <div className="flex flex-wrap gap-2">
-                          <button
-                            className={buttonClass}
-                            disabled={busy || !enabled || !!active.length}
-                            aria-label={`${
-                              name === 'evolution' ? 'Review' : 'Check'
-                            } ${labels[name]} now`}
-                            aria-busy={pending === runKey}
-                            onClick={() =>
-                              void operate(
-                                runKey,
-                                { operation: 'run', responsibility: name },
-                                `${labels[name]} check queued. Status updates automatically.`,
-                              )
-                            }
-                          >
-                            {pending === runKey && <Spinner />}
-                            {pending === runKey
-                              ? 'Queueing…'
-                              : active.some((item) => item.status === 'running')
-                              ? 'Working…'
-                              : active.length
-                              ? 'Queued'
-                              : name === 'evolution'
-                              ? 'Review now'
-                              : 'Check now'}
-                          </button>
+                          {name !== 'automations' && (
+                            <button
+                              className={buttonClass}
+                              disabled={busy || !enabled || !!active.length}
+                              aria-label={`${
+                                name === 'evolution' ? 'Review' : 'Check'
+                              } ${labels[name]} now`}
+                              aria-busy={pending === runKey}
+                              onClick={() =>
+                                void operate(
+                                  runKey,
+                                  { operation: 'run', responsibility: name },
+                                  `${labels[name]} check queued. Status updates automatically.`,
+                                )
+                              }
+                            >
+                              {pending === runKey && <Spinner />}
+                              {pending === runKey
+                                ? 'Queueing…'
+                                : active.some(
+                                    (item) => item.status === 'running',
+                                  )
+                                ? 'Working…'
+                                : active.length
+                                ? 'Queued'
+                                : name === 'evolution'
+                                ? 'Review now'
+                                : 'Check now'}
+                            </button>
+                          )}
                           <button
                             className={buttonClass}
                             disabled={busy}

@@ -6,7 +6,13 @@ import type {
   AutonomyView,
 } from '@/types/autonomy';
 
-const areas = ['calendar', 'lighting', 'cluster', 'evolution'] as const;
+const areas = [
+  'calendar',
+  'lighting',
+  'cluster',
+  'evolution',
+  'automations',
+] as const;
 
 /** The dashboard receives current work and short public notes, never stored
  * runs, notes, briefings, raw evidence, observed state or repeated history. */
@@ -33,7 +39,17 @@ export function dashboardState(
       updatedAt: item.updatedAt,
       attempts: item.attempts,
       cancelledByUser: item.cancelledByUser,
-      payload: {},
+      payload:
+        item.kind === 'automation'
+          ? {
+              ruleId: item.payload.ruleId,
+              title: shortText(
+                String(item.payload.title || 'Automation'),
+                10,
+                80,
+              ),
+            }
+          : {},
       outcome: item.outcome
         ? {
             status: item.outcome.status,
@@ -43,6 +59,25 @@ export function dashboardState(
         : null,
     };
   };
+  const ruleIds = [
+    ...new Set(
+      visible
+        .filter((item) => item.kind === 'automation' && item.outcome)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((item) => item.payload.ruleId),
+    ),
+  ].slice(0, 50);
+  for (const id of ruleIds) {
+    const latest = visible
+      .filter(
+        (item) =>
+          item.kind === 'automation' &&
+          item.payload.ruleId === id &&
+          item.outcome,
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (latest) add(latest);
+  }
   for (const area of areas) {
     const latest = visible
       .filter((item) => item.responsibility === area && item.outcome)

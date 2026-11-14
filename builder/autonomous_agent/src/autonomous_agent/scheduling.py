@@ -6,9 +6,11 @@ model supplies observations, never queue identities, enabled flags, or clocks.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 from .charter import (
+    EASTERN,
     TASK_RESPONSIBILITY,
     CalendarEvent,
     CharterConfig,
@@ -38,6 +40,7 @@ def available_action_slots(state: dict, config: CharterConfig) -> int:
         config.maxPendingActions
         - len(PERIODIC)
         - len(config.responsibilities.lighting.rules)
+        - len(config.responsibilities.automations.rules)
     )
     pending = sum(
         item["kind"] in EVENT_KINDS and item["status"] in {"pending", "running"}
@@ -92,6 +95,14 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
     if not config.enabled:
         return
     rule_ids = {rule.id for rule in config.responsibilities.lighting.rules}
+    automation_ids = {rule.id for rule in config.responsibilities.automations.rules}
+    for mapping, prefix in [
+        (state["schedules"], "automation:"),
+        (state["notes"], "automations:"),
+    ]:
+        for name in list(mapping):
+            if name.startswith(prefix) and name[len(prefix) :] not in automation_ids:
+                del mapping[name]
     for mapping, prefix in [
         (state["schedules"], "sports_discovery:"),
         (state["notes"], "lighting:"),
@@ -103,7 +114,13 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
         if (
             item["status"] == "pending"
             and item["payload"].get("ruleId")
-            and task_settings(config, item["kind"], item["payload"]) is None
+            and (
+                task_settings(config, item["kind"], item["payload"]) is None
+                or (
+                    item["kind"] == "automation"
+                    and not task_enabled(config, item["kind"], item["payload"])
+                )
+            )
         ):
             item.update(status="cancelled", updatedAt=timestamp)
     pending = sum(item["status"] in {"pending", "running"} for item in actions.values())
@@ -112,9 +129,25 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
         ("sports_discovery", {"ruleId": rule.id})
         for rule in config.responsibilities.lighting.rules
     )
+    checks.extend(
+        (
+            "automation",
+            {
+                "ruleId": rule.id,
+                "ruleRevision": revision(rule.model_dump()),
+                "title": rule.title,
+            },
+        )
+        for rule in config.responsibilities.automations.rules
+    )
     for kind, payload in checks:
         settings = task_settings(config, kind, payload)
-        if not task_enabled(config, kind, payload, timestamp):
+        window_time = (
+            None
+            if kind == "automation" and settings and settings.dailyTimes
+            else timestamp
+        )
+        if not task_enabled(config, kind, payload, window_time):
             continue
         schedule_key = f"{kind}:{payload['ruleId']}" if payload else kind
         if any(
@@ -125,17 +158,75 @@ def schedule(state: dict, config: CharterConfig, timestamp: int) -> None:
         ):
             continue
         last = state["schedules"].get(schedule_key)
-        if last is not None and timestamp - last < settings.intervalSeconds * 1000:
+        due_at = timestamp
+        if kind == "automation":
+            # An unknown effect needs owner reconciliation before this rule runs again.
+            if automation_blocked(state, payload["ruleId"]):
+                continue
+            if settings.dailyTimes:
+                local = datetime.fromtimestamp(timestamp / 1000, EASTERN)
+                candidates = []
+                for date in [local, local - timedelta(days=1)]:
+                    for clock in settings.dailyTimes:
+                        hour, minute = map(int, clock.split(":"))
+                        instant = date.replace(
+                            hour=hour, minute=minute, second=0, microsecond=0, fold=0
+                        )
+                        due = int(instant.timestamp() * 1000)
+                        # Skip nonexistent spring-forward times; fall-back runs once.
+                        if (
+                            datetime.fromtimestamp(due / 1000, EASTERN).strftime(
+                                "%H:%M"
+                            )
+                            != clock
+                        ):
+                            continue
+                        if (
+                            in_window(settings, due)
+                            and 0 <= timestamp - due <= settings.catchUpMinutes * 60000
+                        ):
+                            candidates.append(due)
+                if not candidates:
+                    continue
+                due_at = max(candidates)
+                if last is not None and due_at <= last:
+                    continue
+            elif (
+                last is not None and timestamp - last < settings.intervalSeconds * 1000
+            ):
+                continue
+        elif last is not None and timestamp - last < settings.intervalSeconds * 1000:
             continue
         if pending >= config.maxPendingActions:
             continue
         identity = f"{payload['ruleId']}:{timestamp}" if payload else str(timestamp)
-        item = action(kind, identity, timestamp, payload=payload)
+        if kind == "automation":
+            payload["scheduledAt"] = due_at
+        item = action(kind, identity, timestamp, due_at=due_at, payload=payload)
         actions[item["id"]] = item
         pending += 1
-        state["schedules"][schedule_key] = timestamp
+        state["schedules"][schedule_key] = due_at
 
     prune(state, config, timestamp)
+
+
+def needs_reconciliation(item: dict) -> bool:
+    return item["kind"] == "automation" and (
+        item["status"] == "uncertain"
+        or (
+            item["status"] == "failed"
+            and (item.get("outcome") or {}).get("mutationAttempted")
+        )
+    )
+
+
+def automation_blocked(state: dict, rule_id: str) -> bool:
+    return any(
+        item["kind"] == "automation"
+        and item["payload"].get("ruleId") == rule_id
+        and needs_reconciliation(item)
+        for item in state["actions"].values()
+    )
 
 
 def select_due(state: dict, config: CharterConfig, timestamp: int) -> dict | None:
@@ -145,8 +236,21 @@ def select_due(state: dict, config: CharterConfig, timestamp: int) -> dict | Non
             config, item["kind"], item["payload"]
         ):
             continue
+        if item["kind"] == "automation" and automation_blocked(
+            state, item["payload"]["ruleId"]
+        ):
+            continue
         if item["dueAt"] > timestamp:
             continue
+        if item["kind"] == "automation":
+            settings = task_settings(config, item["kind"], item["payload"])
+            if (
+                settings.dailyTimes
+                and timestamp
+                > item["payload"]["scheduledAt"] + settings.catchUpMinutes * 60000
+            ):
+                item.update(status="expired", updatedAt=timestamp)
+                continue
         if item["kind"] == "game_lighting":
             settings = task_settings(config, item["kind"], item["payload"])
             if item["payload"]["sport"] not in settings.sports or not in_window(
@@ -306,7 +410,7 @@ def accept_observations(
         item["status"] == "pending" for item in candidates
     ) > config.maxPendingActions - len(PERIODIC) - len(
         config.responsibilities.lighting.rules
-    ):
+    ) - len(config.responsibilities.automations.rules):
         raise ValueError(
             "Pending action capacity exceeded; observations were not committed"
         )
@@ -411,6 +515,7 @@ def prune(state: dict, config: CharterConfig, timestamp: int) -> None:
         key: item
         for key, item in state["actions"].items()
         if item["status"] in {"pending", "running"}
+        or needs_reconciliation(item)
         or (
             item["kind"] == "calendar_event"
             and not CalendarEvent.model_validate(item["payload"]).is_past(timestamp)
@@ -424,6 +529,7 @@ def prune(state: dict, config: CharterConfig, timestamp: int) -> None:
             item
             for item in state["actions"].values()
             if item["kind"] not in {"calendar_event", "game_lighting"}
+            and not needs_reconciliation(item)
             and item["status"] not in {"pending", "running"}
         ),
         key=lambda item: item["updatedAt"],

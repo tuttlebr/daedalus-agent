@@ -447,7 +447,7 @@ impl Preparation {
         // Neither operation depends on the other. Keep both futures owned by
         // this request so cancellation or a catalogue failure drops all work.
         let (tools, context) = tokio::try_join!(
-            self.prepare_tools(http, tools_url, headers, body, &selected),
+            self.prepare_tools(http, tools_url, headers, body, &selected, false),
             self.prepare_memory(headers, &query, autonomy),
         )?;
         prepared.tools = tools;
@@ -465,6 +465,29 @@ impl Preparation {
         Ok(prepared)
     }
 
+    /// Read the configured schemas without executing tools or loading memories.
+    /// Eager MCP discovery gives planning the real operations for this user.
+    pub async fn automation_catalogue(
+        &self,
+        http: &reqwest::Client,
+        tools_url: &str,
+        headers: &HeaderMap,
+    ) -> Result<Vec<rig_core::completion::ToolDefinition>> {
+        let selected = names(self.config.workflow().get("tools"))?;
+        let policies = crate::authorization::Policies::new(&self.config.raw)?;
+        let mut tools = self
+            .prepare_tools(http, tools_url, headers, &json!({}), &selected, true)
+            .await?;
+        tools.retain(|tool| {
+            if let Some((group, name)) = tool.name.split_once("__") {
+                name != "connect" && policies.allowed(group, name, &json!({}), &Value::Null)
+            } else {
+                true
+            }
+        });
+        Ok(tools)
+    }
+
     async fn prepare_tools(
         &self,
         http: &reqwest::Client,
@@ -472,6 +495,7 @@ impl Preparation {
         headers: &HeaderMap,
         body: &Value,
         selected: &[String],
+        eager_discovery: bool,
     ) -> Result<Vec<rig_core::completion::ToolDefinition>> {
         let mut schemas = HashMap::new();
         let mut external = Vec::new();
@@ -538,7 +562,7 @@ impl Preparation {
             // deferred. Discovery reads schemas; execution retains its gate.
             let requirement = crate::tool_contracts::Requirement::parse(body)?;
             let (eager, deferred): (Vec<_>, Vec<_>) = groups.into_iter().partition(|group| {
-                matches!(&requirement, crate::tool_contracts::Requirement::Named(name)
+                eager_discovery || matches!(&requirement, crate::tool_contracts::Requirement::Named(name)
                     if name.starts_with(&format!("{group}__")) && name != &format!("{group}__connect"))
             });
             let user = header(headers, "x-user-id");

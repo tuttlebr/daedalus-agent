@@ -86,3 +86,69 @@ describe('automation planning', () => {
     );
   });
 });
+
+const custom = {
+  type: 'automation',
+  settings: {
+    title: 'Morning forecast',
+    instructions: 'Check the forecast and summarize rain.',
+    allowedTools: ['nws_weather_tool'],
+    intervalSeconds: 3600,
+    dailyTimes: ['08:00'],
+    weekdays: [0, 1, 2, 3, 4],
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  },
+};
+it('accepts non-Hue tasks from service capabilities and appends them idempotently', () => {
+  const config = defaultConfig();
+  config.enabled = false;
+  const plan = parseAutomationPlan(custom, config, 'Weather each weekday', [
+    'nws_weather_tool',
+  ]);
+  expect(plan.type).toBe('automation');
+  const next = applyAutomationPlan(config, plan);
+  expect(next.enabled).toBe(false);
+  expect(next.responsibilities.lighting).toEqual(
+    config.responsibilities.lighting,
+  );
+  expect(next.responsibilities.automations.rules[0]).toMatchObject(
+    custom.settings,
+  );
+  expect(applyAutomationPlan(next, plan)).toEqual(next);
+  const id = next.responsibilities.automations.rules[0].id;
+  const paused = applyAutomationPlan(next, {
+    type: 'automation_state',
+    id,
+    enabled: false,
+  });
+  expect(paused.responsibilities.automations.rules[0].enabled).toBe(false);
+  expect(
+    applyAutomationPlan(paused, { type: 'remove_automation', id })
+      .responsibilities.automations.rules,
+  ).toEqual([]);
+});
+it('rejects invented, missing and unreviewable custom capabilities and schedules', () => {
+  expect(() =>
+    parseAutomationPlan(custom, defaultConfig(), 'Weather', []),
+  ).toThrow('unavailable');
+  for (const patch of [
+    { dailyTimes: ['25:00'] },
+    { allowedTools: ['shell'] },
+    { allowedTools: ['nws_weather_tool', 'nws_weather_tool'] },
+  ]) {
+    expect(() =>
+      parseAutomationPlan(
+        { ...custom, settings: { ...custom.settings, ...patch } },
+        defaultConfig(),
+        'Weather',
+        ['nws_weather_tool'],
+      ),
+    ).toThrow();
+  }
+  const { dailyTimes: _times, ...settings } = custom.settings;
+  expect(() =>
+    parseAutomationPlan({ ...custom, settings }, defaultConfig(), '', [
+      'nws_weather_tool',
+    ]),
+  ).toThrow('Incomplete');
+});

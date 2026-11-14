@@ -1475,6 +1475,19 @@ def check(
                         == "clarify"
                     )
                     sent = peers.autonomy_plans[-1]
+                    planner_context = json.loads(sent["messages"][1]["content"])
+                    capabilities = planner_context["capabilities"]
+                    assert any(
+                        tool["name"] == "current_datetime_tool" for tool in capabilities
+                    )
+                    assert not any(
+                        tool["name"] == "write_item" for tool in capabilities
+                    )
+                    capability_url = base + "/internal/autonomy/capabilities"
+                    assert client.get(capability_url).status_code == 401
+                    available = client.get(capability_url, headers=headers)
+                    assert available.status_code == 200
+                    assert "current_datetime_tool" in available.json()["tools"]
                     assert "tools" not in sent and "tool_choice" not in sent
                     assert sent["stream"] is False and sent["store"] is False
                     assert sent["model"] == "fixture"

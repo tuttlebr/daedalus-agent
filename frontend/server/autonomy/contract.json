@@ -4,6 +4,10 @@
     "enabled": true,
     "timezone": "America/Detroit",
     "responsibilities": {
+      "automations": {
+        "enabled": true,
+        "rules": []
+      },
       "calendar": {
         "enabled": true,
         "intervalSeconds": 21600,
@@ -55,8 +59,126 @@
     "maxPendingActions": 500,
     "maxRunsStored": 500
   },
+  "automationDefaults": {
+    "enabled": true,
+    "intervalSeconds": 3600,
+    "weekdays": [0, 1, 2, 3, 4, 5, 6],
+    "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "dailyTimes": [],
+    "catchUpMinutes": 15
+  },
   "schema": {
     "$defs": {
+      "AutomationRule": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "default": 3600,
+            "maximum": 604800,
+            "minimum": 300,
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "instructions": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Instructions",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "maximum": 6,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Months",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "allowedTools": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9_.:-]+$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Allowedtools",
+            "type": "array"
+          },
+          "dailyTimes": {
+            "items": {
+              "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Dailytimes",
+            "type": "array"
+          },
+          "catchUpMinutes": {
+            "default": 15,
+            "maximum": 60,
+            "minimum": 1,
+            "title": "Catchupminutes",
+            "type": "integer"
+          }
+        },
+        "required": ["instructions", "id", "title", "allowedTools"],
+        "title": "AutomationRule",
+        "type": "object"
+      },
+      "AutomationsConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/AutomationRule"
+            },
+            "maxItems": 50,
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "AutomationsConfig",
+        "type": "object"
+      },
       "CalendarConfig": {
         "additionalProperties": false,
         "properties": {
@@ -411,6 +533,9 @@
       "Responsibilities": {
         "additionalProperties": false,
         "properties": {
+          "automations": {
+            "$ref": "#/$defs/AutomationsConfig"
+          },
           "calendar": {
             "$ref": "#/$defs/CalendarConfig"
           },

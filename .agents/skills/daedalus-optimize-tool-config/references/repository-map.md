@@ -99,10 +99,13 @@ Natural-language automation authoring uses
 `frontend/components/autonomy/AutomationComposer.tsx`,
 `frontend/pages/api/autonomy/plan.ts` and
 `frontend/server/autonomy/planning.ts`. The private planning endpoint in
-`builder/runtime/src/model_endpoint.rs` uses the main model without tools or
-persistence, independently of public model compatibility. Preview never activates
+`builder/runtime/src/model_endpoint.rs` uses the main model with the current service catalog as context, without tool
+execution or persistence, independently of public model compatibility. Preview never activates
 work; the frontend validates the model output against the generated charter
-contract before applying a reviewed plan. Lighting rules have independent IDs,
+contract before applying a reviewed plan. Custom automations carry selected tool
+names and instructions, interval or daily-time schedules, and independent lifecycle
+controls. The authenticated capabilities endpoint rechecks tool availability at
+save; runtime service authorization still applies. Lighting rules have independent IDs,
 teams, notes and schedules; `builder/autonomous_agent/src/autonomous_agent/scheduling.py`
 and the store/worker gates enforce Eastern weekday/month windows. Keep the
 supported planner fields, worker capabilities and UI preview aligned. Run
@@ -123,7 +126,9 @@ compatibility guidance for interactive work live in the workflow instructions an
 `skills/kubernetes-specialist/SKILL.md`; server authentication/RBAC still apply.
 Autonomous requests additionally require a charter task and pass the scoped
 capability checks in `builder/runtime/src/autonomy_policy.rs`. Skill scripts,
-generic shell/delegation, and software upgrades are unavailable to these tasks.
+generic shell/delegation, and software upgrades are unavailable to built-in
+responsibilities. User-created automation tasks use their saved tool list and the
+service's existing unattended permissions. Catalog discovery grants no new authority.
 Do not restore per-call gating as a wording cleanup. The deployed-policy cases
 in `builder/tests/test_mcp_approval_gate.py` and the Kubernetes sequences in
 `builder/runtime_http_check.py` cover this contract; the latter exercises both

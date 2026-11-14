@@ -43,17 +43,19 @@ function displaySetting(key: string, value: unknown): string {
   return String(value);
 }
 const example =
-  'At Steelers kickoff, set the house lights to the "Go Steelers!" scene. Only check on Sundays, Mondays and Thursdays from September through February.';
+  'Every weekday at 8:00 AM, check the weather forecast for Saline and summarize whether I should expect rain.';
 
 export function AutomationComposer({
   busy,
   paused,
   lightingPaused,
+  automationsPaused = false,
   onApply,
 }: {
   busy: boolean;
   paused: boolean;
   lightingPaused: boolean;
+  automationsPaused?: boolean;
   onApply: (plan: AutomationPlan) => Promise<boolean>;
 }) {
   const [instructions, setInstructions] = useState('');
@@ -172,7 +174,7 @@ export function AutomationComposer({
               disabled={disabled}
               onClick={() => setInstructions(example)}
             >
-              Try the Steelers example
+              Try a weather example
             </button>
           )}
         </div>
@@ -192,100 +194,125 @@ export function AutomationComposer({
           {plan.message}
         </p>
       )}
-      {plan && (plan.type === 'lighting_rule' || plan.type === 'settings') && (
-        <div className="space-y-3 rounded-xl border border-separator p-4">
-          <h3 className="font-medium">
-            {plan.type === 'lighting_rule'
-              ? plan.rule.title
-              : `Update ${plan.responsibility}`}
-          </h3>
-          {plan.type === 'lighting_rule' ? (
-            <div className="space-y-1 text-sm">
-              <p>
-                At {plan.rule.team} game start: {plan.rule.scene}
+      {plan &&
+        (plan.type === 'automation' ||
+          plan.type === 'lighting_rule' ||
+          plan.type === 'settings') && (
+          <div className="space-y-3 rounded-xl border border-separator p-4">
+            <h3 className="font-medium">
+              {plan.type !== 'settings'
+                ? plan.rule.title
+                : `Update ${plan.responsibility}`}
+            </h3>
+            {plan.type === 'automation' ? (
+              <div className="space-y-2 text-sm">
+                <p>{plan.rule.instructions}</p>
+                <p>
+                  {describeWindow(plan.rule.weekdays, plan.rule.months)}{' '}
+                  (Eastern)
+                </p>
+                <p>
+                  {plan.rule.dailyTimes.length
+                    ? `At ${plan.rule.dailyTimes.join(', ')}. Runs within ${
+                        plan.rule.catchUpMinutes
+                      } minutes of the scheduled time.`
+                    : `Check every ${plan.rule.intervalSeconds / 60} minutes.`}
+                </p>
+              </div>
+            ) : plan.type === 'lighting_rule' ? (
+              <div className="space-y-1 text-sm">
+                <p>
+                  At {plan.rule.team} game start: {plan.rule.scene}
+                </p>
+                <p>
+                  {plan.rule.sports
+                    .map((sport) =>
+                      sport === 'football' ? 'Football' : 'Men’s basketball',
+                    )
+                    .join(', ')}
+                </p>
+                <p>
+                  {describeWindow(plan.rule.weekdays, plan.rule.months)}{' '}
+                  (Eastern)
+                </p>
+                <p>
+                  Check every {plan.rule.intervalSeconds / 60} minutes.{' '}
+                  {plan.rule.lightIds.length
+                    ? `${plan.rule.lightIds.length} selected lights.`
+                    : 'All household lights.'}
+                </p>
+                <p className="text-dark-text-secondary">
+                  Scene availability is checked when this runs.
+                </p>
+              </div>
+            ) : (
+              <dl className="space-y-2 text-sm">
+                {Object.entries(plan.settings).map(([key, value]) => (
+                  <div key={key}>
+                    <dt className="font-medium">
+                      {key.replace(/([A-Z])/g, ' $1')}
+                    </dt>
+                    <dd>{displaySetting(key, value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {paused && (
+              <p className="text-sm text-dark-text-secondary">
+                Autonomy is paused. Save now and resume when ready.
               </p>
-              <p>
-                {plan.rule.sports
-                  .map((sport) =>
-                    sport === 'football' ? 'Football' : 'Men’s basketball',
-                  )
-                  .join(', ')}
+            )}
+            {!paused && automationsPaused && plan.type === 'automation' && (
+              <p className="text-sm text-dark-text-secondary">
+                Custom automations are paused. Resume them to run this
+                automation.
               </p>
-              <p>
-                {describeWindow(plan.rule.weekdays, plan.rule.months)} (Eastern)
+            )}
+            {!paused && lightingPaused && plan.type === 'lighting_rule' && (
+              <p className="text-sm text-dark-text-secondary">
+                Home automations are paused. Resume Home to run this rule.
               </p>
-              <p>
-                Check every {plan.rule.intervalSeconds / 60} minutes.{' '}
-                {plan.rule.lightIds.length
-                  ? `${plan.rule.lightIds.length} selected lights.`
-                  : 'All household lights.'}
-              </p>
-              <p className="text-dark-text-secondary">
-                Scene availability is checked when this runs.
-              </p>
-            </div>
-          ) : (
-            <dl className="space-y-2 text-sm">
-              {Object.entries(plan.settings).map(([key, value]) => (
-                <div key={key}>
-                  <dt className="font-medium">
-                    {key.replace(/([A-Z])/g, ' $1')}
-                  </dt>
-                  <dd>{displaySetting(key, value)}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {paused && (
-            <p className="text-sm text-dark-text-secondary">
-              Autonomy is paused. Save now and resume when ready.
-            </p>
-          )}
-          {!paused && lightingPaused && plan.type === 'lighting_rule' && (
-            <p className="text-sm text-dark-text-secondary">
-              Home automations are paused. Resume Home to run this rule.
-            </p>
-          )}
-          <button
-            className={buttonClass}
-            disabled={disabled}
-            aria-busy={saving}
-            onClick={async () => {
-              if (saving) return;
-              setError('');
-              setSaving(true);
-              try {
-                if (await onApply(plan)) {
-                  setPlan(null);
-                  setInstructions('');
-                  setNotice('Automation saved.');
-                } else {
+            )}
+            <button
+              className={buttonClass}
+              disabled={disabled}
+              aria-busy={saving}
+              onClick={async () => {
+                if (saving) return;
+                setError('');
+                setSaving(true);
+                try {
+                  if (await onApply(plan)) {
+                    setPlan(null);
+                    setInstructions('');
+                    setNotice('Automation saved.');
+                  } else {
+                    setError(
+                      'Could not save. Your draft is still here; try again.',
+                    );
+                  }
+                } catch {
                   setError(
                     'Could not save. Your draft is still here; try again.',
                   );
+                } finally {
+                  setSaving(false);
                 }
-              } catch {
-                setError(
-                  'Could not save. Your draft is still here; try again.',
-                );
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving ? 'Saving automation…' : 'Save automation'}
-          </button>
-        </div>
-      )}
+              }}
+            >
+              {saving ? 'Saving automation…' : 'Save automation'}
+            </button>
+          </div>
+        )}
       <details className="text-sm">
         <summary className="min-h-touch-min cursor-pointer py-2">
           What can I automate?
         </summary>
         <p>
-          Game-start lighting for football and men’s basketball, calendar
-          discovery, cluster checks, and improvement reviews. You can choose
-          weekdays and months. Requests outside these capabilities return a
-          limitation before saving.
+          Describe a task using your connected services, when it should run, and
+          any conditions to check. Daedalus checks its available tools before
+          preparing a preview. You can choose regular intervals or daily times,
+          weekdays and months.
         </p>
       </details>
     </section>

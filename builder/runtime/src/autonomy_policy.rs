@@ -10,6 +10,8 @@ pub struct Task {
     pub id: String,
     pub kind: String,
     pub max_tool_calls: usize,
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
 }
 impl Task {
     pub fn parse(body: &Value, autonomy: bool) -> Result<Option<Self>> {
@@ -22,6 +24,7 @@ impl Task {
             || task.id.len() > 160
             || !(5..=100).contains(&task.max_tool_calls)
             || ![
+                "automation",
                 "calendar_discovery",
                 "calendar_event",
                 "sports_discovery",
@@ -32,6 +35,25 @@ impl Task {
             .contains(&task.kind.as_str())
         {
             bail!("Invalid autonomous charter task");
+        }
+        if (task.kind == "automation" && task.allowed_tools.is_empty())
+            || (task.kind != "automation" && !task.allowed_tools.is_empty())
+            || task.allowed_tools.len() > 100
+            || task.allowed_tools.iter().any(|name| {
+                name.is_empty()
+                    || name.len() > 200
+                    || !name
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"_.:-".contains(&c))
+            })
+            || task
+                .allowed_tools
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != task.allowed_tools.len()
+        {
+            bail!("Invalid automation tools");
         }
         Ok(Some(task))
     }
@@ -67,6 +89,22 @@ impl Task {
             .iter()
             .any(|prefix| lower.starts_with(prefix))
             .then(|| group.to_owned())
+    }
+
+    pub fn verification_group_for(
+        &self,
+        name: &str,
+        args: &Value,
+        policies: Option<&crate::authorization::Policies>,
+    ) -> Option<String> {
+        Self::verification_group(name, args).or_else(|| {
+            let (group, tool) = name.split_once("__")?;
+            (self.kind == "automation"
+                && tool != "connect"
+                && !Self::mutation(name, args)
+                && policies.is_some_and(|policy| policy.read_only(group, tool)))
+            .then(|| group.to_owned())
+        })
     }
 
     pub fn backup_target(name: &str, args: &Value) -> Option<(String, String)> {
@@ -111,6 +149,23 @@ impl Task {
     pub fn allows(&self, name: &str, args: &Value) -> bool {
         if name == crate::autonomy_output::TOOL {
             return true;
+        }
+        if self.kind == "automation" {
+            // The saved rule scopes tools; normal exposure, schema validation and
+            // service authorization still run before dispatch. Connect only to
+            // groups containing a selected operation, without granting its peers.
+            return self.allowed_tools.iter().any(|tool| tool == name)
+                || name.strip_suffix("__connect").is_some_and(|group| {
+                    self.allowed_tools
+                        .iter()
+                        .any(|tool| tool.starts_with(&format!("{group}__")))
+                })
+                || ["current_datetime_tool", "tool_output_retriever_tool"].contains(&name)
+                || (name == "agent_skills_tool"
+                    && matches!(
+                        args["operation"].as_str(),
+                        Some("list_skills" | "load_skill")
+                    ));
         }
         if name == "agent_skills_tool" {
             return matches!(
@@ -541,6 +596,7 @@ mod tests {
             id: "action:one".into(),
             kind: kind.into(),
             max_tool_calls: 20,
+            allowed_tools: Vec::new(),
         }
     }
     #[test]
@@ -562,6 +618,69 @@ mod tests {
             &json!({"operation":"run_skill_script"})
         ));
     }
+    #[test]
+    fn saved_automation_tools_are_not_limited_to_builtin_domains() {
+        let policy = Task::parse(&json!({"autonomy_task":{
+            "id":"custom:one", "kind":"automation", "max_tool_calls":10,
+            "allowed_tools":["nws_weather_tool", "unifi_mcp_server__get_health", "calendar_mcp_server__create_event"]
+        }}), true).unwrap().unwrap();
+        assert!(policy.allows("nws_weather_tool", &json!({})));
+        assert!(policy.allows("unifi_mcp_server__connect", &json!({})));
+        assert!(policy.allows("calendar_mcp_server__create_event", &json!({})));
+        assert!(!policy.allows("calendar_mcp_server__delete_event", &json!({})));
+        assert!(!policy.allows("hue_mcp_server__connect", &json!({})));
+        assert!(!policy.allows("llm_sandbox_tool", &json!({})));
+        for kind in ["calendar_discovery", "evolution"] {
+            assert!(
+                Task::parse(
+                    &json!({"autonomy_task":{"id":"one", "kind":kind,
+                "max_tool_calls":10, "allowed_tools":["calendar_mcp_server__create_event"]}}),
+                    true
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            Task::parse(
+                &json!({"autonomy_task":{"id":"one", "kind":"automation", "max_tool_calls":10}}),
+                true
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn custom_verification_uses_configured_read_capabilities() {
+        let policies = crate::authorization::Policies::new(&json!({"function_groups":{
+            "service":{"_type":"mcp_client", "tool_overrides":{
+                "observe_state":{"approval_policy":"read_only"}
+            }}
+        }}))
+        .unwrap();
+        assert_eq!(
+            task("automation").verification_group_for(
+                "service__observe_state",
+                &json!({}),
+                Some(&policies)
+            ),
+            Some("service".into())
+        );
+        assert!(
+            task("automation")
+                .verification_group_for(
+                    "service__observe_state",
+                    &json!({"action":"delete"}),
+                    Some(&policies)
+                )
+                .is_none()
+        );
+        assert!(
+            task("automation")
+                .verification_group_for("service__unknown", &json!({}), Some(&policies))
+                .is_none()
+        );
+    }
+
     #[test]
     fn upgrades_and_shell_bypasses_are_rejected() {
         let policy = task("cluster_maintenance");
