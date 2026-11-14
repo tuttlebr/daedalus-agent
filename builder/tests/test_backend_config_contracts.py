@@ -549,6 +549,8 @@ def test_runtime_locks_cover_local_sources_and_registry_hashes():
         )
         assert by_name["pyjwt"]["version"] == "2.15.1"
         assert by_name["pyopenssl"]["version"] == "26.4.0"
+        assert "soupsieve>=4.0,<5" in requirement_text
+        assert Version("4.0") <= Version(by_name["soupsieve"]["version"]) < Version("5")
         assert by_name["starlette"]["version"] == "1.3.1"
         assert by_name["urllib3"]["version"] == "2.8.0"
         assert by_name["nv-ingest-api"]["version"] == "26.3.0"
