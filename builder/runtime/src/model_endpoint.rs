@@ -348,6 +348,122 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn automation_routes_rebuild_executor_request_framing() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let captured = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let authority = listener.local_addr().unwrap().to_string();
+        let base = format!("http://{authority}");
+        let peer = tokio::spawn(async move {
+            let service = Router::new().fallback(move |request: Request<Body>| {
+                let captured = captured.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let bytes = axum::body::to_bytes(body, 1024 * 1024).await.unwrap();
+                    let body: Value = serde_json::from_slice(&bytes).unwrap();
+                    let catalogue = parts.uri.path() == "/runtime/v1/catalog";
+                    captured.lock().unwrap().push((parts, bytes.len(), body));
+                    axum::Json(if catalogue {
+                        json!({"feed":[{"name":"feed","description":"Fixture feed","parameters":{"type":"object","properties":{}}}]})
+                    } else {
+                        json!({"choices":[{"finish_reason":"stop","message":{"content":"{\"type\":\"clarify\",\"message\":\"Which feed?\"}"}}]})
+                    })
+                }
+            });
+            axum::serve(listener, service).await.unwrap()
+        });
+        let config = crate::config::Config::new(
+            json!({
+                "llms":{"main":{"base_url":format!("{base}/v1"),"model_name":"fixture"}},
+                "functions":{"feed":{"_type":"rss_feed"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["feed"]}
+            }),
+            [("DAEDALUS_MEMORY_MODE".into(), "disabled".into())].into(),
+        )
+        .unwrap();
+        let app = crate::router(crate::App {
+            http: reqwest::Client::new(),
+            tools_url: base,
+            internal_token: Arc::new("synthetic-internal".into()),
+            insecure: false,
+            runs: Arc::default(),
+            preparation: Some(crate::preparation::Preparation::new(config).unwrap()),
+            executions: Arc::default(),
+        });
+        let plan = json!({"instructions":"Every 4 hours, clean up \"Completed\" pods on the Kubernetes cluster, all namespaces.","context":{}}).to_string();
+        for (method, path, body) in [
+            ("POST", "/internal/autonomy/plan", plan),
+            ("GET", "/internal/autonomy/capabilities", String::new()),
+        ] {
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                app.clone().oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header("host", "frontend.invalid")
+                        .header("content-length", body.len())
+                        .header("connection", "close")
+                        .header("content-type", "application/json")
+                        .header("x-daedalus-internal-token", "synthetic-internal")
+                        .header("x-user-id", "synthetic-user")
+                        .body(Body::from(body))
+                        .unwrap(),
+                ),
+            )
+            .await
+            .expect("catalogue requests must complete")
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            if method == "GET" {
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&bytes).unwrap()["tools"],
+                    json!(["feed"])
+                );
+            }
+        }
+        peer.abort();
+        let seen = seen.lock().unwrap();
+        assert_eq!(
+            seen.len(),
+            3,
+            "two catalogue reads and one model preview, no tool execution"
+        );
+        for (parts, length, body) in seen
+            .iter()
+            .filter(|(parts, _, _)| parts.uri.path() == "/runtime/v1/catalog")
+        {
+            assert_eq!(parts.headers["host"], authority);
+            assert_eq!(
+                parts.headers["content-length"]
+                    .to_str()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap(),
+                *length
+            );
+            assert!(!parts.headers.contains_key("connection"));
+            assert!(!parts.headers.contains_key("transfer-encoding"));
+            assert_eq!(
+                parts.headers["x-daedalus-internal-token"],
+                "synthetic-internal"
+            );
+            assert_eq!(parts.headers["x-user-id"], "synthetic-user");
+            assert_eq!(body, &json!({"version":1,"names":["feed"]}));
+        }
+        let (_, _, model) = seen
+            .iter()
+            .find(|(parts, _, _)| parts.uri.path() == "/v1/chat/completions")
+            .unwrap();
+        let context: Value =
+            serde_json::from_str(model["messages"][1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(context["capabilities"][0]["name"], "feed");
+    }
+
+    #[tokio::test]
     async fn forwards_carry_one_opaque_correlation_id_per_request() {
         let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
         let recorder = seen.clone();

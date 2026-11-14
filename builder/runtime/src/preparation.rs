@@ -543,9 +543,22 @@ impl Preparation {
             if external.is_empty() {
                 return Ok(HashMap::new());
             }
+            // This is a new JSON request, not a proxy of the caller's body.
+            // Keep identity/auth metadata, but let the client frame the catalogue
+            // payload and address its own peer. Planning does not pass through
+            // the chat route's header cleanup.
+            let mut catalogue_headers = headers.clone();
+            for name in [
+                http::header::HOST,
+                http::header::CONTENT_LENGTH,
+                http::header::CONNECTION,
+                http::header::TRANSFER_ENCODING,
+            ] {
+                catalogue_headers.remove(name);
+            }
             http.post(format!("{tools_url}/runtime/v1/catalog"))
                 .timeout(CATALOGUE_TIMEOUT)
-                .headers(headers.clone())
+                .headers(catalogue_headers)
                 .json(&json!({"version":1,"names":external}))
                 .send()
                 .await?

@@ -111,7 +111,11 @@ and the store/worker gates enforce Eastern weekday/month windows. Keep the
 supported planner fields, worker capabilities and UI preview aligned. Run
 `builder/runtime_http_check.py` with `--autonomy-plan-only` against a built image
 to verify private inference with public compatibility disabled; the normal HTTP
-suite also covers this endpoint. This fixture validates routing and side-effect
+suite also covers this endpoint. Planning checks include a Python-owned schema
+to exercise the loopback catalogue request as well as native and MCP discovery.
+The catalogue client rebuilds HTTP framing for its own payload while retaining
+authenticated identity; callers must not supply its body length or destination.
+This fixture validates routing and side-effect
 boundaries, not real-model interpretation quality.
 
 The main chat prompt routes prose rewrites and reviews to

@@ -1293,6 +1293,9 @@ def check(
             if image
             else str(root / "skills" / "daily-summary"),
         }
+        # Include a Python-owned schema in ordinary planning. A native-only
+        # catalogue bypasses the internal HTTP request and misses framing bugs.
+        config["workflow"]["tools"].append("briefing_renderer_tool")
         config["workflow"]["daily_summary_tools"] = [
             "current_datetime_tool",
             "briefing_renderer_tool",
@@ -1480,6 +1483,10 @@ def check(
                     assert any(
                         tool["name"] == "current_datetime_tool" for tool in capabilities
                     )
+                    assert any(
+                        tool["name"] == "briefing_renderer_tool"
+                        for tool in capabilities
+                    ), "Planning omitted the Python-owned tool catalogue"
                     assert not any(
                         tool["name"] == "write_item" for tool in capabilities
                     )
