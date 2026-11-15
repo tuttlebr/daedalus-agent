@@ -382,6 +382,23 @@ configuration defers ESPN, X, GitHub, Kubernetes and UniFi catalogues, avoiding
 sending unrelated schemas on every model round. Discovery retains existing
 allowlists, per-user sessions and exact-call approval policies.
 
+MCP calls have three result classes. A normal tool result, including
+`isError: true`, retains its content. A JSON-RPC error retains its bounded code
+and message as `mcp_rpc_error`; echoed request credentials and arbitrary error
+data are excluded. A timeout, lost transport, or invalid result remains
+unconfirmed because its remote effects are unknown. RPC errors retain the usable
+session; uncertain calls discard it. Neither path automatically replays a call.
+The retained Python client applies the same distinction, including its SDK's
+locally synthesized timeout and connection-closed errors.
+
+An error response can follow partial changes. Recovery checks relevant state
+before retrying a mutation, and completion requires outcome evidence. The chat
+prompt keeps routine calls private and summarizes a changed recovery approach
+once. This instruction guides model wording; the runtime does not filter or
+rewrite legitimate progress messages. The Context Kubernetes MCP service owns
+resource resolution, command exit status, and deletion acceptance; Switchyard
+carries the resulting continuation without interpreting action outcomes.
+
 Steering uses `steer_job` over the existing WebSocket connection. The server
 revalidates the login and stored job owner, then forwards a UUID command to
 `POST /v1/runs/{run_id}/control`. During model generation, steering closes that

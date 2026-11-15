@@ -43,6 +43,22 @@ async fn rpc(
     if method == "tools/call" && mode == "wait" {
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
+    if method == "tools/call" && mode.starts_with("rpc_error") {
+        let body = json!({"jsonrpc":"2.0","id":request["id"],"error":{
+            "code":-32603,
+            "message":format!("method not allowed; Bearer synthetic-credential; {}", "雪".repeat(3000)),
+            "data":{"private":"must-not-forward-rpc-data"}
+        }});
+        return if mode.ends_with("sse") {
+            (
+                [("content-type", "text/event-stream")],
+                format!("event: message\r\ndata: {body}\r\n\r\n"),
+            )
+                .into_response()
+        } else {
+            Json(body).into_response()
+        };
+    }
     let mut result = match method {
         "initialize" => {
             json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"synthetic","version":"1"}})
@@ -635,4 +651,77 @@ async fn exposure_filters_match_names_like_the_approval_policy() {
         .await;
     assert_eq!(names(&schemas), ["fixture__inspect", "fixture__mutate"]);
     server.abort();
+}
+
+#[tokio::test]
+async fn mcp_rpc_errors_preserve_diagnostics_session_and_no_replay() {
+    for mode in ["rpc_error", "rpc_error_sse"] {
+        let peer = Arc::new(Peer::default());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/mcp", post(rpc))
+            .with_state(peer.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut config = config(&url);
+        config.raw["function_groups"]["fixture"]["server"]["custom_headers"] =
+            json!({"Authorization":"Bearer synthetic-credential"});
+        let manager = Mcp::new(&config).unwrap();
+        let (emit, _receiver) = emit();
+        manager
+            .call("fixture__connect", &json!({}), "alice", "", &emit, false)
+            .await;
+        let initialized = count(&peer, "initialize");
+        let before = count(&peer, "tools/call");
+        *peer.mode.lock().unwrap() = mode.into();
+        let outcome = manager
+            .call(
+                "fixture__inspect",
+                &json!({"value":1}),
+                "alice",
+                "",
+                &emit,
+                false,
+            )
+            .await;
+        assert!(outcome.is_error && !outcome.terminal);
+        let diagnostic: Value = serde_json::from_str(&outcome.content).unwrap();
+        assert_eq!(diagnostic["error"]["code"], -32603);
+        assert_eq!(diagnostic["outcome"], "error_reported");
+        let message = diagnostic["error"]["message"].as_str().unwrap();
+        assert!(message.contains("method not allowed"));
+        assert!(message.chars().count() <= 2048);
+        assert!(!outcome.content.contains("synthetic-credential"));
+        assert!(!outcome.content.contains("must-not-forward-rpc-data"));
+        assert!(
+            diagnostic["guidance"]
+                .as_str()
+                .unwrap()
+                .contains("partial effects")
+        );
+        assert_eq!(
+            count(&peer, "tools/call"),
+            before + 1,
+            "failed mutation must not be replayed"
+        );
+        *peer.mode.lock().unwrap() = "".into();
+        let next = manager
+            .call(
+                "fixture__inspect",
+                &json!({"value":2}),
+                "alice",
+                "",
+                &emit,
+                false,
+            )
+            .await;
+        assert!(!next.is_error);
+        assert_eq!(
+            count(&peer, "initialize"),
+            initialized,
+            "RPC errors must not discard a healthy session"
+        );
+        manager.close();
+        server.abort();
+    }
 }

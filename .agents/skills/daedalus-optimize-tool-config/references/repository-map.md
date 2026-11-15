@@ -142,3 +142,13 @@ For recovery and evaluation identity, read `docs/research-workflows.md` and
 `docs/tool-correctness.md`. `builder/runtime/src/harness.rs` fingerprints selected
 configuration/catalog inputs. Inspect what a digest includes before using it as
 evidence that two runs used identical conditions.
+
+MCP recovery distinguishes server-reported errors from uncertain transport
+outcomes in both `builder/runtime/src/mcp.rs` and the retained
+`builder/daedalus_runtime/mcp.py`. Received RPC errors preserve bounded diagnostics
+and the session; neither client retries the call. Partial effects still require
+verification. The shipped chat prompt keeps routine calls private, summarizes
+recovery once, and verifies completion. `builder/runtime_http_check.py` includes a
+legacy Kubernetes RPC-error continuation in both preparation modes. These fixtures
+prove result delivery, not real-model wording. Context owns dynamic Kubernetes
+resource resolution and command exit status; keep those mechanics out of prompts.

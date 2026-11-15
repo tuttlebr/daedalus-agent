@@ -41,6 +41,7 @@ KUBERNETES_SEQUENCES = {
     ],
     "K8S_STATUS": ["connect", "getClusterSummary", "getEvents"],
     "K8S_BLOCKED": ["connect", "getClusterSummary", "getEvents"],
+    "K8S_RPC_ERROR": ["connect", "getClusterSummary", "getEvents"],
 }
 
 
@@ -253,6 +254,22 @@ class Peers:
                     elif method == "tools/call":
                         name = body["params"]["name"]
                         peers.calls.append(name)
+                        if (
+                            body["params"].get("arguments", {}).get("private")
+                            == "K8S_RPC_ERROR"
+                        ):
+                            self.reply(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": body["id"],
+                                    "error": {
+                                        "code": -32603,
+                                        "message": "method not allowed for requested resource",
+                                        "data": {"private": "RPC_PRIVATE_DATA"},
+                                    },
+                                }
+                            )
+                            return
                         if name == "slow_read":
                             peers.tool_waiting.set()
                             if self.wait_for_disconnect(
@@ -729,8 +746,12 @@ class Peers:
                                     "namespace": "fixture",
                                     "name": "api",
                                     **(
-                                        {"private": "K8S_FORBIDDEN"}
-                                        if scenario == "K8S_BLOCKED"
+                                        {
+                                            "private": "K8S_FORBIDDEN"
+                                            if scenario == "K8S_BLOCKED"
+                                            else "K8S_RPC_ERROR"
+                                        }
+                                        if scenario in ("K8S_BLOCKED", "K8S_RPC_ERROR")
                                         and name.endswith("__getEvents")
                                         else {}
                                     ),
@@ -847,6 +868,20 @@ class Peers:
                         if scenario == "K8S_BLOCKED":
                             assert "RBAC forbids events" in serialized
                             text = "Unable to finish: cluster RBAC denies event access. No changes made."
+                        elif scenario == "K8S_RPC_ERROR":
+                            assert "mcp_rpc_error" in serialized
+                            assert (
+                                "method not allowed for requested resource"
+                                in serialized
+                            )
+                            assert "error_reported" in serialized
+                            assert "partial effects" in serialized
+                            assert (
+                                "MCP call did not return a confirmed result"
+                                not in serialized
+                            )
+                            assert "RPC_PRIVATE_DATA" not in serialized
+                            text = "Unable to finish: the server reported method not allowed for requested resource."
                         elif scenario == "K8S_STATUS":
                             text = "Cluster inspected; api needs attention. No changes requested or made."
                         else:
@@ -2046,6 +2081,7 @@ def check(
                     ("K8S_REPAIR", "Restarted api in fixture and verified"),
                     ("K8S_STATUS", "No changes requested or made"),
                     ("K8S_BLOCKED", "cluster RBAC denies event access"),
+                    ("K8S_RPC_ERROR", "the server reported method not allowed"),
                 ):
                     peers.calls.clear()
                     before = len(peers.requests)

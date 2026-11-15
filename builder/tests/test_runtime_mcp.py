@@ -1,12 +1,15 @@
 """Session ownership, uncertain mutations, discovery, and header isolation."""
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from daedalus_runtime import mcp
+from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED, ErrorData
 
 
 @pytest.mark.parametrize("abort", [False, True])
@@ -298,5 +301,71 @@ def test_background_calendar_reuses_grant_without_emitting_consent(
             "alice", config["authentication"]["google"], None if background else emit
         )
         manager._connection.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("code", [-32603, 408, CONNECTION_CLOSED])
+def test_rpc_diagnostics_do_not_confuse_sdk_transport_errors(monkeypatch, code):
+    session = SimpleNamespace(
+        call_tool=AsyncMock(
+            side_effect=McpError(
+                ErrorData(
+                    code=code,
+                    message="method not allowed; Bearer private-credential; "
+                    + "雪" * 3000,
+                    data={"private": "must-not-forward-rpc-data"},
+                )
+            )
+        )
+    )
+    connection = SimpleNamespace(
+        session=AsyncMock(return_value=session),
+        close=AsyncMock(),
+        tools={
+            "write": SimpleNamespace(
+                name="write",
+                description="Write",
+                inputSchema={"type": "object"},
+                annotations=None,
+            )
+        },
+    )
+    monkeypatch.setattr(mcp, "trusted_request_header_from_context", lambda _: "")
+    monkeypatch.setattr(
+        mcp.approval, "_validate_mcp_approval", lambda *a, **k: (True, "")
+    )
+
+    async def scenario():
+        config = {
+            "function_groups": {
+                "fixture": {"server": {"url": "https://fixture.invalid/mcp"}}
+            }
+        }
+        manager = mcp.MCPManager(config, SimpleNamespace())
+        manager._headers = AsyncMock(
+            return_value={"Authorization": "Bearer private-credential"}
+        )
+        manager._connection = AsyncMock(return_value=connection)
+        key = manager._key("fixture", "alice")
+        manager.connections[key] = ("digest", connection)
+        outcome = await manager.call("fixture__write", {}, "alice", AsyncMock())
+        assert outcome["is_error"]
+        assert session.call_tool.await_count == 1
+        assert "private-credential" not in outcome["content"]
+        assert "must-not-forward-rpc-data" not in outcome["content"]
+        if code == -32603:
+            diagnostic = json.loads(outcome["content"])
+            assert diagnostic["outcome"] == "error_reported"
+            assert diagnostic["error"]["code"] == code
+            assert "method not allowed" in diagnostic["error"]["message"]
+            assert len(diagnostic["error"]["message"]) <= 2048
+            assert "partial effects" in diagnostic["guidance"]
+            assert key in manager.connections
+            connection.close.assert_not_awaited()
+        else:
+            assert "unknown" in outcome["content"]
+            assert key not in manager.connections
+            connection.close.assert_awaited_once()
 
     asyncio.run(scenario())

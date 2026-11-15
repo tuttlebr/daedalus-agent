@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use futures::future::join_all;
 use http::{HeaderName, HeaderValue};
 use rmcp::{
-    ServiceExt,
+    ServiceError, ServiceExt,
     model::{CallToolRequestParams, CallToolResponse, ClientConfig, PaginatedRequestParams, Tool},
     service::{RoleClient, RunningService, RunningServiceCancellationToken},
     transport::{
@@ -550,6 +550,15 @@ impl Mcp {
             .and_then(|v| v.strip_prefix("Bearer "))
             .unwrap_or("")
             .to_owned();
+        // A remote error can echo authentication headers. Never return our
+        // credentials with its diagnostic, or include arbitrary RPC error data.
+        let secrets: Vec<String> = headers
+            .values()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| [value, value.strip_prefix("Bearer ").unwrap_or(value)])
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect();
         let connection = self.connection(name, user, headers).await?;
         let schemas = self.schemas(name, &connection)?;
         if tool_name == "connect" {
@@ -626,6 +635,37 @@ impl Mcp {
         )
         .await;
         let result = match result {
+            Ok(Err(ServiceError::McpError(error))) => {
+                // An RPC error is a received response, not a lost response.
+                // Keep the session and never replay the call. The error alone
+                // does not establish that a multi-step operation had no effect.
+                guard.0 = None;
+                let mut message = error.message.into_owned();
+                for secret in secrets {
+                    message = message.replace(&secret, "[redacted]");
+                }
+                let message: String = message
+                    .chars()
+                    .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+                    .take(2048)
+                    .collect();
+                tracing::warn!(
+                    event = "mcp_rpc_error",
+                    service = name,
+                    tool = tool_name,
+                    code = error.code.0
+                );
+                return Ok(ToolOutcome {
+                    content: crate::output::compact(&json!({
+                        "isError": true,
+                        "error": {"type": "mcp_rpc_error", "code": error.code, "message": message},
+                        "outcome": "error_reported",
+                        "guidance": "The server returned an error. A failed operation may have partial effects; verify state before repeating a change."
+                    })),
+                    is_error: true,
+                    ..Default::default()
+                });
+            }
             Ok(Ok(CallToolResponse::Complete(result))) => {
                 let raw = connection
                     .http

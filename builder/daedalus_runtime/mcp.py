@@ -19,6 +19,8 @@ from daedalus_runtime.logging import log_event
 from daedalus_runtime.oauth import GoogleOAuth
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED
 from nat_helpers.identity import trusted_request_header_from_context
 
 
@@ -346,6 +348,42 @@ class MCPManager:
                 log_event("mcp_call_cancelled", group=name, tool=full_name)
                 raise
             except Exception as exc:
+                # The Python SDK also wraps local timeout/closed-connection
+                # failures in McpError. Those still have an unknown outcome.
+                if isinstance(exc, McpError) and exc.error.code not in (
+                    httpx.codes.REQUEST_TIMEOUT,
+                    CONNECTION_CLOSED,
+                ):
+                    message = exc.error.message
+                    for value in headers.values():
+                        for secret in (value, value.removeprefix("Bearer ")):
+                            if secret:
+                                message = message.replace(secret, "[redacted]")
+                    message = "".join(
+                        char for char in message if char.isprintable() or char in "\n\t"
+                    )[:2048]
+                    log_event(
+                        "mcp_rpc_error",
+                        level=logging.WARNING,
+                        group=name,
+                        tool=full_name,
+                        code=exc.error.code,
+                    )
+                    return {
+                        "content": json.dumps(
+                            {
+                                "isError": True,
+                                "error": {
+                                    "type": "mcp_rpc_error",
+                                    "code": exc.error.code,
+                                    "message": message,
+                                },
+                                "outcome": "error_reported",
+                                "guidance": "The server returned an error. A failed operation may have partial effects; verify state before repeating a change.",
+                            }
+                        ),
+                        "is_error": True,
+                    }
                 log_event(
                     "mcp_call_unconfirmed",
                     level=logging.WARNING,
