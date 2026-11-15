@@ -398,6 +398,7 @@ class Peers:
                             "POLICY_CONFLICT",
                             "RENDERER_FALLBACK",
                             "RENDERER_SUCCESS",
+                            "RENDERER_ENCODED",
                             "SKILL_ROUTE",
                             "AUTONOMY_OUTPUT",
                             "DEFERRED_DISCOVERY",
@@ -499,11 +500,33 @@ class Peers:
                             {
                                 "type": "response.reasoning_text.delta",
                                 "output_index": 0,
+                                "content_index": 0,
                                 "item_id": "rs_progress",
                                 "sequence_number": sequence,
                                 "delta": "PRIVATE_MODEL_REASONING",
                             }
                         )
+                    reasoning = {
+                        "type": "reasoning",
+                        "id": "rs_progress",
+                        "status": "completed",
+                        "summary": [],
+                        "content": [
+                            {
+                                "type": "reasoning_text",
+                                "text": "PRIVATE_MODEL_REASONING" * 2,
+                            }
+                        ],
+                    }
+                    self.event(
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "sequence_number": 2,
+                            "item": reasoning,
+                        }
+                    )
+                    outputs.append(reasoning)
                     text = "Visible answer after active model generation."
                 elif scenario == "MODEL_QUIET":
                     time.sleep(17)
@@ -631,7 +654,7 @@ class Peers:
                         else ["fixture_mcp__conflicting_read", "current_datetime_tool"]
                         if scenario == "POLICY_CONFLICT"
                         else ["briefing_renderer_tool"]
-                        if scenario == "RENDERER_SUCCESS"
+                        if scenario in ("RENDERER_SUCCESS", "RENDERER_ENCODED")
                         else ["briefing_renderer_tool", "fixture_mcp__next_read"]
                         if scenario == "RENDERER_FALLBACK" and has_result
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
@@ -780,15 +803,25 @@ class Peers:
                             arguments = json.dumps(
                                 {"edition": '{"private":"PRIVATE_INVALID_EDITION"}'}
                             )
-                        if scenario == "RENDERER_SUCCESS":
+                        if scenario in ("RENDERER_SUCCESS", "RENDERER_ENCODED"):
+                            renderer = next(
+                                tool for tool in body["tools"] if tool["name"] == name
+                            )
+                            assert (
+                                renderer["parameters"]["properties"]["edition"]["type"]
+                                == "object"
+                            )
+                            edition = json.loads(
+                                (
+                                    Path(__file__).parent
+                                    / "tests/fixtures/daily_summary_dense_edition.json"
+                                ).read_text()
+                            )
                             arguments = json.dumps(
                                 {
-                                    "edition": json.loads(
-                                        (
-                                            Path(__file__).parent
-                                            / "tests/fixtures/daily_summary_dense_edition.json"
-                                        ).read_text()
-                                    )
+                                    "edition": json.dumps(edition)
+                                    if scenario == "RENDERER_ENCODED"
+                                    else edition
                                 }
                             )
                         if name == "submit_autonomous_result":
@@ -1007,6 +1040,7 @@ class Peers:
                             assert memories[0]["text"] == "Browser preference 雪🌲"
                             text = "Recalled memory: " + memories[0]["text"]
                 if text:
+                    output_index = len(outputs)
                     item = {
                         "type": "message",
                         "id": "msg_fixture",
@@ -1017,7 +1051,7 @@ class Peers:
                     self.event(
                         {
                             "type": "response.output_item.added",
-                            "output_index": 0,
+                            "output_index": output_index,
                             "sequence_number": 0,
                             "item": item,
                         }
@@ -1025,7 +1059,7 @@ class Peers:
                     self.event(
                         {
                             "type": "response.output_text.delta",
-                            "output_index": 0,
+                            "output_index": output_index,
                             "content_index": 0,
                             "item_id": item["id"],
                             "sequence_number": 1,
@@ -1036,7 +1070,7 @@ class Peers:
                         self.event(
                             {
                                 "type": "response.content_part.done",
-                                "output_index": 0,
+                                "output_index": output_index,
                                 "content_index": 0,
                                 "part": {"type": "output_text", "text": text},
                             }
@@ -1051,12 +1085,12 @@ class Peers:
                     self.event(
                         {
                             "type": "response.output_item.done",
-                            "output_index": 0,
+                            "output_index": output_index,
                             "sequence_number": 2,
                             "item": item,
                         }
                     )
-                    outputs = [item]
+                    outputs.append(item)
                 if (
                     (
                         scenario in ("STREAM_JSON_RECOVER", "STREAM_JSON_SYNTAX")
@@ -2106,6 +2140,17 @@ def check(
                 ), rendered
                 assert "Function Complete: briefing_renderer_tool" in rendered, rendered
                 assert len(peers.requests) == before + 1
+                if preparation == "rust":
+                    before = len(peers.requests)
+                    encoded = chat(
+                        "Run my daily briefing. RENDERER_ENCODED", "renderer-encoded"
+                    )
+                    assert '"finish_reason":"stop"' in encoded, encoded
+                    assert "```html" in encoded and "<!doctype html>" in encoded.lower()
+                    assert encoded.count("Function Start: briefing_renderer_tool") == 1
+                    assert "Function Complete: briefing_renderer_tool" in encoded
+                    assert "Sourced briefing from retained evidence" not in encoded
+                    assert len(peers.requests) == before + 1
                 before = len(peers.requests)
                 fallback = chat(
                     "Run my daily briefing. RENDERER_FALLBACK", "renderer-fallback"

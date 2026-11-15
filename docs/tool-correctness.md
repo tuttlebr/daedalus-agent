@@ -108,6 +108,17 @@ The approval UI retains backend rejection details rather than replacing them
 with a generic failure. Exact-action credentials and mutation non-replay remain
 required.
 
+The briefing renderer advertises `edition` as an object. Rust preparation also
+accepts a provider's serialized JSON object in that field by decoding it once
+before catalog validation, only for locally configured `briefing_renderer`
+tools. Decoding is bounded by the configured `max_edition_bytes` (200,000 bytes
+by default, capped at 1,000,000). The full tool schema and the renderer's sourcing
+and HTML checks still apply. Plain text, JSON fences, malformed JSON, arrays,
+and recursively encoded strings remain invalid. Other tools and direct Python
+renderer inputs retain their existing types; Python preparation does not apply
+this compatibility decoding. The original provider call remains in model history,
+and a valid decoded edition executes once with the same call ID.
+
 In daily briefings, exhausted renderer argument corrections get one text-only
 synthesis attempt from completed evidence, capped by
 `workflow.daily_summary_synthesis_retry_timeout_seconds` (75 seconds as shipped)

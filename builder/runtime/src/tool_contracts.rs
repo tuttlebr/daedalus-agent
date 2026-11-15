@@ -186,6 +186,39 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    /// Some providers serialize the edition twice inside otherwise valid tool
+    /// arguments. Decode that one field for the configured renderer only. The
+    /// unchanged catalog validator still checks every field before execution;
+    /// this neither repairs JSON nor accepts prose, fences or recursive strings.
+    pub fn decode_briefing_edition(&self, call: &mut ToolCall, config: &Value) -> bool {
+        if config["_type"] != "briefing_renderer"
+            || !self
+                .entries
+                .get(call.function.name.as_str())
+                .is_some_and(|(schema, _, _)| schema["properties"]["edition"]["type"] == "object")
+        {
+            return false;
+        }
+        let limit = config["max_edition_bytes"]
+            .as_u64()
+            .unwrap_or(200_000)
+            .min(1_000_000);
+        let Some(encoded) = call.function.arguments["edition"]
+            .as_str()
+            .filter(|text| text.len() as u64 <= limit)
+        else {
+            return false;
+        };
+        let Ok(edition) = serde_json::from_str::<Value>(encoded) else {
+            return false;
+        };
+        if !edition.is_object() {
+            return false;
+        }
+        call.function.arguments["edition"] = edition;
+        true
+    }
+
     pub fn add(&mut self, tool: &ToolDefinition) -> Result<bool> {
         if tool.name.trim().is_empty() || tool.description.trim().is_empty() {
             bail!("Tool catalog contains an unnamed or undocumented tool");
@@ -289,6 +322,78 @@ mod tests {
                 arguments: args,
             },
         )
+    }
+
+    #[test]
+    fn encoded_briefing_editions_still_obey_the_full_schema_and_call_identity() {
+        let tool = ToolDefinition {
+            name: "renderer_alias".into(),
+            description: "Render a canonical edition.".into(),
+            parameters: json!({"type":"object","required":["edition"],"additionalProperties":false,
+                "properties":{"edition":{"type":"object","required":["format"],
+                    "properties":{"format":{"const":"daily-daedalus/v1"}},"additionalProperties":false}}}),
+        };
+        let mut catalog = Catalog::default();
+        catalog.add(&tool).unwrap();
+        let config = json!({"_type":"briefing_renderer"});
+        let edition = json!({"format":"daily-daedalus/v1"});
+        let mut valid = call("render", &tool.name, json!({"edition":edition.to_string()}));
+        assert!(catalog.decode_briefing_edition(&mut valid, &config));
+        assert_eq!(valid.function.arguments, json!({"edition":edition}));
+        assert_eq!(valid.id.to_string(), "render");
+        assert_eq!(
+            catalog
+                .check_batch(&[valid.clone()], std::slice::from_ref(&tool))
+                .unwrap(),
+            [""]
+        );
+        assert!(
+            catalog
+                .check_batch(&[valid], std::slice::from_ref(&tool))
+                .is_err()
+        );
+
+        let mut invalid = call(
+            "invalid",
+            &tool.name,
+            json!({"edition":"{\"private\":\"SECRET_VALUE\"}"}),
+        );
+        assert!(catalog.decode_briefing_edition(&mut invalid, &config));
+        let errors = catalog.check_batch(&[invalid], &[tool]).unwrap();
+        assert!(!errors[0].is_empty());
+        assert!(errors[0].contains("required"));
+        assert!(!errors[0].contains("private"));
+        assert!(!errors[0].contains("SECRET_VALUE"));
+    }
+
+    #[test]
+    fn briefing_decoding_is_single_bounded_and_local_to_the_configured_renderer() {
+        let mut tool = tool();
+        tool.parameters = json!({"properties":{"edition":{"type":"object"}}});
+        let mut catalog = Catalog::default();
+        catalog.add(&tool).unwrap();
+        let config = json!({"_type":"briefing_renderer", "max_edition_bytes":10});
+        for edition in [
+            json!({}),
+            json!(null),
+            json!("plain text"),
+            json!("{broken"),
+            json!("{} trailing"),
+            json!("```json\n{}\n```"),
+            json!("[]"),
+            json!("\"{}\""),
+            json!("{\"long\":\"雪🌲\"}"),
+        ] {
+            let mut proposal = call("render", &tool.name, json!({"edition":edition}));
+            let original = proposal.function.arguments.clone();
+            assert!(!catalog.decode_briefing_edition(&mut proposal, &config));
+            assert_eq!(proposal.function.arguments, original);
+        }
+        let mut proposal = call("render", &tool.name, json!({"edition":"{}"}));
+        assert!(!catalog.decode_briefing_edition(&mut proposal, &json!({"_type":"other"})));
+        assert!(proposal.function.arguments["edition"].is_string());
+        assert!(catalog.decode_briefing_edition(&mut proposal, &config));
+        assert!(!catalog.decode_briefing_edition(&mut proposal, &config));
     }
 
     #[test]

@@ -841,6 +841,14 @@ impl Agent {
                 bail!("Briefing text fallback proposed tools despite disabled tool access");
             }
             let batch_revision = self.revision;
+            if let Some(preparation) = &preparation {
+                for call in &mut calls {
+                    let config = &preparation.config.raw["functions"][call.function.name.as_str()];
+                    if catalog.decode_briefing_edition(call, config) {
+                        tracing::info!(event = "briefing_edition_decoded");
+                    }
+                }
+            }
             let mut problems = catalog.check_batch(&calls, &tools)?;
             // JSON Schema omits Pydantic's cross-field/date validators. Ask the
             // same model that owns worker publication before ending this run.
@@ -2778,6 +2786,46 @@ mod tests {
         );
         let input = outcome.requests[1]["input"].to_string();
         assert!(input.contains("Tool stream stalled"), "{input}");
+    }
+
+    #[tokio::test]
+    async fn briefing_object_and_encoded_object_reach_executor_once_with_same_arguments() {
+        let edition = json!({"format":"daily-daedalus/v1", "description":"Fixture 雪🌲"});
+        for argument in [edition.clone(), json!(edition.to_string())] {
+            let outcome = run(
+                json!({"briefing_renderer_tool":{"_type":"briefing_renderer"}}),
+                json!({"tools":["briefing_renderer_tool"]}),
+                "Prepare my daily briefing",
+                vec![
+                    completed(vec![call(
+                        "render",
+                        "briefing_renderer_tool",
+                        &json!({"edition":argument}).to_string(),
+                    )]),
+                    completed(vec![text("Rendered edition received.")]),
+                ],
+            )
+            .await;
+            outcome.result.unwrap();
+            assert_eq!(outcome.requests.len(), 2);
+            assert_eq!(outcome.tool_calls.len(), 1);
+            assert_eq!(
+                outcome.tool_calls[0]["arguments"],
+                json!({"edition":edition})
+            );
+            assert_eq!(
+                outcome
+                    .stream
+                    .matches("Function Start: briefing_renderer_tool")
+                    .count(),
+                1
+            );
+            assert!(
+                !outcome.requests[1]
+                    .to_string()
+                    .contains("invalid_tool_batch")
+            );
+        }
     }
 
     #[tokio::test]
