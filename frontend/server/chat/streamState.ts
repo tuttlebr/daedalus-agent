@@ -17,6 +17,7 @@ if overlap < string.len(ARGV[1]) then
   redis.call('APPEND', KEYS[1], string.sub(ARGV[1], overlap + 1))
 end
 redis.call('EXPIRE', KEYS[1], ARGV[2])
+redis.call('EXPIRE', KEYS[2], ARGV[2])
 return offset + string.len(ARGV[1])
 `);
 
@@ -41,6 +42,12 @@ redis.call('EXPIRE', KEYS[1], ARGV[1])
 return offset + #ARGV - 2
 `);
 
+const REPLACE_RESPONSE = redisScript(`
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+return 1
+`);
+
 function validateOffset(offset: number): void {
   if (!Number.isSafeInteger(offset) || offset < 0) {
     throw new Error('Stream offset must be a nonnegative safe integer');
@@ -52,6 +59,40 @@ export const streamResponseKey = (jobId: string): string =>
 
 export const streamStepsKey = (jobId: string): string =>
   sessionKey(['async-job-steps-v2', jobId]);
+
+export const streamResponseRevisionKey = (jobId: string): string =>
+  sessionKey(['async-job-response-revision', jobId]);
+
+/** A provider snapshot may correct earlier text. Publish the text and its
+ * revision atomically so reconnect reads cannot pair different versions. */
+export async function replaceStreamResponse(
+  jobId: string,
+  response: string,
+  revision: number,
+): Promise<void> {
+  validateOffset(revision);
+  await evalScript(
+    getRedis(),
+    REPLACE_RESPONSE,
+    2,
+    streamResponseKey(jobId),
+    streamResponseRevisionKey(jobId),
+    response,
+    revision,
+    JOB_EXPIRY_SECONDS,
+  );
+}
+
+export async function getStreamResponseSnapshot(jobId: string): Promise<{
+  partialResponse: string | null;
+  responseRevision: number;
+}> {
+  const [text, revision] = await getRedis().mget(
+    streamResponseKey(jobId),
+    streamResponseRevisionKey(jobId),
+  );
+  return { partialResponse: text, responseRevision: Number(revision) || 0 };
+}
 
 /**
  * Append at the acknowledged UTF-8 byte offset. Matching overlap is a retry
@@ -68,8 +109,9 @@ export async function appendStreamResponseDelta(
   await evalScript(
     getRedis(),
     APPEND_WITH_EXPIRY,
-    1,
+    2,
     streamResponseKey(jobId),
+    streamResponseRevisionKey(jobId),
     delta,
     JOB_EXPIRY_SECONDS,
     byteOffset,
@@ -159,5 +201,9 @@ export async function getStreamSteps(
 }
 
 export async function clearStreamState(jobId: string): Promise<void> {
-  await getRedis().del(streamResponseKey(jobId), streamStepsKey(jobId));
+  await getRedis().del(
+    streamResponseKey(jobId),
+    streamStepsKey(jobId),
+    streamResponseRevisionKey(jobId),
+  );
 }

@@ -1,0 +1,717 @@
+[
+  {
+    "name": "multiple_parts",
+    "events": [
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Book"
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "keeper "
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "雪🌲"
+      },
+      {
+        "type": "response.output_text.done",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "text": "Bookkeeper 雪🌲"
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 1,
+        "item_id": "msg_a",
+        "delta": " — second part"
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Bookkeeper 雪🌲",
+              "annotations": []
+            },
+            {
+              "type": "output_text",
+              "text": " — second part",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.output_item.added",
+        "output_index": 1,
+        "item": {
+          "id": "msg_b",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 1,
+        "content_index": 0,
+        "item_id": "msg_b",
+        "delta": "Second message."
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 1,
+        "item": {
+          "id": "msg_b",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Second message.",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Bookkeeper 雪🌲",
+                  "annotations": []
+                },
+                {
+                  "type": "output_text",
+                  "text": " — second part",
+                  "annotations": []
+                }
+              ]
+            },
+            {
+              "id": "msg_b",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Second message.",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Bookkeeper 雪🌲 — second part\n\nSecond message.",
+    "error": false
+  },
+  {
+    "name": "snapshots",
+    "events": [
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Snapshot "
+      },
+      {
+        "type": "response.output_text.done",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "text": "Snapshot suffix"
+      },
+      {
+        "type": "response.content_part.done",
+        "output_index": 0,
+        "item_id": "msg_a",
+        "content_index": 0,
+        "part": {
+          "type": "output_text",
+          "text": "Snapshot suffix 雪🌲",
+          "annotations": []
+        }
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Snapshot suffix 雪🌲.",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Snapshot suffix 雪🌲. Complete.",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Snapshot suffix 雪🌲. Complete.",
+    "error": false
+  },
+  {
+    "name": "correction",
+    "events": [
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Provisional text that is too long"
+      },
+      {
+        "type": "response.output_text.done",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "text": "Corrected"
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Corrected",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Corrected 雪🌲",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Corrected 雪🌲",
+    "error": false
+  },
+  {
+    "name": "interleaved",
+    "events": [
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_item.added",
+        "output_index": 1,
+        "item": {
+          "id": "msg_b",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 1,
+        "content_index": 0,
+        "item_id": "msg_b",
+        "delta": "second"
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "first"
+      },
+      {
+        "type": "response.output_text.delta",
+        "output_index": 1,
+        "content_index": 0,
+        "item_id": "msg_b",
+        "delta": " done"
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "first",
+                  "annotations": []
+                }
+              ]
+            },
+            {
+              "id": "msg_b",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "second done",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "first\n\nsecond done",
+    "error": false
+  },
+  {
+    "name": "refusal",
+    "events": [
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": []
+        }
+      },
+      {
+        "type": "response.refusal.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Cannot "
+      },
+      {
+        "type": "response.refusal.done",
+        "output_index": 0,
+        "item_id": "msg_a",
+        "content_index": 0,
+        "refusal": "Cannot help with that."
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "refusal",
+              "refusal": "Cannot help with that."
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "refusal",
+                  "refusal": "Cannot help with that."
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Cannot help with that.",
+    "error": false
+  },
+  {
+    "name": "terminal_only",
+    "events": [
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Only the terminal supplied this 雪🌲",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Only the terminal supplied this 雪🌲",
+    "error": false
+  },
+  {
+    "name": "item_only",
+    "events": [
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "id": "msg_a",
+          "type": "message",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "From the completed item.",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "From the completed item.",
+    "error": false
+  },
+  {
+    "name": "empty_correction",
+    "events": [
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Remove this"
+      },
+      {
+        "type": "response.output_text.done",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "text": ""
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "completed",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Replacement.",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          }
+        }
+      }
+    ],
+    "expected": "Replacement.",
+    "error": false
+  },
+  {
+    "name": "incomplete",
+    "events": [
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Partial"
+      },
+      {
+        "type": "response.incomplete",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "incomplete",
+          "output": [
+            {
+              "id": "msg_a",
+              "type": "message",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Partial",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "total_tokens": 10
+          },
+          "incomplete_details": {
+            "reason": "max_output_tokens"
+          }
+        }
+      }
+    ],
+    "expected": "Partial",
+    "error": true
+  },
+  {
+    "name": "truncated",
+    "events": [
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Partial"
+      }
+    ],
+    "expected": "Partial",
+    "error": true
+  },
+  {
+    "name": "failed",
+    "events": [
+      {
+        "type": "response.output_text.delta",
+        "output_index": 0,
+        "content_index": 0,
+        "item_id": "msg_a",
+        "delta": "Partial"
+      },
+      {
+        "type": "response.failed",
+        "response": {
+          "id": "resp_fixture",
+          "object": "response",
+          "created_at": 1,
+          "model": "fixture",
+          "status": "failed",
+          "output": [],
+          "error": {
+            "code": "server_error",
+            "message": "synthetic failure"
+          }
+        }
+      }
+    ],
+    "expected": "Partial",
+    "error": true
+  }
+]

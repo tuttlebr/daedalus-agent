@@ -73,3 +73,32 @@ The loopback fixture control
 uses the candidate backend port plus one; it is not an application endpoint.
 The default mock suite remains a
 separate check; passing it does not establish backend integration.
+
+## Responses accumulation
+
+Select a built backend image, a built Switchyard binary with the native snapshot
+patch, and an explicit native Responses route file. From `frontend/`:
+
+```bash
+E2E_RESPONSES_IMAGE=daedalus:local \
+E2E_RESPONSES_GATEWAY_BINARY=/absolute/path/to/switchyard-server \
+E2E_RESPONSES_ROUTES=/absolute/path/to/routes_openai.toml \
+npm run e2e -- --project=chromium
+```
+
+The suite starts its own loopback provider and gateway, composes included profiles
+with the selected Switchyard checkout's renderer, redirects a temporary copy
+of the routes to that provider, disables classifier tokenization for the
+synthetic judge, and runs the backend image on the host network. It uses the same
+disposable Redis, object store, Next server, worker and TLS/WebSocket proxy as the
+other browser suites. No provider credentials or production endpoints are used.
+
+Shared Rust fixtures exercise multi-item/part text, Unicode, snapshot extension,
+shortening and empty corrections, interleaved output, refusal and terminal-only
+output. Browser assertions include visible corrections during generation, final
+text and reload. The official SDK checks streaming/unary `/v1/responses`, usage,
+and failed/incomplete/truncated streams. Runtime tests separately verify tool
+execution and encrypted reasoning continuation. See the
+[accumulation contract](../../docs/responses-accumulation.md) for rollout order and
+supported scope. Set `E2E_SKIP_BUILD=1` only after rebuilding the frontend, worker
+and WebSocket server for the current source.

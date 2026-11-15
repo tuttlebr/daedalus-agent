@@ -216,7 +216,12 @@ async function main() {
   await redis.flushdb();
   await redis.quit();
 
-  if (process.env.E2E_CANDIDATE_IMAGE) {
+  if (process.env.E2E_RESPONSES_IMAGE) {
+    startChild('responses-backend', [
+      process.execPath,
+      'e2e/responses-backend.mjs',
+    ]);
+  } else if (process.env.E2E_CANDIDATE_IMAGE) {
     if (!process.env.E2E_CANDIDATE_REDIS_IMAGE) {
       throw new Error('Candidate mode requires E2E_CANDIDATE_REDIS_IMAGE');
     }

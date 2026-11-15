@@ -1542,6 +1542,82 @@ describe('useAsyncChat streaming callbacks', () => {
     act(() => root.unmount());
   });
 
+  it('accepts shorter corrected snapshots and rejects old-revision tokens and polls', async () => {
+    const onToken = vi.fn();
+    const onProgress = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onToken, onProgress });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const token = (fields: any) =>
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        ...fields,
+      });
+    act(() => {
+      token({ content: 'Answer extra', responseStart: 0 });
+      token({ content: 'Answer', replace: true, responseRevision: 1 });
+      token({ content: ' stale', responseStart: 6, responseRevision: 0 });
+      emit('job_status', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        status: 'streaming',
+        partialResponse: 'Answer extra',
+        responseRevision: 0,
+      });
+      token({ content: ' 雪🌲', responseStart: 6, responseRevision: 1 });
+    });
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: 'Answer 雪🌲' }),
+    );
+    act(() => token({ content: '', replace: true, responseRevision: 2 }));
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: '' }),
+    );
+    act(() => root.unmount());
+  });
+
+  it('repairs a missed correction before applying tokens in its new revision', async () => {
+    const onProgress = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onProgress });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        status: 'streaming',
+        partialResponse: '雪🌲',
+        responseRevision: 1,
+      }),
+    );
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Provisional',
+        responseStart: 0,
+      });
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: ' repaired',
+        responseStart: 3,
+        responseRevision: 1,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        partialResponse: '雪🌲 repaired',
+        responseRevision: 1,
+      }),
+    );
+    act(() => root.unmount());
+  });
+
   it('retries a repair whose snapshot still lags the live tokens', async () => {
     const onToken = vi.fn();
     const { root, api } = renderProbe({

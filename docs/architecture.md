@@ -465,3 +465,6 @@ cannot exhaust the span attribute limit and discard terminal metrics.
 The `telemetry_started` lifecycle log records the Phoenix `trace_id` inside the
 existing run context, allowing exact trace-to-run correlation without exporting
 user or conversation identifiers.
+
+Responses item accumulation, snapshot corrections and worker/browser revisions are
+described in [Responses accumulation](responses-accumulation.md).

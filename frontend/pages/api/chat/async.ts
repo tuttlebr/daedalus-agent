@@ -18,7 +18,10 @@ import {
   updateJobStatus,
 } from '@/server/chat/jobState';
 import { validateModelProfile } from '@/server/chat/modelProfile';
-import { getStreamResponse, getStreamSteps } from '@/server/chat/streamState';
+import {
+  getStreamResponseSnapshot,
+  getStreamSteps,
+} from '@/server/chat/streamState';
 import { submitChatJob } from '@/server/chat/submission';
 import {
   ApiRouteError,
@@ -239,7 +242,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         sessionKey(['async-job-request', jobId]),
         ['userId', 'executionMode'],
       ),
-      getStreamResponse(jobId),
+      getStreamResponseSnapshot(jobId),
       getStreamSteps(jobId),
     ]);
 
@@ -269,7 +272,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (jobRequest.executionMode === 'stream') {
       const statusWithLiveProgress: AsyncJobStatus = {
         ...jobStatus,
-        ...(liveResponse ? { partialResponse: liveResponse } : {}),
+        ...(liveResponse.partialResponse !== null
+          ? {
+              partialResponse: liveResponse.partialResponse,
+              responseRevision: liveResponse.responseRevision,
+            }
+          : {}),
         ...(liveSteps.length ? { intermediateSteps: liveSteps } : {}),
       };
       const sanitized = await sanitizeJobStatusForReturn(

@@ -116,6 +116,8 @@ vi.mock('@/server/session/redis', () => ({
     eval: mocks.redisEval,
     evalsha: mocks.redisEvalsha,
     get: mocks.redisGet,
+    mget: (...keys: string[]) =>
+      Promise.all(keys.map((key) => mocks.redisGet(key))),
     lrange: mocks.redisLrange,
     exists: mocks.redisExists,
     sismember: vi.fn().mockResolvedValue(1),
@@ -2251,8 +2253,8 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     if (script.includes("redis.call('APPEND'")) {
       const key = args[2] as string;
       const current = Buffer.from(store.get(key) || '');
-      const delta = Buffer.from(args[3] as string);
-      const offset = Number(args[5]);
+      const delta = Buffer.from(args[4] as string);
+      const offset = Number(args[6]);
       if (current.length < offset)
         throw new Error('stream response offset gap');
       const overlap = Math.min(current.length - offset, delta.length);
@@ -3307,7 +3309,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const stepPushCalls = (mocks.redisEval as any).mock.calls.filter(
       ([script]: [string]) => script.includes("redis.call('RPUSH'"),
     );
-    expect(appendCalls.map((call: any[]) => call[3]).join('')).toBe(
+    expect(appendCalls.map((call: any[]) => call[4]).join('')).toBe(
       responseDeltas.join(''),
     );
     expect(

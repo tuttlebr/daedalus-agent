@@ -5,6 +5,8 @@ import {
   getStreamResponse,
   getStreamSteps,
   streamResponseKey,
+  streamResponseRevisionKey,
+  getStreamResponseSnapshot,
   streamStepsKey,
 } from '@/server/chat/streamState';
 import { createHash } from 'node:crypto';
@@ -15,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   eval: vi.fn(),
   evalsha: vi.fn(),
   get: vi.fn(),
+  mget: vi.fn(),
   lrange: vi.fn(),
   // Redis's script cache: digests of bodies it has evaluated.
   cached: new Set<string>(),
@@ -53,8 +56,9 @@ describe('normalized live stream state', () => {
     expect(mocks.eval).toHaveBeenCalledTimes(1);
     expect(mocks.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('APPEND'"),
-      1,
+      2,
       'daedalus:async-job-response:job-1',
+      'daedalus:async-job-response-revision:job-1',
       'next bytes',
       3600,
       0,
@@ -70,11 +74,13 @@ describe('normalized live stream state', () => {
     // flushes send only its digest.
     expect(mocks.eval).toHaveBeenCalledTimes(1);
     expect(mocks.evalsha).toHaveBeenCalledTimes(3);
-    const [sha, keys, key, delta, , offset] = mocks.evalsha.mock.calls[2];
+    const [sha, keys, key, revisionKey, delta, , offset] =
+      mocks.evalsha.mock.calls[2];
     expect(sha).toBe(sha1(mocks.eval.mock.calls[0][0]));
-    expect([keys, key, delta, offset]).toEqual([
-      1,
+    expect([keys, key, revisionKey, delta, offset]).toEqual([
+      2,
       'daedalus:async-job-response:job-1',
+      'daedalus:async-job-response-revision:job-1',
       'third',
       11,
     ]);
@@ -123,6 +129,18 @@ describe('normalized live stream state', () => {
     ).resolves.toEqual([{ id: 1 }, { id: 2 }]);
   });
 
+  it('reads text and revision together, including an empty corrected response', async () => {
+    mocks.mget.mockResolvedValue(['', '2']);
+    await expect(getStreamResponseSnapshot('job-3')).resolves.toEqual({
+      partialResponse: '',
+      responseRevision: 2,
+    });
+    expect(mocks.mget).toHaveBeenCalledWith(
+      streamResponseKey('job-3'),
+      streamResponseRevisionKey('job-3'),
+    );
+  });
+
   it('uses the status snapshot for empty normalized state with one read each', async () => {
     const snapshotSteps = [{ id: 'snapshot' }];
 
@@ -145,6 +163,7 @@ describe('normalized live stream state', () => {
     expect(mocks.del).toHaveBeenCalledWith(
       streamResponseKey('job-5'),
       streamStepsKey('job-5'),
+      streamResponseRevisionKey('job-5'),
     );
   });
 

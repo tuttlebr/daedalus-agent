@@ -562,6 +562,8 @@ impl Agent {
             };
             tokio::pin!(total);
             let mut partial = String::new();
+            let mut response_start = None;
+            let mut accumulated_responses = false;
             let mut interrupted = false;
             let mut inactive = false;
             let mut stream_error = None;
@@ -585,13 +587,38 @@ impl Agent {
                                     elapsed_ms = model_started.elapsed().as_millis() as u64);
                             }
                             received_item = true;
-                            if let Item::Event(StreamEvent::Text { text, .. }) = item {
+                            let visible = match &item {
+                                Item::Unknown(payload) if payload.value()["type"] == crate::provider::responses::TEXT_UPDATE => {
+                                    accumulated_responses = true;
+                                    payload.value()["text"].as_str().map(|text| (text, payload.value()["replace"] == true))
+                                }
+                                Item::Unknown(payload) if payload.value()["type"] == "daedalus.responses_activity" => {
+                                    accumulated_responses = true;
+                                    None
+                                }
+                                Item::Event(StreamEvent::Text { text, .. }) if !accumulated_responses => Some((text.as_str(), false)),
+                                _ => None,
+                            };
+                            if let Some((text, replace)) = visible {
+                                if replace { partial.clear(); }
                                 if withhold_text && partial.len().saturating_add(text.len()) > crate::response_policy::MAX_WITHHELD_BYTES {
                                     return Err(anyhow::anyhow!("Withheld response exceeded output limit").context(Phase("model_stream")));
                                 }
-                                partial.push_str(&text);
+                                partial.push_str(text);
                                 if !withhold_text {
-                                    response_text.delta(&self.events, &text).await?;
+                                    if replace {
+                                        if let Some(start) = response_start {
+                                            response_text.replace(&self.events, start, text).await?;
+                                        } else {
+                                            response_text.delta(&self.events, text).await?;
+                                            response_start = Some(response_text.len() - text.len());
+                                        }
+                                    } else {
+                                        response_text.delta(&self.events, text).await?;
+                                        if response_start.is_none() && !text.is_empty() {
+                                            response_start = Some(response_text.len() - text.len());
+                                        }
+                                    }
                                     last_activity = Instant::now();
                                 } else if last_activity.elapsed() >= Duration::from_secs(15) {
                                     self.events.raw(": model active\n\n".into()).await?;
@@ -2222,6 +2249,142 @@ mod tests {
                     .map(str::to_owned)
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn responses_accumulation_preserves_snapshots_parts_and_terminal_failures() {
+        let mut cases: Vec<Value> = serde_json::from_str(include_str!(
+            "../tests/fixtures/responses-accumulation.json"
+        ))
+        .unwrap();
+        // Compatible endpoints may return a whole response as one SSE datum,
+        // including after provisional frames. It has the same snapshot rules.
+        for name in ["multiple_parts", "correction"] {
+            let mut case = cases
+                .iter()
+                .find(|case| case["name"] == name)
+                .unwrap()
+                .clone();
+            case["name"] = json!(format!("{name}_whole"));
+            let events = case["events"].as_array_mut().unwrap();
+            let response = events.pop().unwrap()["response"].clone();
+            if name == "multiple_parts" {
+                events.clear();
+            }
+            events.push(response);
+            cases.push(case);
+        }
+        for case in cases {
+            let outcome = run(
+                json!({}),
+                json!({}),
+                "Explain this fixture.",
+                vec![Some(
+                    serde_json::from_value(case["events"].clone()).unwrap(),
+                )],
+            )
+            .await;
+            assert_eq!(
+                outcome.result.is_err(),
+                case["error"].as_bool().unwrap(),
+                "{}: {:?}",
+                case["name"],
+                outcome.result
+            );
+            let mut visible = String::new();
+            for event in outcome
+                .stream
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            {
+                if let Some(snapshot) = event["content"].as_str() {
+                    visible = snapshot.to_owned();
+                }
+                if let Some(delta) = event["choices"][0]["delta"]["content"].as_str() {
+                    visible.push_str(delta);
+                }
+            }
+            assert_eq!(
+                visible,
+                case["expected"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+            assert_eq!(
+                outcome.stream.contains("\"finish_reason\":\"stop\""),
+                !case["error"].as_bool().unwrap()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn responses_terminal_only_tools_preserve_reasoning_and_call_identity() {
+        let reasoning = json!({"type":"reasoning","id":"rs_fixture","summary":[],"encrypted_content":"opaque-fixture"});
+        let mut first = completed(vec![call("from_terminal", "clock", "{}")]).unwrap();
+        let mut terminal = first.pop().unwrap();
+        terminal["response"]["output"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, reasoning);
+        for provisional in [false, true] {
+            let mut events = vec![terminal.clone()];
+            if provisional {
+                let mut completion = terminal.clone();
+                completion["response"]["output"] = json!([]);
+                events = vec![
+                    json!({"type":"response.output_item.done", "output_index":0,
+                        "item":terminal["response"]["output"][0]}),
+                    json!({"type":"response.output_item.added", "output_index":1,
+                        "item":call("from_terminal", "clock", "")}),
+                    json!({"type":"response.function_call_arguments.delta", "output_index":1,
+                        "item_id":"fc_from_terminal", "delta":"{invalid provisional"}),
+                    json!({"type":"response.function_call_arguments.done", "output_index":1,
+                        "item_id":"fc_from_terminal", "arguments":"{}"}),
+                    completion,
+                ];
+            }
+            let outcome = run(
+                clocks(),
+                json!({"tools":["clock"]}),
+                "Read the clock.",
+                vec![Some(events), completed(vec![text("Clock received.")])],
+            )
+            .await;
+            outcome.result.unwrap();
+            assert_eq!(outcome.stream.matches("Function Start: clock").count(), 1);
+            let input = outcome.requests[1]["input"].as_array().unwrap();
+            assert!(
+                input
+                    .iter()
+                    .any(|item| item["type"] == "function_call_output"
+                        && item["call_id"] == "from_terminal")
+            );
+            assert!(
+                input.iter().any(|item| item["type"] == "reasoning"
+                    && item["encrypted_content"] == "opaque-fixture")
+            );
+            assert!(!outcome.stream.contains("opaque-fixture"));
+            assert_eq!(visible_content(&outcome.stream), "Clock received.");
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_completed_responses_calls_fail_before_tools_without_decode_retry() {
+        let outcome = run_with_retries(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Read the clock.",
+            vec![
+                completed(vec![call("invalid", "clock", "{invalid")]),
+                completed(vec![text("Must not be reached.")]),
+            ],
+            2,
+        )
+        .await;
+        assert!(outcome.result.is_err());
+        assert_eq!(outcome.requests.len(), 1);
+        assert!(!outcome.stream.contains("Function Start:"));
     }
 
     #[tokio::test]

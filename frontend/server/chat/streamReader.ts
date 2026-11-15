@@ -39,6 +39,7 @@ import {
   appendStreamResponseDelta,
   appendStreamSteps,
   clearStreamState,
+  replaceStreamResponse,
 } from './streamState';
 import {
   ApiRouteError,
@@ -292,6 +293,7 @@ export async function startBackgroundStreamReader(
   // token is unchanged; each message carries its first character's offset.
   // Every other event on the token channel flushes the buffer first, keeping
   // tokens and steps in their original order.
+  let responseRevision = 0;
   let pendingToken: { content: string; responseStart: number } | null = null;
   let lastTokenPublishAt = 0;
   let tokenFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -315,6 +317,7 @@ export async function startBackgroundStreamReader(
           assistantMessageId: jobRequest.assistantMessageId,
           content: token.content,
           responseStart: token.responseStart,
+          responseRevision,
         }),
       )
       .catch(() => {});
@@ -339,6 +342,7 @@ export async function startBackgroundStreamReader(
   let pendingSteps: any[] = [];
   let partialResponse = '';
   let pendingResponseDelta = '';
+  let pendingResponseSnapshot: string | null = null;
   let persistedResponseBytes = 0;
   let persistedStepCount = 0;
   let pendingApprovalMarker: string | null = null;
@@ -369,6 +373,18 @@ export async function startBackgroundStreamReader(
   }
 
   const persistResponse = async (): Promise<void> => {
+    if (pendingResponseSnapshot !== null) {
+      await replaceStreamResponse(
+        jobId,
+        pendingResponseSnapshot,
+        responseRevision,
+      );
+      persistedResponseBytes = Buffer.byteLength(
+        pendingResponseSnapshot,
+        'utf8',
+      );
+      pendingResponseSnapshot = null;
+    }
     const delta = pendingResponseDelta;
     pendingResponseDelta = '';
     try {
@@ -691,6 +707,37 @@ export async function startBackgroundStreamReader(
             // Content-free counters; an unusable report is ignored rather
             // than failing an otherwise complete answer.
             runUsage = parseRunUsage(parsed) ?? runUsage;
+            continue;
+          }
+          if (currentSseEvent === 'response_snapshot') {
+            if (typeof parsed.content !== 'string') {
+              throw new PublicJobError(
+                'Backend sent an invalid response snapshot',
+              );
+            }
+            // Drain older tokens before publishing the new revision on the
+            // same channel. Redis commits text and revision together for polls.
+            flushTokens();
+            responseRevision += 1;
+            partialResponse = parsed.content;
+            pendingResponseDelta = '';
+            pendingResponseSnapshot = partialResponse;
+            await persistResponse();
+            if (tokenChannel) {
+              await publisher.publish(
+                tokenChannel,
+                JSON.stringify({
+                  type: 'chat_token',
+                  jobId,
+                  conversationId,
+                  turnId: jobRequest.turnId,
+                  assistantMessageId: jobRequest.assistantMessageId,
+                  content: partialResponse,
+                  replace: true,
+                  responseRevision,
+                }),
+              );
+            }
             continue;
           }
           if (currentSseEvent === 'mcp_approval_required') {

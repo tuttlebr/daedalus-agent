@@ -66,6 +66,8 @@ export type ServerMessage =
       assistantMessageId?: string;
       content: string;
       responseStart?: number;
+      responseRevision?: number;
+      replace?: boolean;
       intermediateSteps?: any[];
     }
   | {

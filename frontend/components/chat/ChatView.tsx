@@ -833,7 +833,11 @@ export const ChatView = memo(() => {
           partialResponse?: string;
         }) => {
           const convId = event.conversationId || selectedIdRef.current;
-          if (!convId || !event.content) return;
+          if (
+            !convId ||
+            (!event.content && typeof event.partialResponse !== 'string')
+          )
+            return;
 
           const store = useConversationStore.getState();
           if (!store.streamingConversationIds.has(convId)) return;
@@ -845,9 +849,13 @@ export const ChatView = memo(() => {
             convId,
             event.assistantMessageId,
             typeof event.partialResponse === 'string'
-              ? { content: event.partialResponse, replace: true }
+              ? {
+                  content: event.partialResponse,
+                  replace: true,
+                  authoritative: true,
+                }
               : {
-                  content: event.content,
+                  content: event.content || '',
                   responseStart: event.responseStart,
                 },
             event.intermediateSteps,
@@ -945,10 +953,11 @@ export const ChatView = memo(() => {
             finishOAuthPromptsForJob(convId, status.jobId, true, true);
           }
 
-          if (status.partialResponse) {
+          if (typeof status.partialResponse === 'string') {
             queueStreamingUpdate(convId, status.assistantMessageId, {
               content: status.partialResponse,
               replace: true,
+              authoritative: true,
             });
             setActivityText(convId, 'Generating response');
           }

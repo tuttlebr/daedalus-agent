@@ -38,6 +38,7 @@ import {
   getStreamResponse,
   getStreamSteps,
   streamResponseKey,
+  streamResponseRevisionKey,
   streamStepsKey,
 } from './streamState';
 import {
@@ -283,6 +284,7 @@ function planCompletion(
       phases.push('streamStateClearedAt');
       effects.push(
         { kind: 'delete', key: streamResponseKey(current.jobId) },
+        { kind: 'delete', key: streamResponseRevisionKey(current.jobId) },
         { kind: 'delete', key: streamStepsKey(current.jobId) },
       );
     }

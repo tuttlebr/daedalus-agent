@@ -89,5 +89,28 @@ describe.skipIf(!RUN_REAL_REDIS)(
         ),
       ).toBe(0);
     });
+
+    it('keeps a corrected Unicode snapshot and subsequent delta in the same revision', async () => {
+      await state.appendStreamResponseDelta(jobId, 'Provisional answer', 0);
+      await state.replaceStreamResponse(jobId, '雪🌲', 1);
+      await state.appendStreamResponseDelta(
+        jobId,
+        ' corrected',
+        Buffer.byteLength('雪🌲'),
+      );
+      expect(await state.getStreamResponseSnapshot(jobId)).toEqual({
+        partialResponse: '雪🌲 corrected',
+        responseRevision: 1,
+      });
+      await state.replaceStreamResponse(jobId, '', 2);
+      expect(await state.getStreamResponseSnapshot(jobId)).toEqual({
+        partialResponse: '',
+        responseRevision: 2,
+      });
+      await state.clearStreamState(jobId);
+      expect(await client.exists(state.streamResponseRevisionKey(jobId))).toBe(
+        0,
+      );
+    });
   },
 );

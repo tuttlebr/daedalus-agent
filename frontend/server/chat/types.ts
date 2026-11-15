@@ -88,6 +88,7 @@ export interface AsyncJobStatus {
   jobId: string;
   status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
   partialResponse?: string;
+  responseRevision?: number;
   fullResponse?: string;
   intermediateSteps?: any[];
   error?: string;

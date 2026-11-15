@@ -16,6 +16,7 @@ pub struct Events {
 pub struct ResponseText {
     emitted: bool,
     separate: bool,
+    text: String,
 }
 
 impl ResponseText {
@@ -29,11 +30,28 @@ impl ResponseText {
         }
         if self.separate {
             events.delta("\n\n").await?;
+            self.text.push_str("\n\n");
             self.separate = false;
         }
         events.delta(content).await?;
+        self.text.push_str(content);
         self.emitted = true;
         Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.text.len()
+    }
+
+    /// Replace only this model attempt's visible suffix. Prior tool rounds and
+    /// interrupted attempts stay intact, including their paragraph boundary.
+    pub async fn replace(&mut self, events: &Events, start: usize, content: &str) -> Result<()> {
+        self.text.truncate(start);
+        self.text.push_str(content);
+        self.emitted = !self.text.is_empty();
+        events
+            .event("response_snapshot", json!({"content":self.text}))
+            .await
     }
 }
 

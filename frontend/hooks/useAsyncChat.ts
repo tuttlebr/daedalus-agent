@@ -107,6 +107,8 @@ interface ChatTokenEvent {
   assistantMessageId?: string;
   content: string;
   responseStart?: number;
+  responseRevision?: number;
+  replace?: boolean;
   intermediateSteps?: any[];
 }
 
@@ -543,10 +545,34 @@ export const useAsyncChat = (
 
       const current = jobStatusByJobIdRef.current[event.jobId];
       const currentText = current?.partialResponse || '';
+      const currentRevision = current?.responseRevision ?? 0;
+      const revision = event.responseRevision ?? 0;
+      if (revision < currentRevision) return;
       const content = event.content || '';
       const responseStart = event.responseStart;
       let partialResponse = currentText;
-      if (
+      if (event.replace) {
+        partialResponse =
+          revision === currentRevision &&
+          isStaleCumulativeSnapshot(currentText, content)
+            ? currentText
+            : content;
+        delete heldTokensByJobRef.current[event.jobId];
+      } else if (revision > currentRevision) {
+        // The correction was lost during a reconnect. Obtain its base before
+        // applying tokens with offsets in that new version of the answer.
+        const held = heldTokensByJobRef.current[event.jobId] ?? [];
+        held.push({
+          content,
+          responseStart: responseStart ?? 0,
+          responseRevision: revision,
+        });
+        heldTokensByJobRef.current[event.jobId] = held.slice(
+          -MAX_HELD_TOKENS_PER_JOB,
+        );
+        scheduleGapRepair(event.jobId, 0);
+        return;
+      } else if (
         content &&
         typeof responseStart === 'number' &&
         Number.isSafeInteger(responseStart) &&
@@ -557,7 +583,7 @@ export const useAsyncChat = (
         // was resubscribing). Later tokens alone can never fill that hole and
         // a recent live event must not suppress the status read that can.
         const held = heldTokensByJobRef.current[event.jobId] ?? [];
-        held.push({ content, responseStart });
+        held.push({ content, responseStart, responseRevision: revision });
         if (held.length > MAX_HELD_TOKENS_PER_JOB) {
           held.splice(0, held.length - MAX_HELD_TOKENS_PER_JOB);
         }
@@ -585,6 +611,7 @@ export const useAsyncChat = (
         {
           status: 'streaming',
           partialResponse,
+          responseRevision: revision,
           ...(event.intermediateSteps
             ? {
                 intermediateSteps: mergeIntermediateStepSnapshot(
@@ -706,16 +733,30 @@ export const useAsyncChat = (
       // Pushed status records (for example an OAuth prompt) carry no response
       // text at all; that says nothing about the text already received.
       const accumulated = jobStatusByJobIdRef.current[jobId]?.partialResponse;
+      const currentRevision =
+        jobStatusByJobIdRef.current[jobId]?.responseRevision ?? 0;
+      const revision = status.responseRevision ?? 0;
+      const terminal =
+        status.status === 'error' ||
+        (status.status === 'completed' && Boolean(status.finalizedAt));
       let text =
         typeof status.partialResponse !== 'string'
           ? accumulated
+          : !terminal && revision < currentRevision
+          ? accumulated
+          : terminal || revision > currentRevision
+          ? status.partialResponse
           : accumulated &&
             isStaleCumulativeSnapshot(accumulated, status.partialResponse)
           ? accumulated
           : status.partialResponse;
       const held = heldTokensByJobRef.current[jobId];
       if (held?.length) {
-        const drained = drainOffsetDeltas(text ?? '', held);
+        const drained = drainOffsetDeltas(
+          text ?? '',
+          held,
+          Math.max(currentRevision, revision),
+        );
         text = drained.text;
         if (drained.pending.length) {
           heldTokensByJobRef.current[jobId] = drained.pending;
@@ -732,6 +773,7 @@ export const useAsyncChat = (
       );
       const merged: AsyncJobStatus = {
         ...status,
+        responseRevision: Math.max(currentRevision, revision),
         ...(text !== undefined ? { partialResponse: text } : {}),
         ...(steps !== undefined ? { intermediateSteps: steps } : {}),
       };
@@ -1065,25 +1107,31 @@ export const useAsyncChat = (
   // Fill text that live delivery lost from a snapshot read while newer live
   // events arrived. Their status and tool state stay authoritative.
   const repairLiveText = useCallback(
-    (jobId: string, snapshotText?: string) => {
+    (jobId: string, snapshotText?: string, revision = 0) => {
       const live = jobStatusByJobIdRef.current[jobId];
       if (!live || typeof snapshotText !== 'string') return;
+      const currentRevision = live.responseRevision ?? 0;
+      if (revision < currentRevision) return;
       const currentText = live.partialResponse || '';
-      const base = isStaleCumulativeSnapshot(currentText, snapshotText)
-        ? currentText
-        : snapshotText;
+      const base =
+        revision === currentRevision &&
+        isStaleCumulativeSnapshot(currentText, snapshotText)
+          ? currentText
+          : snapshotText;
       const drained = drainOffsetDeltas(
         base,
         heldTokensByJobRef.current[jobId] ?? [],
+        revision,
       );
       if (drained.pending.length) {
         heldTokensByJobRef.current[jobId] = drained.pending;
       } else {
         delete heldTokensByJobRef.current[jobId];
       }
-      if (drained.text === currentText) return;
+      if (drained.text === currentText && revision === currentRevision) return;
       const status = updateLiveStatus(jobId, live.conversationId, {
         partialResponse: drained.text,
+        responseRevision: revision,
       });
       onProgress?.(status);
     },
@@ -1121,7 +1169,11 @@ export const useAsyncChat = (
           status.status !== 'error' &&
           jobStatusByJobIdRef.current[jobId] !== statusAtRequestStart
         ) {
-          repairLiveText(jobId, status.partialResponse);
+          repairLiveText(
+            jobId,
+            status.partialResponse,
+            status.responseRevision,
+          );
           return;
         }
         handleWsJobStatus(status);

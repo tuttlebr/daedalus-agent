@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => {
         mocks.response += delta;
       },
     ),
+    replaceStreamResponse: vi.fn(async (_jobId: string, text: string) => {
+      mocks.response = text;
+    }),
     appendStreamSteps: vi.fn(
       async (_jobId: string, steps: any[], offset: number) => {
         expect(offset).toBe(mocks.steps.length);
@@ -34,6 +37,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('@/server/chat/streamState', () => ({
   appendStreamResponseDelta: mocks.appendStreamResponseDelta,
   appendStreamSteps: mocks.appendStreamSteps,
+  replaceStreamResponse: mocks.replaceStreamResponse,
   clearStreamState: vi.fn(),
 }));
 vi.mock('@/server/chat/finalization', () => ({
@@ -176,6 +180,56 @@ describe('backend stream reader persistence', () => {
       expect.anything(),
       'Done',
       [],
+    );
+  });
+
+  it('persists and publishes authoritative replacements before later UTF-16 deltas', async () => {
+    const body = controlledBody();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => body.response),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    body.push(
+      'data: {"choices":[{"delta":{"content":"Provisional text"}}]}\n\n',
+    );
+    await settle();
+    body.push('event: response_snapshot\ndata: {"content":"雪🌲"}\n\n');
+    await settle();
+    expect(mocks.response).toBe('雪🌲');
+    body.push(
+      'event: message\ndata: {"choices":[{"delta":{"content":" corrected"}}]}\n\n' +
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    );
+    await reading;
+    expect(mocks.response).toBe('雪🌲 corrected');
+    expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      '雪🌲 corrected',
+      [],
+    );
+    const tokens = mocks.publish.mock.calls
+      .map(([, raw]) => JSON.parse(raw))
+      .filter((event) => event.type === 'chat_token');
+    expect(tokens).toContainEqual(
+      expect.objectContaining({
+        content: '雪🌲',
+        replace: true,
+        responseRevision: 1,
+      }),
+    );
+    expect(tokens).toContainEqual(
+      expect.objectContaining({
+        content: ' corrected',
+        responseStart: 3,
+        responseRevision: 1,
+      }),
     );
   });
 

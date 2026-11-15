@@ -5,6 +5,8 @@ export interface BufferedStreamingUpdate {
   responseStart?: number;
   /** Cumulative status responses replace earlier deltas in the same batch. */
   replace?: boolean;
+  /** The chat hook already reconciled revision and stale-snapshot ordering. */
+  authoritative?: boolean;
 }
 
 /**
@@ -32,6 +34,7 @@ export function isStaleCumulativeSnapshot(
 export interface OffsetDelta {
   content: string;
   responseStart: number;
+  responseRevision?: number;
 }
 
 /**
@@ -46,12 +49,18 @@ export interface OffsetDelta {
 export function drainOffsetDeltas<T extends OffsetDelta>(
   text: string,
   pending: T[],
+  revision = 0,
 ): { text: string; pending: T[] } {
   let result = text;
   const remaining: T[] = [];
   for (const delta of [...pending].sort(
     (left, right) => left.responseStart - right.responseStart,
   )) {
+    if ((delta.responseRevision ?? 0) < revision) continue;
+    if ((delta.responseRevision ?? 0) > revision) {
+      remaining.push(delta);
+      continue;
+    }
     if (delta.responseStart > result.length) {
       remaining.push(delta);
       continue;
@@ -71,7 +80,8 @@ export function reduceStreamingUpdates(
 ): string {
   return updates.reduce((content, update) => {
     if (update.replace) {
-      return isStaleCumulativeSnapshot(content, update.content)
+      return !update.authoritative &&
+        isStaleCumulativeSnapshot(content, update.content)
         ? content
         : update.content;
     }

@@ -10,10 +10,14 @@ use std::collections::HashMap;
 use rig_core::completion::CompletionRequest;
 use rig_core::error::{EncodeError, ProviderError};
 use rig_core::operation::Completion;
+use rig_core::providers::openai::responses_api::streaming::ResponsesEvent;
+use rig_core::providers::openai::wire::OpenAiEvent;
 use rig_core::providers::openai::wire::OpenAiWire;
 use rig_core::wire::{Decoder, Descriptor, Encoded, Flow, Mode, Out, Wire, WireEvent, WireFrame};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+pub mod responses;
 
 /// Opaque OpenAI-compatible `user` value for provider prompt-cache affinity.
 /// Conversation IDs are scoped by authenticated user. Requests without a
@@ -144,6 +148,7 @@ impl Wire for CompatibleOpenAi {
             inner: self.0.decoder(),
             metadata: RefCell::new(EnvelopeMetadata::default()),
             responses: matches!(self.0, OpenAiWire::Responses(_)),
+            accumulator: responses::Accumulator::default(),
         }
     }
 }
@@ -152,6 +157,7 @@ pub struct CompatibleDecoder<'id> {
     inner: <OpenAiWire as Wire>::Decoder<'id>,
     metadata: RefCell<EnvelopeMetadata>,
     responses: bool,
+    accumulator: responses::Accumulator,
 }
 
 impl<'id> Decoder<'id, Completion> for CompatibleDecoder<'id> {
@@ -191,8 +197,55 @@ impl<'id> Decoder<'id, Completion> for CompatibleDecoder<'id> {
     fn decode(
         &mut self,
         event: Self::Event,
-        out: Out<'id, Completion>,
+        mut out: Out<'id, Completion>,
     ) -> Result<Flow, ProviderError> {
+        let response_event = match &event {
+            OpenAiEvent::Responses(ResponsesEvent::Frame { raw, .. }) => {
+                Some(serde_json::from_str::<Value>(raw)?)
+            }
+            OpenAiEvent::Responses(ResponsesEvent::Whole(response)) => {
+                Some(json!({"type":"response.completed", "response":response}))
+            }
+            _ => None,
+        };
+        if let Some(value) = response_event
+            && value["type"] != "response.failed"
+        {
+            let (update, completed) = self.accumulator.apply(&value)?;
+            // Activity and visible text travel separately from the final
+            // typed turn. Never expose reasoning or incomplete arguments.
+            out.unknown(
+                update
+                    .unwrap_or_else(|| json!({"type":"daedalus.responses_activity"}))
+                    .into(),
+            );
+            if let Some(completed) = completed {
+                // Completed invalid arguments are a rejected response, not
+                // a corrupt SSE envelope eligible for decode recovery. Rig
+                // otherwise silently drops malformed whole-body calls.
+                if completed["output"].as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item["type"] == "function_call"
+                            && (item["call_id"].as_str().is_none_or(str::is_empty)
+                                || item["arguments"]
+                                    .as_str()
+                                    .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                                    .is_none_or(|args| !args.is_object()))
+                    })
+                }) {
+                    return Err(ProviderError::Response(
+                        "Invalid completed function call".into(),
+                    ));
+                }
+                return self.inner.decode(
+                    OpenAiEvent::Responses(ResponsesEvent::Whole(Box::new(
+                        serde_json::from_value(completed)?,
+                    ))),
+                    out,
+                );
+            }
+            return Ok(Flow::More);
+        }
         self.inner.decode(event, out)
     }
 
