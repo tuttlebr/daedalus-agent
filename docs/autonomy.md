@@ -10,7 +10,7 @@ service access should produce useful guidance for the owner.
 There is no briefing or action-history view. Diagnostic evidence, skipped-action
 lists, recommendations, continuity notes and full run records remain in backend
 storage for recovery. They are excluded from the dashboard response and DOM.
-The response contains the latest outcome per area, running actions, a bounded
+The response contains the latest outcome per area and per custom automation, running actions, a bounded
 sample of queued work with its total count, and up to 30 short pending ideas.
 Existing long notes are bounded for display; legacy blocked notes carry forward
 the first recommended step when available. Stored records remain unchanged.
@@ -70,8 +70,13 @@ its other operations. New tools become eligible through the service catalog
 without adding a domain-specific acceptance rule. Existing game-lighting rules
 and built-in responsibility settings retain their behavior.
 
-**Custom automations** lists saved tasks, schedules, pause/resume and removal
-controls, and each task's latest result. Global and area pauses remain effective
+**Custom automations** lists each saved task once with its schedule, last run
+time in Eastern time, and result (succeeded, failed, partly completed, blocked,
+or needs verification). Each task retains one short result while new work runs;
+retries do not replace the prior result's timestamp with their start time.
+Tasks without a result show that they have not run yet, and an empty list says
+no custom automations are saved. Pause/resume and removal controls apply to each
+task. Global and area pauses remain effective
 when saving. Review the preview before saving: model interpretation can be wrong,
 and validated schedule fields determine when the worker runs.
 

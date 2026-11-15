@@ -20,7 +20,19 @@ export function dashboardState(
   state: AutonomyState,
   now = Date.now(),
 ): AutonomyView {
-  const actions: Record<string, AutonomyAction> = {};
+  const actions: AutonomyView['actions'] = {};
+  // Retrying or cancelling an action changes updatedAt. Keep its last result
+  // tied to the completed attempt instead of presenting that change as a run.
+  const completedAt = new Map<string, number>();
+  for (const run of state.runs) {
+    if (run.outcome && run.completedAt !== null)
+      completedAt.set(
+        run.actionId,
+        Math.max(completedAt.get(run.actionId) ?? 0, run.completedAt),
+      );
+  }
+  const lastRunAt = (item: AutonomyAction) =>
+    completedAt.get(item.id) ?? item.updatedAt;
   const visible = Object.values(state.actions).filter((item) =>
     areas.includes(item.responsibility as (typeof areas)[number]),
   );
@@ -37,6 +49,9 @@ export function dashboardState(
       dueAt: item.dueAt,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      ...(item.kind === 'automation' && item.outcome
+        ? { lastRunAt: lastRunAt(item) }
+        : {}),
       attempts: item.attempts,
       cancelledByUser: item.cancelledByUser,
       payload:
@@ -63,7 +78,7 @@ export function dashboardState(
     ...new Set(
       visible
         .filter((item) => item.kind === 'automation' && item.outcome)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort((a, b) => lastRunAt(b) - lastRunAt(a))
         .map((item) => item.payload.ruleId),
     ),
   ].slice(0, 50);
@@ -75,13 +90,17 @@ export function dashboardState(
           item.payload.ruleId === id &&
           item.outcome,
       )
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      .sort((a, b) => lastRunAt(b) - lastRunAt(a))[0];
     if (latest) add(latest);
   }
   for (const area of areas) {
     const latest = visible
       .filter((item) => item.responsibility === area && item.outcome)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      .sort((a, b) =>
+        area === 'automations'
+          ? lastRunAt(b) - lastRunAt(a)
+          : b.updatedAt - a.updatedAt,
+      )[0];
     if (latest) add(latest);
     // Keep every running action stoppable, plus a bounded sample of queued work.
     running.filter((item) => item.responsibility === area).forEach(add);

@@ -2,11 +2,18 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import type { AutonomyConfig, AutonomyState } from '@/types/autonomy';
+import type {
+  AutomationRule,
+  AutonomyAction,
+  AutonomyConfig,
+  AutonomyState,
+  Outcome,
+} from '@/types/autonomy';
 
 import { AutonomyDashboard } from '@/components/autonomy/AutonomyDashboard';
 
 import { defaultConfig } from '@/server/autonomy/config';
+import { dashboardState } from '@/server/autonomy/presentation';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 let root: Root;
@@ -36,7 +43,8 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string) => ({
       ok: true,
-      json: async () => (url.endsWith('/config') ? config : state),
+      json: async () =>
+        url.endsWith('/config') ? config : dashboardState(state),
     })),
   );
 });
@@ -430,4 +438,150 @@ it('preserves the API reason when saving an automation is blocked', async () => 
     ),
   ).toBe(true);
   expect(field.value).toBe('Clean up completed pods hourly.');
+});
+
+function automation(id: string, title: string): AutomationRule {
+  return {
+    id,
+    title,
+    instructions: 'Carry out this saved task.',
+    allowedTools: ['private_tool_name'],
+    enabled: true,
+    intervalSeconds: 86400,
+    dailyTimes: ['02:00'],
+    catchUpMinutes: 15,
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  };
+}
+function automationAction(
+  id: string,
+  ruleId: string,
+  status: Outcome['status'],
+  updatedAt: number,
+): AutonomyAction {
+  return {
+    id,
+    kind: 'automation',
+    responsibility: 'automations',
+    status,
+    dueAt: updatedAt - 1000,
+    createdAt: updatedAt - 1000,
+    updatedAt,
+    attempts: 1,
+    payload: { ruleId },
+    outcome: {
+      status,
+      summary: `Result for ${id}.`,
+      evidence: [{ description: 'DIAGNOSTIC' }],
+    },
+  };
+}
+it('distinguishes an empty automation list from a saved task awaiting its first run', async () => {
+  await render();
+  act(() => button('Custom automations').click());
+  expect(container.textContent).toContain('No custom automations saved.');
+  expect(container.textContent).not.toContain('Awaiting first check');
+
+  config.responsibilities.automations.rules = [
+    automation('cleanup', 'Completed pod cleanup'),
+  ];
+  await act(async () => button('Refresh').click());
+  expect(container.textContent).not.toContain('No custom automations saved.');
+  expect(container.textContent).toContain('1 saved');
+  expect(container.textContent).toContain('Not run yet');
+  expect(container.textContent).not.toContain('Succeeded');
+});
+
+it('shows each saved automation once with its latest result and timestamp', async () => {
+  config.responsibilities.automations.rules = [
+    automation('cleanup', 'Completed pod cleanup'),
+    automation('weather', 'Morning forecast'),
+  ];
+  const lastRun = Date.parse('2026-11-15T07:05:00Z');
+  state.actions.old = automationAction(
+    'old',
+    'cleanup',
+    'failed',
+    lastRun - 86400000,
+  );
+  state.actions.latest = automationAction(
+    'latest',
+    'cleanup',
+    'completed',
+    lastRun,
+  );
+  state.actions.weather = automationAction(
+    'weather',
+    'weather',
+    'failed',
+    lastRun + 1000,
+  );
+  await render();
+  act(() => button('Custom automations').click());
+  const cleanup = container.querySelector(
+    '[role="group"][aria-label="Completed pod cleanup"]',
+  )!;
+  const weather = container.querySelector(
+    '[role="group"][aria-label="Morning forecast"]',
+  )!;
+  expect(cleanup.textContent).toContain('Succeeded');
+  expect(cleanup.textContent).toContain('Nov 15, 2:05 AM EST');
+  expect(cleanup.querySelector('time')?.dateTime).toBe(
+    '2026-11-15T07:05:00.000Z',
+  );
+  expect(cleanup.textContent).toContain('Result for latest.');
+  expect(cleanup.textContent).not.toContain('Result for old.');
+  expect(weather.textContent).toContain('Failed');
+  expect(weather.textContent).not.toContain('Result for latest.');
+  expect(container.querySelectorAll('h4')).toHaveLength(2);
+  expect(container.textContent).not.toMatch(
+    /DIAGNOSTIC|private_tool_name|Awaiting first check/,
+  );
+});
+
+it.each([
+  ['partial', 'Partly completed'],
+  ['deferred', 'Blocked'],
+  ['uncertain', 'Needs verification'],
+] as const)('reports %s without claiming success', async (status, label) => {
+  config.responsibilities.automations.rules = [
+    automation('cleanup', 'Pod cleanup'),
+  ];
+  state.actions.cleanup = automationAction(
+    'cleanup',
+    'cleanup',
+    status,
+    Date.now(),
+  );
+  await render();
+  act(() => button('Custom automations').click());
+  expect(container.textContent).toContain(label);
+  expect(container.textContent).not.toContain('Succeeded');
+});
+
+it('keeps the last result visible and identifies the automation currently running', async () => {
+  config.responsibilities.automations.rules = [
+    automation('cleanup', 'Pod cleanup'),
+  ];
+  const lastRun = Date.parse('2026-11-15T07:05:00Z');
+  state.actions.cleanup = automationAction(
+    'cleanup',
+    'cleanup',
+    'completed',
+    lastRun,
+  );
+  state.actions.running = {
+    ...automationAction('running', 'cleanup', 'completed', lastRun + 86400000),
+    status: 'running',
+    outcome: null,
+  };
+  await render();
+  act(() => button('Custom automationsworking').click());
+  expect(container.textContent).toContain('Pod cleanup: Check in progress');
+  expect(container.textContent).toContain('Succeeded');
+  expect(container.querySelector('time')?.dateTime).toBe(
+    '2026-11-15T07:05:00.000Z',
+  );
+  expect(button('Stop action').disabled).toBe(false);
 });

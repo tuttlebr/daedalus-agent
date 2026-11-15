@@ -38,6 +38,11 @@ const statusLabels: Record<string, string> = {
   deferred: 'Blocked',
   uncertain: 'Needs verification',
 };
+const automationStatusLabels: Record<string, string> = {
+  ...statusLabels,
+  completed: 'Succeeded',
+  failed: 'Failed',
+};
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
@@ -74,6 +79,47 @@ function Spinner() {
       aria-hidden="true"
       className="shrink-0 motion-safe:animate-spin"
     />
+  );
+}
+function AutomationResult({
+  actions,
+}: {
+  actions: AutonomyView['actions'][string][];
+}) {
+  const latest = actions
+    .filter((item) => item.outcome)
+    .sort(
+      (a, b) => (b.lastRunAt ?? b.updatedAt) - (a.lastRunAt ?? a.updatedAt),
+    )[0];
+  const lastRunAt = latest?.lastRunAt ?? latest?.updatedAt;
+  return (
+    <div className="space-y-2 rounded-lg bg-control p-3">
+      <dl className="flex flex-wrap gap-x-6 gap-y-2">
+        <div>
+          <dt className="text-xs text-dark-text-secondary">Last run</dt>
+          <dd>
+            {lastRunAt !== undefined ? (
+              <time dateTime={new Date(lastRunAt).toISOString()}>
+                {timestamp(lastRunAt)}
+              </time>
+            ) : actions.some((item) => item.status === 'running') ? (
+              'First run in progress'
+            ) : (
+              'Not run yet'
+            )}
+          </dd>
+        </div>
+        {latest?.outcome && (
+          <div>
+            <dt className="text-xs text-dark-text-secondary">Result</dt>
+            <dd className="font-medium">
+              {automationStatusLabels[latest.outcome.status]}
+            </dd>
+          </div>
+        )}
+      </dl>
+      {latest?.outcome && <p>{outcomeNote(latest.outcome)}</p>}
+    </div>
   );
 }
 export function AutonomyDashboard() {
@@ -359,9 +405,11 @@ export function AutonomyDashboard() {
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="flex items-center gap-2 text-xs text-dark-text-secondary">
-                            {active.some(
-                              (item) => item.status === 'running',
-                            ) ? (
+                            {name === 'automations' ? (
+                              `${config.responsibilities.automations.rules.length} saved`
+                            ) : active.some(
+                                (item) => item.status === 'running',
+                              ) ? (
                               <>
                                 <Spinner />
                                 Working
@@ -377,16 +425,27 @@ export function AutonomyDashboard() {
                             )}
                           </span>
                         </div>
+                        {name === 'automations' &&
+                          !config.responsibilities.automations.rules.length && (
+                            <p className="text-sm text-dark-text-secondary">
+                              No custom automations saved. Use Add automation to
+                              create one.
+                            </p>
+                          )}
                         {(name === 'lighting' || name === 'automations') &&
                           config.responsibilities[name].rules.map((rule) => (
                             <div
                               key={rule.id}
+                              role="group"
+                              aria-label={rule.title}
                               className="space-y-2 rounded-xl border border-separator p-3 text-sm"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <h4 className="font-medium">{rule.title}</h4>
-                                <span>
-                                  {rule.enabled ? 'Enabled' : 'Paused'}
+                                <span className="shrink-0 text-dark-text-secondary">
+                                  {enabled && rule.enabled
+                                    ? 'Enabled'
+                                    : 'Paused'}
                                 </span>
                               </div>
                               <p>
@@ -408,23 +467,13 @@ export function AutonomyDashboard() {
                                           rule.intervalSeconds / 60
                                         } minutes`}
                                   </p>
-                                  {actions.find(
-                                    (item) =>
-                                      item.kind === 'automation' &&
-                                      item.payload.ruleId === rule.id &&
-                                      item.outcome,
-                                  )?.outcome && (
-                                    <p>
-                                      {outcomeNote(
-                                        actions.find(
-                                          (item) =>
-                                            item.kind === 'automation' &&
-                                            item.payload.ruleId === rule.id &&
-                                            item.outcome,
-                                        )!.outcome!,
-                                      )}
-                                    </p>
-                                  )}
+                                  <AutomationResult
+                                    actions={actions.filter(
+                                      (item) =>
+                                        item.kind === 'automation' &&
+                                        item.payload.ruleId === rule.id,
+                                    )}
+                                  />
                                 </>
                               )}
                               <div className="flex flex-wrap gap-2">
@@ -501,6 +550,15 @@ export function AutonomyDashboard() {
                             className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-control px-3 py-2 text-sm"
                           >
                             <span>
+                              {name === 'automations' && (
+                                <span className="font-medium">
+                                  {config.responsibilities.automations.rules.find(
+                                    (rule) => rule.id === item.payload.ruleId,
+                                  )?.title ||
+                                    String(item.payload.title || 'Automation')}
+                                  {': '}
+                                </span>
+                              )}
                               {item.cancelledByUser
                                 ? 'Stopping…'
                                 : item.status === 'running'

@@ -154,7 +154,7 @@ export interface AutonomyState {
 
 export interface AutonomyView {
   version: 2;
-  actions: Record<string, AutonomyAction>;
+  actions: Record<string, AutonomyAction & { lastRunAt?: number }>;
   proposals: Record<
     string,
     Pick<Proposal, 'id' | 'title' | 'benefit' | 'status' | 'updatedAt'>

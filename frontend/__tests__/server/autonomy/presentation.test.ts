@@ -110,3 +110,74 @@ it('bounds legacy notes and ideas without exposing their long detail fields', ()
   expect(view.proposals.p.benefit.length).toBeLessThanOrEqual(240);
   expect(JSON.stringify(view)).not.toContain('DIAGNOSTIC');
 });
+
+it('keeps one latest result per automation, even when an older action was updated later', () => {
+  const state = emptyState();
+  for (const [id, ruleId, time] of [
+    ['old-cleanup', 'cleanup', 30],
+    ['cleanup', 'cleanup', 20],
+    ['weather', 'weather', 15],
+  ] as const) {
+    state.actions[id] = {
+      ...action(id, time),
+      kind: 'automation',
+      responsibility: 'automations',
+      payload: { ruleId, title: ruleId, instructions: 'DIAGNOSTIC' },
+    };
+  }
+  state.runs = [
+    {
+      id: 'first-attempt',
+      actionId: 'old-cleanup',
+      kind: 'automation',
+      responsibility: 'automations',
+      status: 'completed',
+      startedAt: 5,
+      completedAt: 10,
+      outcome: state.actions['old-cleanup'].outcome,
+    },
+  ];
+  const view = dashboardState(state);
+  expect(Object.keys(view.actions).sort()).toEqual(['cleanup', 'weather']);
+  expect(view.actions.cleanup.lastRunAt).toBe(20);
+  expect(view.actions.weather.payload.ruleId).toBe('weather');
+  expect(JSON.stringify(view)).not.toContain('DIAGNOSTIC');
+  expect(view).not.toHaveProperty('runs');
+});
+
+it('preserves the result time while an automation retries', () => {
+  const state = emptyState();
+  state.actions.retry = {
+    ...action('retry', 30, 'running'),
+    kind: 'automation',
+    responsibility: 'automations',
+    payload: { ruleId: 'cleanup' },
+  };
+  state.runs = [
+    {
+      id: 'retry',
+      actionId: 'retry',
+      kind: 'automation',
+      responsibility: 'automations',
+      status: 'running',
+      startedAt: 30,
+      completedAt: null,
+      outcome: null,
+    },
+    {
+      id: 'first',
+      actionId: 'retry',
+      kind: 'automation',
+      responsibility: 'automations',
+      status: 'deferred',
+      startedAt: 5,
+      completedAt: 10,
+      outcome: state.actions.retry.outcome,
+    },
+  ];
+  const view = dashboardState(state);
+  expect(Object.keys(view.actions)).toEqual(['retry']);
+  expect(view.actions.retry.lastRunAt).toBe(10);
+  expect(view.actions.retry.status).toBe('running');
+  expect(view.actions.retry.outcome?.status).toBe('deferred');
+});

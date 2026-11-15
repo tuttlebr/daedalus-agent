@@ -963,3 +963,85 @@ test('Autonomy shows the owner handoff without briefing or audit dumps', async (
   await assertFits(page);
   await page.screenshot({ path: testInfo.outputPath('autonomy-handoff.png') });
 });
+
+test('Custom automations show individual last runs and results', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  const config = defaultConfig();
+  config.responsibilities.automations.rules = [
+    ['cleanup', 'Completed pod cleanup'],
+    ['weather', 'Morning forecast'],
+  ].map(([id, title]) => ({
+    id,
+    title,
+    instructions:
+      id === 'cleanup'
+        ? 'Remove Completed pods across all namespaces.'
+        : 'Check the morning forecast.',
+    allowedTools: ['private_tool_name'],
+    enabled: true,
+    intervalSeconds: 86400,
+    dailyTimes: ['02:00'],
+    catchUpMinutes: 15,
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  }));
+  await page.route('**/api/autonomy/config', (route) =>
+    route.fulfill({ json: config }),
+  );
+  const lastRunAt = Date.parse('2026-11-15T07:05:00Z');
+  await page.route('**/api/autonomy/state', (route) =>
+    route.fulfill({
+      json: {
+        version: 2,
+        actions: Object.fromEntries(
+          ['cleanup', 'weather'].map((ruleId) => [
+            ruleId,
+            {
+              id: ruleId,
+              kind: 'automation',
+              responsibility: 'automations',
+              status: ruleId === 'cleanup' ? 'completed' : 'failed',
+              dueAt: lastRunAt - 1000,
+              createdAt: lastRunAt - 1000,
+              updatedAt: lastRunAt,
+              lastRunAt,
+              attempts: 1,
+              payload: { ruleId },
+              outcome: {
+                status: ruleId === 'cleanup' ? 'completed' : 'failed',
+                summary:
+                  ruleId === 'cleanup'
+                    ? 'Removed 12 completed pods.'
+                    : 'The weather service is unavailable.',
+              },
+            },
+          ]),
+        ),
+        proposals: {},
+        runningCount: 0,
+        queuedCount: 0,
+      },
+    }),
+  );
+  await navigate(page, 'Autonomy');
+  await page.getByRole('button', { name: 'Custom automations' }).click();
+  const cleanup = page.getByRole('group', { name: 'Completed pod cleanup' });
+  await expect(cleanup.getByRole('heading')).toHaveCount(1);
+  await expect(cleanup.getByText('Succeeded', { exact: true })).toBeVisible();
+  await expect(cleanup.locator('time')).toHaveText('Nov 15, 2:05 AM EST');
+  await expect(cleanup.getByText('Removed 12 completed pods.')).toBeVisible();
+  await expect(
+    page
+      .getByRole('group', { name: 'Morning forecast' })
+      .getByText('Failed', { exact: true }),
+  ).toBeVisible();
+  expect(await page.locator('body').textContent()).not.toMatch(
+    /Awaiting first check|private_tool_name/,
+  );
+  await assertFits(page);
+  await page.screenshot({
+    path: testInfo.outputPath('custom-automation-results.png'),
+  });
+});
