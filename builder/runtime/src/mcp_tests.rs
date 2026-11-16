@@ -18,6 +18,9 @@ use std::{
 struct Peer {
     requests: Mutex<Vec<(Value, String)>>,
     mode: Mutex<String>,
+    /// Tool calls being served now, and the most that were served at once.
+    in_flight: std::sync::atomic::AtomicUsize,
+    peak: std::sync::atomic::AtomicUsize,
 }
 async fn rpc(
     State(peer): State<Arc<Peer>>,
@@ -42,6 +45,17 @@ async fn rpc(
     }
     if method == "tools/call" && mode == "wait" {
         tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+    if method == "initialize" && mode.ends_with("one_session") && count(&peer, "initialize") > 1 {
+        // A server that admits a single session per client.
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if method == "tools/call" && mode.starts_with("slow") {
+        use std::sync::atomic::Ordering::SeqCst;
+        let now = peer.in_flight.fetch_add(1, SeqCst) + 1;
+        peer.peak.fetch_max(now, SeqCst);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        peer.in_flight.fetch_sub(1, SeqCst);
     }
     if method == "tools/call" && mode.starts_with("rpc_error") {
         let body = json!({"jsonrpc":"2.0","id":request["id"],"error":{
@@ -422,6 +436,10 @@ fn mcp_invalid_configuration_is_rejected_before_connecting() {
         ("/function_groups/fixture/server/transport", json!("stdio")),
         ("/function_groups/fixture/tool_call_timeout", json!(0)),
         ("/function_groups/fixture/tool_call_timeout", json!(1801)),
+        ("/function_groups/fixture/max_concurrency", json!(0)),
+        ("/function_groups/fixture/max_concurrency", json!(9)),
+        ("/function_groups/fixture/max_concurrency", json!(1.5)),
+        ("/function_groups/fixture/max_concurrency", json!("2")),
         (
             "/function_groups/fixture/server/custom_headers",
             json!({"x-test":"bad\r\nheader"}),
@@ -542,6 +560,122 @@ async fn catalogue_does_not_wait_behind_another_runs_tool_call() {
     );
     slow.abort();
     let _ = slow.await;
+    manager.close();
+    server.abort();
+}
+
+/// `inspect` is read-only by policy; `mutate` is merely auto-approved.
+fn overlap_config(url: &str, bound: Option<u64>) -> Config {
+    let mut raw = json!({"llms":{"main":{"model_name":"fixture","base_url":"http://127.0.0.1/v1"}},
+        "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["fixture"]},
+        "function_groups":{"fixture":{"_type":"mcp_client","server":{"url":url},
+            "exclude":["hidden"],"approval_policy":"auto_approve",
+            "tool_overrides":{"inspect":{"approval_policy":"read_only"}}}}});
+    if let Some(bound) = bound {
+        raw["function_groups"]["fixture"]["max_concurrency"] = json!(bound);
+    }
+    Config::new(raw, HashMap::new()).unwrap()
+}
+
+/// Issues the calls together for one user and returns their outcomes in order.
+async fn together(manager: &Arc<Mcp>, calls: &[(&str, u64)]) -> Vec<crate::agent::ToolOutcome> {
+    let tasks: Vec<_> = calls
+        .iter()
+        .map(|(tool, value)| {
+            let (manager, tool, value) = (manager.clone(), tool.to_string(), *value);
+            tokio::spawn(async move {
+                let (emit, _events) = emit();
+                manager
+                    .call(&tool, &json!({"value":value}), "alice", "", &emit, false)
+                    .await
+            })
+        })
+        .collect();
+    let mut outcomes = Vec::new();
+    for task in tasks {
+        outcomes.push(task.await.unwrap());
+    }
+    outcomes
+}
+
+fn peak(peer: &Peer) -> usize {
+    peer.peak.swap(0, std::sync::atomic::Ordering::SeqCst)
+}
+
+#[tokio::test]
+async fn only_read_only_tools_overlap_and_only_up_to_the_group_bound() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    assert_eq!(manager.concurrency("fixture__inspect"), 3);
+    // Auto-approved, connecting and unknown tools never overlap.
+    for name in [
+        "fixture__mutate",
+        "fixture__connect",
+        "fixture__hidden",
+        "other__inspect",
+        "inspect",
+    ] {
+        assert_eq!(manager.concurrency(name), 1, "{name}");
+    }
+    // Without the opt-in a read-only tool keeps one session.
+    let serial = Mcp::new(&overlap_config(&url, None)).unwrap();
+    assert_eq!(serial.concurrency("fixture__inspect"), 1);
+
+    *peer.mode.lock().unwrap() = "slow".into();
+    let reads = [
+        ("fixture__inspect", 11),
+        ("fixture__inspect", 22),
+        ("fixture__inspect", 33),
+        ("fixture__inspect", 44),
+    ];
+    let outcomes = together(&manager, &reads).await;
+    for (outcome, (_, value)) in outcomes.iter().zip(reads) {
+        assert!(!outcome.is_error, "{}", outcome.content);
+        // Each session keeps its own raw result: no call sees a sibling's.
+        assert!(
+            outcome.content.contains(&format!("\"value\":{value}")),
+            "{}",
+            outcome.content
+        );
+    }
+    assert_eq!(peak(&peer), 3, "four reads share the three sessions");
+    assert_eq!(count(&peer, "initialize"), 3);
+    assert_eq!(manager.capabilities()["available"], json!(["fixture"]));
+
+    // Operations outside the read-only policy still run one at a time.
+    let writes = [("fixture__mutate", 1), ("fixture__mutate", 2)];
+    let outcomes = together(&manager, &writes).await;
+    assert!(outcomes.iter().all(|outcome| !outcome.is_error));
+    assert_eq!(peak(&peer), 1);
+
+    // The same reads without the opt-in use the one session in turn.
+    let outcomes = together(&serial, &reads[..2]).await;
+    assert!(outcomes.iter().all(|outcome| !outcome.is_error));
+    assert_eq!(peak(&peer), 1);
+    manager.close();
+    serial.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_refused_further_session_waits_for_the_first_instead_of_failing() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    *peer.mode.lock().unwrap() = "slow_one_session".into();
+    let reads = [("fixture__inspect", 5), ("fixture__inspect", 6)];
+    let outcomes = together(&manager, &reads).await;
+    for (outcome, (_, value)) in outcomes.iter().zip(reads) {
+        assert!(!outcome.is_error, "{}", outcome.content);
+        assert!(outcome.content.contains(&format!("\"value\":{value}")));
+    }
+    assert_eq!(peak(&peer), 1, "the server admitted one session");
+    assert!(
+        count(&peer, "initialize") >= 2,
+        "a second session was tried"
+    );
+    assert_eq!(count(&peer, "tools/call"), 2, "neither call was replayed");
     manager.close();
     server.abort();
 }

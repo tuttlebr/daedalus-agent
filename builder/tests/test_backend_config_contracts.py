@@ -823,6 +823,16 @@ def test_deployed_tool_surface_is_optimized():
         assert _effective_operation_count(config, static_tools) <= 135, path
 
 
+def test_every_mcp_service_states_the_shipped_read_overlap_bound():
+    # Deployment choice: one run may overlap up to eight read_only calls per
+    # MCP service. A new group states its bound instead of silently using 1.
+    groups = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))["function_groups"]
+    assert groups
+    assert {name: group.get("max_concurrency") for name, group in groups.items()} == {
+        name: 8 for name in groups
+    }
+
+
 def test_workflow_uses_responses_api_agent_schema():
     removed_agent_names = [
         "research_agent",

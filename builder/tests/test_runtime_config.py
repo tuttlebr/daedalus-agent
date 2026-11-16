@@ -131,6 +131,21 @@ def test_initial_tools_cannot_expand_allowlist_or_ignore_discovery_mode(
         validate_config(runtime_config, ToolRegistry(runtime_config))
 
 
+@pytest.mark.parametrize("bound", [0, 9, 1.5, "2", True, None])
+def test_group_read_concurrency_bound_must_be_a_small_integer(runtime_config, bound):
+    runtime_config["function_groups"] = {"lights": {"max_concurrency": bound}}
+    with pytest.raises(
+        ConfigValidationError, match="function_groups.lights.max_concurrency"
+    ):
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+
+
+@pytest.mark.parametrize("bound", [1, 4, 8])
+def test_group_read_concurrency_bound_accepts_its_range(runtime_config, bound):
+    runtime_config["function_groups"] = {"lights": {"max_concurrency": bound}}
+    validate_config(runtime_config, ToolRegistry(runtime_config))
+
+
 def test_retired_tool_type_names_the_function_to_remove(runtime_config):
     runtime_config["functions"] = {"memory_guard": {"_type": "user_interaction"}}
     runtime_config["workflow"]["tools"] = ["memory_guard"]

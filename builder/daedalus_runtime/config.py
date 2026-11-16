@@ -168,6 +168,14 @@ def validate_config(config: dict, registry) -> None:
             raise ConfigValidationError(
                 f"function_groups.{name}.initial_tools references an unavailable tool"
             )
+        # The Rust runtime overlaps this group's read-only calls up to this
+        # bound. Reject here what it rejects, so both startups agree.
+        if "max_concurrency" in group:
+            bound = group["max_concurrency"]
+            if type(bound) is not int or not 1 <= bound <= 8:
+                raise ConfigValidationError(
+                    f"function_groups.{name}.max_concurrency must be an integer from 1 to 8"
+                )
     for field in ("tools", "daily_summary_tools", "daily_summary_final_tools"):
         names = workflow.get(field, [])
         if not isinstance(names, list) or any(

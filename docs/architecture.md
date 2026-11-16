@@ -366,7 +366,11 @@ Python entirely. The autonomous worker remains Python and calls the same Rust
 chat endpoint; a complete Python rewrite is not a release requirement.
 
 When `parallel_tool_calls` is enabled, the runtime admits up to eight tool calls
-at once. Stateful calls sharing a native tool type or MCP group remain serial.
+at once. Stateful calls sharing a native tool type or MCP group remain serial,
+in the order the model proposed them. An MCP group can opt in to overlapping
+its policy-marked read-only calls with `max_concurrency`; its other operations
+still run alone and in order. See
+[tool concurrency](operations.md#timeouts-and-tool-concurrency).
 The shipped workflow allows four independent scrapes and two source-verifier
 calls. Each Python tool instance applies its own semaphore across runs, covering
 robots checks and article retrieval for scrapes. These stateless results never

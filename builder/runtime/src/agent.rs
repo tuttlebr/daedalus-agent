@@ -104,6 +104,59 @@ pub struct ToolOutcome {
     pub executor_state: Value,
 }
 
+/// Decides which queued tool call of one model response may start next.
+///
+/// Each call has an execution group and that call's own limit for the group.
+/// A group keeps its calls in proposed order. A call starts when the group
+/// has room under its own limit and under the limit of the calls already
+/// running there. An exclusive call (limit 1) therefore never overlaps a
+/// sibling, and a later call never starts ahead of an earlier one that is
+/// still waiting. Groups do not wait for each other.
+#[derive(Default)]
+struct Admission {
+    /// Calls running in each group, and the lowest limit among them.
+    active: HashMap<String, (usize, usize)>,
+}
+
+impl Admission {
+    /// Index of the first queued call that may start. `bypass` marks a call
+    /// that will be answered without executing, so it never has to wait.
+    fn next<'a>(&self, queued: impl Iterator<Item = (&'a str, usize, bool)>) -> Option<usize> {
+        let mut waiting = std::collections::HashSet::new();
+        for (index, (group, limit, bypass)) in queued.enumerate() {
+            if bypass {
+                return Some(index);
+            }
+            if waiting.contains(group) {
+                continue;
+            }
+            let (running, lowest) = self.active.get(group).copied().unwrap_or((0, usize::MAX));
+            if running < limit.min(lowest) {
+                return Some(index);
+            }
+            waiting.insert(group);
+        }
+        None
+    }
+
+    fn start(&mut self, group: &str, limit: usize) {
+        let entry = self
+            .active
+            .entry(group.to_owned())
+            .or_insert((0, usize::MAX));
+        entry.0 += 1;
+        entry.1 = entry.1.min(limit);
+    }
+
+    fn finish(&mut self, group: &str) {
+        let entry = self.active.get_mut(group).expect("active group exists");
+        entry.0 -= 1;
+        if entry.0 == 0 {
+            self.active.remove(group);
+        }
+    }
+}
+
 pub struct Agent {
     pub http: reqwest::Client,
     pub tools_url: String,
@@ -958,7 +1011,7 @@ impl Agent {
             }
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
-            let mut active_groups = HashMap::<String, usize>::new();
+            let mut admission = Admission::default();
             let concurrency = if prepared.parallel_tool_calls { 8 } else { 1 };
             let mut terminal = None;
             // Where the approval boundary's own result sits in the transcript,
@@ -970,15 +1023,22 @@ impl Agent {
                     let redirected = self.revision != batch_revision
                         || !self.pending.is_empty()
                         || terminal.is_some();
-                    let position = queued.iter().position(|call| {
-                        redirected
-                            || guard_disabled.contains(call.function.name.as_str())
-                            || active_groups
-                                .get(&self.execution_group(&call.function.name))
-                                .copied()
-                                .unwrap_or(0)
-                                < self.execution_concurrency(&call.function.name)
-                    });
+                    let candidates: Vec<_> = queued
+                        .iter()
+                        .map(|call| {
+                            let name = call.function.name.as_str();
+                            (
+                                self.execution_group(name),
+                                self.execution_concurrency(name),
+                                redirected || guard_disabled.contains(name),
+                            )
+                        })
+                        .collect();
+                    let position = admission.next(
+                        candidates
+                            .iter()
+                            .map(|(group, limit, bypass)| (group.as_str(), *limit, *bypass)),
+                    );
                     let Some(position) = position else {
                         break;
                     };
@@ -1092,7 +1152,7 @@ impl Agent {
                         .fetch_add(1, Ordering::Relaxed)
                         + 1;
                     let group = self.execution_group(&name);
-                    *active_groups.entry(group.clone()).or_default() += 1;
+                    admission.start(&group, self.execution_concurrency(&name));
                     self.events
                         .tool(&id, &name, false, call.function.arguments.clone())
                         .await?;
@@ -1245,7 +1305,7 @@ impl Agent {
                         }
                     }
                 }
-                *active_groups.get_mut(&group).expect("active group exists") -= 1;
+                admission.finish(&group);
                 // An approval marker terminates the frontend stream. Defer it until
                 // every already-started call has returned its result.
                 let visible =
@@ -1390,9 +1450,14 @@ impl Agent {
     }
 
     fn execution_concurrency(&self, name: &str) -> usize {
-        self.preparation
-            .as_ref()
-            .map_or(1, |preparation| preparation.config.tool_concurrency(name))
+        self.preparation.as_ref().map_or(1, |preparation| {
+            match &preparation.mcp {
+                // Only the native MCP client holds a session per overlapping
+                // read; the retained Python client stays serial.
+                Some(mcp) if mcp.owns(name) => mcp.concurrency(name),
+                _ => preparation.config.tool_concurrency(name),
+            }
+        })
     }
 
     async fn tool_response(
@@ -1780,6 +1845,77 @@ mod tests {
     use super::*;
     use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
     use std::sync::{Arc, Mutex as StdMutex};
+
+    /// Runs one batch of (group, limit) calls through the admission rule and
+    /// returns the indices that started before each completion, in order.
+    fn admit(batch: &[(&str, usize)]) -> Vec<Vec<usize>> {
+        let mut admission = Admission::default();
+        let mut queued: VecDeque<usize> = (0..batch.len()).collect();
+        let mut running = VecDeque::new();
+        let mut waves = Vec::new();
+        while !queued.is_empty() || !running.is_empty() {
+            let mut wave = Vec::new();
+            while let Some(position) = admission.next(
+                queued
+                    .iter()
+                    .map(|&index| (batch[index].0, batch[index].1, false)),
+            ) {
+                let index = queued.remove(position).unwrap();
+                admission.start(batch[index].0, batch[index].1);
+                running.push_back(index);
+                wave.push(index);
+            }
+            waves.push(wave);
+            let finished = running.pop_front().expect("a call is running");
+            admission.finish(batch[finished].0);
+        }
+        waves.retain(|wave| !wave.is_empty());
+        waves
+    }
+
+    #[test]
+    fn admission_keeps_groups_ordered_and_exclusive_calls_alone() {
+        // Uniform limits behave as before: one at a time per group, and
+        // groups never wait for each other.
+        assert_eq!(
+            admit(&[("a", 1), ("a", 1), ("b", 1)]),
+            [vec![0, 2], vec![1]]
+        );
+        assert_eq!(
+            admit(&[("s", 2), ("s", 2), ("s", 2)]),
+            [vec![0, 1], vec![2]]
+        );
+        // Reads overlap up to their limit; the write waits for every earlier
+        // read, runs alone, and no later read starts ahead of it.
+        assert_eq!(
+            admit(&[("m", 4), ("m", 4), ("m", 1), ("m", 4), ("m", 4)]),
+            [vec![0, 1], vec![2], vec![3, 4]]
+        );
+        // A read never joins a running exclusive call of its group.
+        assert_eq!(
+            admit(&[("m", 1), ("m", 4), ("m", 4)]),
+            [vec![0], vec![1, 2]]
+        );
+        // The limit bounds overlap, and another group is unaffected.
+        assert_eq!(
+            admit(&[("m", 2), ("m", 2), ("m", 2), ("n", 1)]),
+            [vec![0, 1, 3], vec![2]]
+        );
+    }
+
+    #[test]
+    fn admission_answers_unexecuted_calls_without_waiting() {
+        let mut admission = Admission::default();
+        admission.start("m", 1);
+        // A redirected or disabled call is answered, not executed.
+        assert_eq!(
+            admission.next([("m", 1, false), ("m", 1, true)].into_iter()),
+            Some(1)
+        );
+        assert_eq!(admission.next([("m", 4, false)].into_iter()), None);
+        admission.finish("m");
+        assert_eq!(admission.next([("m", 4, false)].into_iter()), Some(0));
+    }
 
     #[derive(Default)]
     struct Model {

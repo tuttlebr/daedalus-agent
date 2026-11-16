@@ -112,6 +112,11 @@ pub fn validate(config: &Config) -> Result<()> {
             if timeout <= 0. || timeout > 1800. {
                 bail!("Invalid MCP tool timeout");
             }
+            if let Some(value) = group.get("max_concurrency")
+                && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))
+            {
+                bail!("Invalid MCP group max_concurrency: expected an integer from 1 to 8");
+            }
             let auth =
                 &config.raw["authentication"][server["auth_provider"].as_str().unwrap_or("")];
             if !auth.is_null() && auth.as_object().is_none_or(|a| !a.is_empty()) {
@@ -172,6 +177,58 @@ impl Mcp {
     fn key(name: &str, user: &str) -> String {
         serde_json::to_string(&(name, user)).unwrap()
     }
+    /// Overlapping reads use further sessions of the same user and group. The
+    /// first session keeps the plain key that discovery and readiness use.
+    fn session_key(name: &str, user: &str, session: usize) -> String {
+        if session == 0 {
+            Self::key(name, user)
+        } else {
+            serde_json::to_string(&(name, user, session)).unwrap()
+        }
+    }
+    /// Sessions one user may hold with this group: its opt-in bound, else one.
+    fn sessions(&self, name: &str) -> usize {
+        self.config.raw["function_groups"][name]["max_concurrency"]
+            .as_u64()
+            .map_or(1, |bound| bound.clamp(1, 8) as usize)
+    }
+    /// How many calls of this tool may be in flight at once for one user.
+    /// Only a tool the deployed policy marks exactly `read_only` may overlap,
+    /// up to the bound its group opts into. Connecting and every other
+    /// operation stay exclusive, so changes keep their order.
+    pub fn concurrency(&self, full_name: &str) -> usize {
+        match full_name.split_once("__") {
+            Some((name, tool))
+                if tool != "connect" && self.approvals.policies.read_only(name, tool) =>
+            {
+                self.sessions(name)
+            }
+            _ => 1,
+        }
+    }
+    /// One call at a time owns a session. A call allowed to overlap takes the
+    /// first free session of its group, otherwise whichever frees first.
+    /// Returns whether it waited behind another call.
+    async fn session(
+        &self,
+        name: &str,
+        user: &str,
+        sessions: usize,
+    ) -> (String, tokio::sync::OwnedMutexGuard<()>, bool) {
+        let keys: Vec<String> = (0..sessions.max(1))
+            .map(|session| Self::session_key(name, user, session))
+            .collect();
+        for key in &keys {
+            if let Ok(guard) = self.locks.get(key).try_lock_owned() {
+                return (key.clone(), guard, false);
+            }
+        }
+        let waits = keys
+            .iter()
+            .map(|key| Box::pin(self.locks.get(key).lock_owned()));
+        let (guard, index, _) = futures::future::select_all(waits).await;
+        (keys[index].clone(), guard, true)
+    }
     fn auth(&self, name: &str) -> &Value {
         &self.config.raw["authentication"]
             [self.config.raw["function_groups"][name]["server"]["auth_provider"]
@@ -226,10 +283,10 @@ impl Mcp {
     async fn connection(
         &self,
         name: &str,
-        user: &str,
+        key: &str,
         headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<Arc<Connection>> {
-        let key = Self::key(name, user);
+        let key = key.to_owned();
         let mut ordered: Vec<_> = headers
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_bytes()))
@@ -360,7 +417,7 @@ impl Mcp {
         let Some(headers) = self.headers(name, user, None).await? else {
             bail!("Authorization required");
         };
-        let connection = self.connection(name, user, headers).await?;
+        let connection = self.connection(name, &key, headers).await?;
         self.schemas(name, &connection)
     }
     fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
@@ -516,33 +573,46 @@ impl Mcp {
             .split_once("__")
             .filter(|(name, _)| self.groups.iter().any(|g| g == name))
             .ok_or_else(|| anyhow!(FailureClass::Value))?;
-        let key = Self::key(name, user);
-        let lock = self.locks.get(&key);
         // Background work reuses/refreshes the existing user's grant but must
         // never create a consent flow that nobody is present to complete.
         // Interactive consent also stays outside the session lock.
         let headers = self
             .headers(name, user, if background { None } else { Some(emit) })
             .await?;
-        let Some(headers) = headers else {
+        let Some(mut headers) = headers else {
             return Ok(ToolOutcome {
                 content: "The user's saved authorization is unavailable. No call was executed. Record this source as unavailable and ask the user to reconnect it in the daily summary.".into(),
                 is_error: true,
                 ..Default::default()
             });
         };
-        let (_lock, headers) = match lock.try_lock() {
-            Ok(guard) => (guard, headers),
-            Err(_) => {
-                let guard = lock.lock().await;
-                // Another call held the session; its wait may have outlived
-                // this token. Read the current one without prompting again.
-                let headers = self
+        let (mut key, mut _session, waited) =
+            self.session(name, user, self.concurrency(full_name)).await;
+        if waited {
+            // Another call held the session; its wait may have outlived
+            // this token. Read the current one without prompting again.
+            headers = self
+                .headers(name, user, None)
+                .await?
+                .ok_or_else(|| anyhow!("Authorization required"))?;
+        }
+        let connection = match self.connection(name, &key, headers.clone()).await {
+            Ok(connection) => connection,
+            Err(_) if key != Self::key(name, user) => {
+                // A further session could not be opened. Nothing was sent, so
+                // the call waits for the user's first session instead: a
+                // server that limits sessions costs latency, not the result.
+                tracing::info!(event = "mcp_session_unavailable", service = name);
+                drop(_session);
+                key = Self::key(name, user);
+                _session = self.locks.get(&key).lock_owned().await;
+                headers = self
                     .headers(name, user, None)
                     .await?
                     .ok_or_else(|| anyhow!("Authorization required"))?;
-                (guard, headers)
+                self.connection(name, &key, headers.clone()).await?
             }
+            Err(error) => return Err(error),
         };
         let rejected = headers
             .get(&http::header::AUTHORIZATION)
@@ -559,7 +629,6 @@ impl Mcp {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect();
-        let connection = self.connection(name, user, headers).await?;
         let schemas = self.schemas(name, &connection)?;
         if tool_name == "connect" {
             if args.as_object().is_none_or(|a| !a.is_empty()) {
@@ -727,25 +796,32 @@ impl Mcp {
             .collect();
         let mut guards = Vec::new();
         for name in &groups {
-            guards.push(
-                self.locks
-                    .get(&Self::key(name, user))
-                    .try_lock_owned()
-                    .map_err(|_| anyhow!(oauth::IN_USE))?,
-            );
+            for session in 0..self.sessions(name) {
+                guards.push(
+                    self.locks
+                        .get(&Self::session_key(name, user, session))
+                        .try_lock_owned()
+                        .map_err(|_| anyhow!(oauth::IN_USE))?,
+                );
+            }
         }
         let deleted = self.oauth.reset(service, user).await?;
         let mut removed = 0;
         for name in groups {
-            if let Some(c) = self
-                .connections
-                .lock()
-                .unwrap()
-                .remove(&Self::key(name, user))
-            {
-                c.close();
-                removed += 1;
+            // One cached workflow per group, however many sessions it held.
+            let mut closed = false;
+            for session in 0..self.sessions(name) {
+                if let Some(c) = self
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .remove(&Self::session_key(name, user, session))
+                {
+                    c.close();
+                    closed = true;
+                }
             }
+            removed += usize::from(closed);
         }
         Ok(
             json!({"service":service,"authorizationCleared":true,"savedTokenDeleted":deleted,"cachedWorkflowsInvalidated":removed}),
@@ -765,9 +841,12 @@ impl Mcp {
             .iter()
             .filter(|(_, c)| !c.session.is_closed())
             .filter_map(|(key, _)| {
-                serde_json::from_str::<(String, String)>(key)
-                    .ok()
-                    .map(|(group, _)| group)
+                // Any open session of a group, first or further, counts.
+                serde_json::from_str::<Vec<Value>>(key)
+                    .ok()?
+                    .first()?
+                    .as_str()
+                    .map(str::to_owned)
             })
             .collect();
         let mut missing: Vec<_> = required.difference(&available).cloned().collect();

@@ -254,7 +254,21 @@ admission and the configured timeout cover robots checks, retrieval and
 conversion. Each scrape tool instance caches an origin's robots policy for ten
 minutes and shares one in-flight fetch per origin; transport failures and
 server errors are not cached. Other stateful tools
-retain their existing serialization. `make migration` includes the built-image
+retain their existing serialization.
+
+`function_groups.<group>.max_concurrency` (integer 1–8, default 1) lets one
+run overlap that MCP group's read-only calls. Only a tool whose
+`tool_overrides.<tool>.approval_policy` is exactly `read_only` overlaps; an
+auto-approved or approval-required tool and `<group>__connect` still run alone,
+after the group's earlier calls and before its later ones. Each overlapping
+call uses its own MCP session for that user, so one call's timeout closes only
+its own session. If the server refuses a further session, the call waits for
+the first one. Lower a group's bound if its server limits request bursts or
+sessions per client. The retained Python MCP client ignores the bound and stays
+serial. The shipped workflow sets 8 on every MCP group; the Kubernetes group
+has no `read_only` tool, so its calls still run in turn.
+
+`make migration` includes the built-image
 retrieval, result-binding, concurrency, steering, and cancellation checks in
 `builder/migration/leaf_check.py`.
 
