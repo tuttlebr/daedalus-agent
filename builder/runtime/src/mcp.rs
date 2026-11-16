@@ -3,7 +3,7 @@
 use crate::{
     agent::ToolOutcome,
     authorization::{Approvals, Gate, Locks, hash},
-    config::{Config, names, number},
+    config::{Config, MAX_CONCURRENCY, names, number},
     oauth::{self, Emitter, GoogleOAuth},
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -77,6 +77,9 @@ pub struct Mcp {
     connections: Mutex<HashMap<String, Arc<Connection>>>,
     locks: Locks,
     capacity: Arc<Semaphore>,
+    /// Sessions beyond a user's first draw on their own pool, so overlapping
+    /// reads can never use up the connections first sessions need.
+    pub(crate) further_capacity: Arc<Semaphore>,
     pub oauth: GoogleOAuth,
     pub approvals: Approvals,
 }
@@ -113,9 +116,13 @@ pub fn validate(config: &Config) -> Result<()> {
                 bail!("Invalid MCP tool timeout");
             }
             if let Some(value) = group.get("max_concurrency")
-                && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))
+                && !value
+                    .as_u64()
+                    .is_some_and(|n| (1..=MAX_CONCURRENCY as u64).contains(&n))
             {
-                bail!("Invalid MCP group max_concurrency: expected an integer from 1 to 8");
+                bail!(
+                    "Invalid MCP group max_concurrency: expected an integer from 1 to {MAX_CONCURRENCY}"
+                );
             }
             let auth =
                 &config.raw["authentication"][server["auth_provider"].as_str().unwrap_or("")];
@@ -166,6 +173,7 @@ impl Mcp {
             connections: Mutex::default(),
             locks: Locks::default(),
             capacity: Arc::new(Semaphore::new(256)),
+            further_capacity: Arc::new(Semaphore::new(512)),
             oauth: GoogleOAuth::new(config)?,
             approvals: Approvals::new(config)?,
         }))
@@ -186,16 +194,19 @@ impl Mcp {
             serde_json::to_string(&(name, user, session)).unwrap()
         }
     }
-    /// Sessions one user may hold with this group: its opt-in bound, else one.
+    /// Sessions one user may hold with this group: its configured bound, or
+    /// as many as one run admits when unset.
     fn sessions(&self, name: &str) -> usize {
         self.config.raw["function_groups"][name]["max_concurrency"]
             .as_u64()
-            .map_or(1, |bound| bound.clamp(1, 8) as usize)
+            .map_or(MAX_CONCURRENCY, |bound| {
+                (bound as usize).clamp(1, MAX_CONCURRENCY)
+            })
     }
     /// How many calls of this tool may be in flight at once for one user.
     /// Only a tool the deployed policy marks exactly `read_only` may overlap,
-    /// up to the bound its group opts into. Connecting and every other
-    /// operation stay exclusive, so changes keep their order.
+    /// up to its group's bound. Connecting and every other operation stay
+    /// exclusive, so changes keep their order.
     pub fn concurrency(&self, full_name: &str) -> usize {
         match full_name.split_once("__") {
             Some((name, tool))
@@ -280,10 +291,12 @@ impl Mcp {
         }
         Ok(Some(headers))
     }
+    /// `further` marks a session beyond the user's first with this group.
     async fn connection(
         &self,
         name: &str,
         key: &str,
+        further: bool,
         headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<Arc<Connection>> {
         let key = key.to_owned();
@@ -304,11 +317,14 @@ impl Mcp {
                 connections.remove(&key);
             }
         }
-        let capacity = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| anyhow!("MCP connection capacity reached"))?;
+        let capacity = if further {
+            &self.further_capacity
+        } else {
+            &self.capacity
+        }
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| anyhow!("MCP connection capacity reached"))?;
         let group = &self.config.raw["function_groups"][name];
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -417,7 +433,7 @@ impl Mcp {
         let Some(headers) = self.headers(name, user, None).await? else {
             bail!("Authorization required");
         };
-        let connection = self.connection(name, &key, headers).await?;
+        let connection = self.connection(name, &key, false, headers).await?;
         self.schemas(name, &connection)
     }
     fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
@@ -596,9 +612,10 @@ impl Mcp {
                 .await?
                 .ok_or_else(|| anyhow!("Authorization required"))?;
         }
-        let connection = match self.connection(name, &key, headers.clone()).await {
+        let further = key != Self::key(name, user);
+        let connection = match self.connection(name, &key, further, headers.clone()).await {
             Ok(connection) => connection,
-            Err(_) if key != Self::key(name, user) => {
+            Err(_) if further => {
                 // A further session could not be opened. Nothing was sent, so
                 // the call waits for the user's first session instead: a
                 // server that limits sessions costs latency, not the result.
@@ -610,7 +627,7 @@ impl Mcp {
                     .headers(name, user, None)
                     .await?
                     .ok_or_else(|| anyhow!("Authorization required"))?;
-                self.connection(name, &key, headers.clone()).await?
+                self.connection(name, &key, false, headers.clone()).await?
             }
             Err(error) => return Err(error),
         };

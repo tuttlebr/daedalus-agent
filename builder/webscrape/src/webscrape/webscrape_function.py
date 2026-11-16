@@ -68,9 +68,9 @@ class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
         description="Expose experimental archived research excerpts and exact retrieval.",
     )
     max_concurrency: StrictInt = Field(
-        default=1,
+        default=16,
         ge=1,
-        le=8,
+        le=16,
         description="Maximum simultaneous scrapes across runs sharing this tool.",
     )
 

@@ -79,7 +79,7 @@ def test_shared_scrape_bound_and_cancellation(monkeypatch, limit):
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("value", [0, 9, True, 1.5, "4"])
+@pytest.mark.parametrize("value", [0, 17, True, 1.5, "4"])
 def test_invalid_concurrency(value):
     with pytest.raises(ValidationError):
         scrape.WebscrapeFunctionConfig(max_concurrency=value)

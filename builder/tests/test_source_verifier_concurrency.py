@@ -99,7 +99,7 @@ def test_verifier_bounded_overlap_and_cancel_releases_slot(monkeypatch, limit):
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("value", [0, 9, -1, True, 1.5, "3", None])
+@pytest.mark.parametrize("value", [0, 17, -1, True, 1.5, "3", None])
 def test_verifier_rejects_invalid_concurrency(value):
     with pytest.raises(ValidationError):
         verifier.SourceVerifierConfig(max_concurrency=value)

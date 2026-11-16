@@ -1278,6 +1278,9 @@ def check(
                     name: {"approval_policy": "read_only"}
                     for name in ("slow_read", "next_read", "conflicting_read")
                 },
+                # These cases check queued calls behind a running one, so the
+                # group's read-only tools must not overlap.
+                "max_concurrency": 1,
             }
         },
         "llms": {

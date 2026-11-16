@@ -6,11 +6,11 @@ and [runtime compatibility](rust-migration.md) for controlled benchmarks.
 
 ## Scheduling and output
 
-Independent webscrape calls can overlap, with a configurable limit of 1–8 and a
-default of 1. The shipped configuration uses 4. A shared Python semaphore bounds
-work across runs for each tool instance, including robots checks. Rust also
-bounds dispatch within a run; global per-run concurrency remains 8. Stateful
-tools and MCP groups retain serialization.
+Independent webscrape calls can overlap, with a configurable limit of 1–16 that
+defaults to 16; the shipped configuration states 16. A shared Python semaphore
+bounds work across runs for each tool instance, including robots checks. Rust
+also bounds dispatch within a run; global per-run concurrency is 16. Stateful
+tools stay serial, as do MCP operations that are not policy-marked read-only.
 
 ESPN, X, GitHub, Kubernetes and UniFi initially advertise discovery tools and
 capability descriptions. Their schemas load on demand for the rest of the run.

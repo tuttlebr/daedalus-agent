@@ -381,9 +381,9 @@ class SourceVerifierConfig(ToolConfig, name="source_verifier"):
         ),
     )
     max_concurrency: int = Field(
-        default=1,
+        default=16,
         ge=1,
-        le=8,
+        le=16,
         strict=True,
         description="Maximum simultaneous claim checks per tool instance. Set to 1 to serialize.",
     )

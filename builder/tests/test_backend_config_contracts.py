@@ -824,13 +824,17 @@ def test_deployed_tool_surface_is_optimized():
 
 
 def test_every_mcp_service_states_the_shipped_read_overlap_bound():
-    # Deployment choice: one run may overlap up to eight read_only calls per
-    # MCP service. A new group states its bound instead of silently using 1.
-    groups = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))["function_groups"]
+    # Deployment choice: one run may overlap up to sixteen read_only calls per
+    # MCP service, sixteen scrapes and sixteen source checks. Each states its
+    # bound instead of relying on the runtime's built-in value.
+    config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    groups = config["function_groups"]
     assert groups
     assert {name: group.get("max_concurrency") for name, group in groups.items()} == {
-        name: 8 for name in groups
+        name: 16 for name in groups
     }
+    for tool in ("webscrape_tool", "source_verifier_tool"):
+        assert config["functions"][tool]["max_concurrency"] == 16
 
 
 def test_workflow_uses_responses_api_agent_schema():

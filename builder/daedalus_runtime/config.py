@@ -172,9 +172,9 @@ def validate_config(config: dict, registry) -> None:
         # bound. Reject here what it rejects, so both startups agree.
         if "max_concurrency" in group:
             bound = group["max_concurrency"]
-            if type(bound) is not int or not 1 <= bound <= 8:
+            if type(bound) is not int or not 1 <= bound <= 16:
                 raise ConfigValidationError(
-                    f"function_groups.{name}.max_concurrency must be an integer from 1 to 8"
+                    f"function_groups.{name}.max_concurrency must be an integer from 1 to 16"
                 )
     for field in ("tools", "daily_summary_tools", "daily_summary_final_tools"):
         names = workflow.get(field, [])

@@ -437,7 +437,7 @@ fn mcp_invalid_configuration_is_rejected_before_connecting() {
         ("/function_groups/fixture/tool_call_timeout", json!(0)),
         ("/function_groups/fixture/tool_call_timeout", json!(1801)),
         ("/function_groups/fixture/max_concurrency", json!(0)),
-        ("/function_groups/fixture/max_concurrency", json!(9)),
+        ("/function_groups/fixture/max_concurrency", json!(17)),
         ("/function_groups/fixture/max_concurrency", json!(1.5)),
         ("/function_groups/fixture/max_concurrency", json!("2")),
         (
@@ -618,8 +618,22 @@ async fn only_read_only_tools_overlap_and_only_up_to_the_group_bound() {
     ] {
         assert_eq!(manager.concurrency(name), 1, "{name}");
     }
-    // Without the opt-in a read-only tool keeps one session.
-    let serial = Mcp::new(&overlap_config(&url, None)).unwrap();
+    // An unset bound allows as many reads as one run admits; other tools
+    // still never overlap.
+    let unset = Mcp::new(&overlap_config(&url, None)).unwrap();
+    assert_eq!(
+        unset.concurrency("fixture__inspect"),
+        crate::config::MAX_CONCURRENCY
+    );
+    assert_eq!(unset.concurrency("fixture__mutate"), 1);
+    assert_eq!(
+        Mcp::new(&overlap_config(&url, Some(16)))
+            .unwrap()
+            .concurrency("fixture__inspect"),
+        16
+    );
+    // A bound of one keeps a read-only tool on one session.
+    let serial = Mcp::new(&overlap_config(&url, Some(1))).unwrap();
     assert_eq!(serial.concurrency("fixture__inspect"), 1);
 
     *peer.mode.lock().unwrap() = "slow".into();
@@ -649,7 +663,7 @@ async fn only_read_only_tools_overlap_and_only_up_to_the_group_bound() {
     assert!(outcomes.iter().all(|outcome| !outcome.is_error));
     assert_eq!(peak(&peer), 1);
 
-    // The same reads without the opt-in use the one session in turn.
+    // The same reads at a bound of one use the one session in turn.
     let outcomes = together(&serial, &reads[..2]).await;
     assert!(outcomes.iter().all(|outcome| !outcome.is_error));
     assert_eq!(peak(&peer), 1);
@@ -676,6 +690,40 @@ async fn a_refused_further_session_waits_for_the_first_instead_of_failing() {
         "a second session was tried"
     );
     assert_eq!(count(&peer, "tools/call"), 2, "neither call was replayed");
+    manager.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn further_sessions_have_their_own_pool_and_never_cost_a_first_session() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(16))).unwrap();
+    // No further session can be opened: overlapping reads share the first.
+    manager.further_capacity.forget_permits(usize::MAX);
+    *peer.mode.lock().unwrap() = "slow".into();
+    let reads = [("fixture__inspect", 7), ("fixture__inspect", 8)];
+    let outcomes = together(&manager, &reads).await;
+    for (outcome, (_, value)) in outcomes.iter().zip(reads) {
+        assert!(!outcome.is_error, "{}", outcome.content);
+        assert!(outcome.content.contains(&format!("\"value\":{value}")));
+    }
+    assert_eq!(peak(&peer), 1);
+    assert_eq!(count(&peer, "initialize"), 1, "only the first session");
+    // Another user's first session is unaffected by the exhausted pool.
+    let (emit, _events) = emit();
+    let other = manager
+        .call(
+            "fixture__inspect",
+            &json!({"value":9}),
+            "bob",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(!other.is_error, "{}", other.content);
+    assert_eq!(count(&peer, "initialize"), 2);
     manager.close();
     server.abort();
 }

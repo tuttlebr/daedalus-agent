@@ -533,12 +533,11 @@ def check(image, redis_image):
             peers.plan = verification_calls()
             result = measure(env)
             verify(result, peers.plan)
+            # An unset limit admits every call of the batch (at most sixteen).
+            expected = (limit or min(16, len(peers.plan))) if parallel else 1
+            require(peers.peak == expected, "Wrong verifier overlap")
             require(
-                peers.peak == ((limit or 1) if parallel else 1),
-                "Wrong verifier overlap",
-            )
-            require(
-                result["peak_tools"] == ((limit or 1) if parallel else 1),
+                result["peak_tools"] == expected,
                 "Wrong scheduler concurrency",
             )
             if limit == 3 and parallel:
@@ -666,7 +665,7 @@ def check(image, redis_image):
             ]
             result = measure(env)
             verify(result, peers.plan)
-            expected = (limit or 1) if parallel else 1
+            expected = (limit or min(16, len(peers.plan))) if parallel else 1
             require(peers.peak == expected, "Wrong shared scrape overlap")
             require(result["peak_tools"] == expected, "Wrong scrape scheduler bound")
             for event in result["ends"]:

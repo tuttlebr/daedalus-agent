@@ -1012,7 +1012,11 @@ impl Agent {
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
             let mut admission = Admission::default();
-            let concurrency = if prepared.parallel_tool_calls { 8 } else { 1 };
+            let concurrency = if prepared.parallel_tool_calls {
+                crate::config::MAX_CONCURRENCY
+            } else {
+                1
+            };
             let mut terminal = None;
             // Where the approval boundary's own result sits in the transcript,
             // so a redirect that pre-empts the approval can neutralise it.
@@ -2821,8 +2825,10 @@ mod tests {
         );
     }
 
+    /// One lookup at a time, so a second lookup queues behind the first.
     fn lookup_and_clock() -> Value {
-        json!({"lookup_tool":{"_type":"webscrape"},"clock":{"_type":"current_datetime"}})
+        json!({"lookup_tool":{"_type":"webscrape","max_concurrency":1},
+            "clock":{"_type":"current_datetime"}})
     }
 
     #[tokio::test]

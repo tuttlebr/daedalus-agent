@@ -246,8 +246,9 @@ omitting configured values and credentials.
 
 `functions.source_verifier_tool.max_concurrency` and
 `functions.webscrape_tool.max_concurrency` control independent claim checks and
-scrapes (integer 1–8, default 1). The shipped workflow enables two verifications
-and four scrapes. Set either to `1` to restore its serial dispatch;
+scrapes (integer 1–16; 16 when unset). The shipped workflow states 16 for both.
+One run executes at most 16 tool calls at once. Set either to `1` to restore
+its serial dispatch;
 `workflow.parallel_tool_calls: false` serializes all dispatch within each run.
 Each Python tool instance also enforces its limit across concurrent runs. Scrape
 admission and the configured timeout cover robots checks, retrieval and
@@ -256,17 +257,23 @@ minutes and shares one in-flight fetch per origin; transport failures and
 server errors are not cached. Other stateful tools
 retain their existing serialization.
 
-`function_groups.<group>.max_concurrency` (integer 1–8, default 1) lets one
-run overlap that MCP group's read-only calls. Only a tool whose
+`function_groups.<group>.max_concurrency` (integer 1–16; 16 when unset) bounds
+how many of that MCP group's read-only calls one run overlaps. Only a tool whose
 `tool_overrides.<tool>.approval_policy` is exactly `read_only` overlaps; an
 auto-approved or approval-required tool and `<group>__connect` still run alone,
 after the group's earlier calls and before its later ones. Each overlapping
 call uses its own MCP session for that user, so one call's timeout closes only
 its own session. If the server refuses a further session, the call waits for
-the first one. Lower a group's bound if its server limits request bursts or
-sessions per client. The retained Python MCP client ignores the bound and stays
-serial. The shipped workflow sets 8 on every MCP group; the Kubernetes group
-has no `read_only` tool, so its calls still run in turn.
+the first one. Further sessions draw on their own connection pool, so they
+never use up the connections first sessions need. Set a group's bound to `1` to
+keep it serial, and lower it if its server limits request bursts or sessions
+per client. The retained Python MCP client ignores the bound and stays serial.
+The shipped workflow states 16 on every MCP group; the Kubernetes group has no
+`read_only` tool, so its calls still run in turn.
+
+A workflow that sets any of these values above 8 needs this runtime: earlier
+images reject it at startup. Roll the image and the workflow out, and back,
+together.
 
 `make migration` includes the built-image
 retrieval, result-binding, concurrency, steering, and cancellation checks in

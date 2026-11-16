@@ -131,7 +131,7 @@ def test_initial_tools_cannot_expand_allowlist_or_ignore_discovery_mode(
         validate_config(runtime_config, ToolRegistry(runtime_config))
 
 
-@pytest.mark.parametrize("bound", [0, 9, 1.5, "2", True, None])
+@pytest.mark.parametrize("bound", [0, 17, 1.5, "2", True, None])
 def test_group_read_concurrency_bound_must_be_a_small_integer(runtime_config, bound):
     runtime_config["function_groups"] = {"lights": {"max_concurrency": bound}}
     with pytest.raises(
@@ -140,7 +140,7 @@ def test_group_read_concurrency_bound_must_be_a_small_integer(runtime_config, bo
         validate_config(runtime_config, ToolRegistry(runtime_config))
 
 
-@pytest.mark.parametrize("bound", [1, 4, 8])
+@pytest.mark.parametrize("bound", [1, 8, 16])
 def test_group_read_concurrency_bound_accepts_its_range(runtime_config, bound):
     runtime_config["function_groups"] = {"lights": {"max_concurrency": bound}}
     validate_config(runtime_config, ToolRegistry(runtime_config))

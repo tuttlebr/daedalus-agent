@@ -18,6 +18,10 @@ pub struct Config {
 /// Upper bound for `workflow.loop_guard.repeated_error_limit`; 0 disables it.
 pub const MAX_REPEATED_ERROR_LIMIT: u64 = 100;
 
+/// Tool calls one run executes at once. Also the most a stateless tool or an
+/// MCP service may set as `max_concurrency`, and what each uses when unset.
+pub const MAX_CONCURRENCY: usize = 16;
+
 pub fn merge(base: &mut Value, overlay: Value) {
     if let (Some(base), Some(overlay)) = (base.as_object_mut(), overlay.as_object()) {
         for (key, value) in overlay {
@@ -173,7 +177,9 @@ impl Config {
             function["_type"].as_str(),
             Some("source_verifier" | "webscrape")
         ) {
-            function["max_concurrency"].as_u64().unwrap_or(1) as usize
+            function["max_concurrency"]
+                .as_u64()
+                .map_or(MAX_CONCURRENCY, |limit| limit as usize)
         } else {
             1
         }
@@ -386,9 +392,13 @@ impl Config {
                 function["_type"].as_str(),
                 Some("source_verifier" | "webscrape")
             ) && let Some(value) = function.get("max_concurrency")
-                && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))
+                && !value
+                    .as_u64()
+                    .is_some_and(|n| (1..=MAX_CONCURRENCY as u64).contains(&n))
             {
-                bail!("Invalid stateless tool max_concurrency: expected an integer from 1 to 8");
+                bail!(
+                    "Invalid stateless tool max_concurrency: expected an integer from 1 to {MAX_CONCURRENCY}"
+                );
             }
             if function["_type"] == "current_datetime" {
                 if function
@@ -697,9 +707,15 @@ mod concurrency_tests {
                 configured(kind, json!(4)).unwrap().tool_concurrency("test"),
                 4
             );
+            assert_eq!(
+                configured(kind, json!(16))
+                    .unwrap()
+                    .tool_concurrency("test"),
+                16
+            );
             for invalid in [
                 json!(0),
-                json!(9),
+                json!(17),
                 json!(-1),
                 json!(true),
                 json!(1.5),
@@ -713,7 +729,8 @@ mod concurrency_tests {
                 .as_object_mut()
                 .unwrap()
                 .remove("max_concurrency");
-            assert_eq!(unset.tool_concurrency("test"), 1);
+            // An unset limit allows as many calls as one run admits.
+            assert_eq!(unset.tool_concurrency("test"), MAX_CONCURRENCY);
         }
         // MCP calls and native stateful tools stay serial.
         let config = configured("source_verifier", json!(8)).unwrap();
