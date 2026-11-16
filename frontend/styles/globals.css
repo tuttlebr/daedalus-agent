@@ -29,12 +29,10 @@
 
 :root {
   /* Color tokens live exclusively in appearance.css. */
-  --font-sans: 'SF Pro', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
-    system-ui, sans-serif;
+  --font-sans: 'SF Pro', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
   --font-heading: var(--font-sans);
   --font-display: var(--font-sans);
-  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas,
-    monospace;
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
   --color-success: var(--color-nvidia-teal);
   --color-success-light: var(--color-success);
   --color-success-dark: var(--color-success);
