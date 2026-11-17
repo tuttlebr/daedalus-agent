@@ -21,6 +21,8 @@ struct Peer {
     /// Tool calls being served now, and the most that were served at once.
     in_flight: std::sync::atomic::AtomicUsize,
     peak: std::sync::atomic::AtomicUsize,
+    /// Deterministic barriers for selected calls, keyed by their fixture value.
+    holds: Mutex<HashMap<u64, Arc<tokio::sync::Semaphore>>>,
 }
 async fn rpc(
     State(peer): State<Arc<Peer>>,
@@ -45,6 +47,14 @@ async fn rpc(
     }
     if method == "tools/call" && mode == "wait" {
         tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+    if method == "tools/call" {
+        let hold = request["params"]["arguments"]["value"]
+            .as_u64()
+            .and_then(|value| peer.holds.lock().unwrap().get(&value).cloned());
+        if let Some(hold) = hold {
+            hold.acquire().await.unwrap().forget();
+        }
     }
     if method == "initialize" && mode.ends_with("one_session") && count(&peer, "initialize") > 1 {
         // A server that admits a single session per client.
@@ -105,6 +115,13 @@ async fn rpc(
             result["tools"].as_array_mut().unwrap().push(duplicate);
         } else if mode == "undocumented" {
             result["tools"][0]["description"] = json!("");
+        } else if mode == "undocumented_hidden" {
+            result["tools"][5]["description"] = json!("");
+        } else if mode == "projection" {
+            result["tools"][0]["name"] = json!("Straße");
+            result["tools"][0]["description"] = json!("  Remote description  ");
+        } else if mode == "string_schema" {
+            result["tools"][0]["inputSchema"]["properties"]["value"]["type"] = json!("string");
         }
     }
     if method == "tools/call" {
@@ -476,17 +493,14 @@ async fn mcp_duplicate_or_undocumented_catalogues_fail_before_execution() {
         assert_eq!(schemas["fixture"].len(), 1);
         assert_eq!(schemas["fixture"][0]["name"], "fixture__connect");
         let (emit, _events) = emit();
-        let outcome = manager
-            .call(
-                "fixture__inspect",
-                &json!({"value":1}),
-                "synthetic",
-                "",
-                &emit,
-                false,
-            )
-            .await;
-        assert!(outcome.is_error);
+        // The missing description is on inspect. An otherwise valid sibling
+        // must fail too: dispatch validates the entire exposed catalogue.
+        for tool in ["fixture__inspect", "fixture__mutate"] {
+            let outcome = manager
+                .call(tool, &json!({"value":1}), "synthetic", "", &emit, false)
+                .await;
+            assert!(outcome.is_error, "{mode}: {tool}");
+        }
         assert_eq!(count(&peer, "tools/call"), 0);
     }
     server.abort();
@@ -498,6 +512,145 @@ async fn serve(peer: Arc<Peer>) -> (String, tokio::task::JoinHandle<()>) {
     let router = Router::new().route("/mcp", post(rpc)).with_state(peer);
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     (url, server)
+}
+
+#[tokio::test]
+async fn schema_projection_preserves_overrides_unicode_filters_and_connect() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    *peer.mode.lock().unwrap() = "projection".into();
+    let mut cfg = config(&url);
+    let group = &mut cfg.raw["function_groups"]["fixture"];
+    group["include"] = json!([" STRASSE ", " MUTATE "]);
+    group["exclude"] = json!(["Straße", "mutate"]);
+    group["tool_overrides"] = json!({
+        "Straße":{"description":"  Configured description  "},
+        "strasse":{"description":"Not an exact override key"},
+        "mutate":{"description":"  "}
+    });
+    let manager = Mcp::new(&cfg).unwrap();
+    let schemas = manager.catalogue(&["fixture".into()], "alice", false).await;
+    let parameters = json!({"type":"object","properties":{"value":{"type":"integer"}},
+        "required":["value"],"additionalProperties":false});
+    let expected = json!([
+        {"name":"fixture__Straße","description":"Configured description","parameters":parameters},
+        {"name":"fixture__mutate","description":"Synthetic mutate","parameters":parameters}
+    ]);
+    assert_eq!(json!(schemas["fixture"]), expected);
+    let (emit, _events) = emit();
+    let connected = manager
+        .call("fixture__connect", &json!({}), "alice", "", &emit, false)
+        .await;
+    assert!(!connected.is_error);
+    assert_eq!(json!(connected.tools), expected);
+    let invalid_connect = manager
+        .call(
+            "fixture__connect",
+            &json!({"unexpected":true}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(invalid_connect.content.contains("ValueError"));
+    assert_eq!(count(&peer, "tools/call"), 0);
+    let result = manager
+        .call(
+            "fixture__Straße",
+            &json!({"value":7}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(!result.is_error, "{}", result.content);
+    assert_eq!(count(&peer, "tools/list"), 1);
+    manager.close();
+
+    // A tool excluded by policy never contributes a description error.
+    *peer.mode.lock().unwrap() = "undocumented_hidden".into();
+    let manager = Mcp::new(&config(&url)).unwrap();
+    let schemas = manager.catalogue(&["fixture".into()], "alice", false).await;
+    assert_eq!(schemas["fixture"].len(), 5);
+    let result = manager
+        .call(
+            "fixture__inspect",
+            &json!({"value":8}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(!result.is_error, "{}", result.content);
+    manager.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn dispatch_uses_the_schema_of_the_reconnected_session() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&config(&url)).unwrap();
+    let initial = manager.catalogue(&["fixture".into()], "alice", false).await;
+    assert_eq!(
+        initial["fixture"][0]["parameters"]["properties"]["value"]["type"],
+        "integer"
+    );
+    let (emit, _events) = emit();
+    *peer.mode.lock().unwrap() = "expired".into();
+    let expired = manager
+        .call(
+            "fixture__inspect",
+            &json!({"value":1}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert_eq!(expired.content, crate::mcp::UNCONFIRMED);
+    assert_eq!(count(&peer, "tools/call"), 1);
+
+    *peer.mode.lock().unwrap() = "string_schema".into();
+    let invalid = manager
+        .call(
+            "fixture__inspect",
+            &json!({"value":1}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(invalid.content.contains("ValidationError"));
+    assert_eq!(
+        count(&peer, "tools/call"),
+        1,
+        "No retry or stale-schema dispatch"
+    );
+    let refreshed = manager.catalogue(&["fixture".into()], "alice", false).await;
+    assert_eq!(
+        refreshed["fixture"][0]["parameters"]["properties"]["value"]["type"],
+        "string"
+    );
+    let valid = manager
+        .call(
+            "fixture__inspect",
+            &json!({"value":"fresh"}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
+        .await;
+    assert!(!valid.is_error, "{}", valid.content);
+    assert_eq!(count(&peer, "tools/call"), 2);
+    assert_eq!(count(&peer, "tools/list"), 2);
+    manager.close();
+    server.abort();
 }
 
 fn names(schemas: &HashMap<String, Vec<Value>>) -> Vec<&str> {
@@ -600,6 +753,184 @@ async fn together(manager: &Arc<Mcp>, calls: &[(&str, u64)]) -> Vec<crate::agent
 
 fn peak(peer: &Peer) -> usize {
     peer.peak.swap(0, std::sync::atomic::Ordering::SeqCst)
+}
+
+fn hold(peer: &Peer, value: u64) -> Arc<tokio::sync::Semaphore> {
+    let hold = Arc::new(tokio::sync::Semaphore::new(0));
+    peer.holds.lock().unwrap().insert(value, hold.clone());
+    hold
+}
+
+fn dispatch(
+    manager: &Arc<Mcp>,
+    tool: &str,
+    value: u64,
+    user: &str,
+) -> tokio::task::JoinHandle<crate::agent::ToolOutcome> {
+    let (manager, tool, user) = (manager.clone(), tool.to_owned(), user.to_owned());
+    tokio::spawn(async move {
+        let (emit, _events) = emit();
+        manager
+            .call(&tool, &json!({"value":value}), &user, "", &emit, false)
+            .await
+    })
+}
+
+async fn arrived(peer: &Peer, value: u64) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if peer.requests.lock().unwrap().iter().any(|(r, _)| {
+                r["method"] == "tools/call" && r["params"]["arguments"]["value"] == value
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("fixture call must reach the server");
+}
+
+#[tokio::test]
+async fn independent_mutation_waits_for_every_read_session() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    let first_hold = hold(&peer, 1);
+    let second_hold = hold(&peer, 2);
+    let first = dispatch(&manager, "fixture__inspect", 1, "alice");
+    arrived(&peer, 1).await;
+    let second = dispatch(&manager, "fixture__inspect", 2, "alice");
+    arrived(&peer, 2).await; // Two independent calls really overlap.
+
+    let mut mutation = dispatch(&manager, "fixture__mutate", 3, "alice");
+    first_hold.add_permits(1);
+    assert!(!first.await.unwrap().is_error);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut mutation)
+            .await
+            .is_err(),
+        "A free first session must not let a mutation race another session's read"
+    );
+    assert_eq!(count(&peer, "tools/call"), 2);
+    second_hold.add_permits(1);
+    assert!(!second.await.unwrap().is_error);
+    assert!(!mutation.await.unwrap().is_error);
+    assert_eq!(count(&peer, "tools/call"), 3, "No call was replayed");
+    manager.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn independent_reads_wait_for_mutations_but_other_users_do_not() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    let mutation_hold = hold(&peer, 1);
+    let mutation = dispatch(&manager, "fixture__mutate", 1, "alice");
+    arrived(&peer, 1).await;
+    let mut read = dispatch(&manager, "fixture__inspect", 2, "alice");
+    let other = dispatch(&manager, "fixture__inspect", 3, "bob");
+    assert!(
+        !tokio::time::timeout(Duration::from_secs(2), other)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_error
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut read)
+            .await
+            .is_err(),
+        "A read must not bypass a mutation by opening another session"
+    );
+    assert_eq!(count(&peer, "tools/call"), 2);
+    mutation_hold.add_permits(1);
+    assert!(!mutation.await.unwrap().is_error);
+    assert!(!read.await.unwrap().is_error);
+    manager.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn later_reads_stay_behind_a_queued_mutation() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    let first_hold = hold(&peer, 1);
+    let mutation_hold = hold(&peer, 2);
+    let first = dispatch(&manager, "fixture__inspect", 1, "alice");
+    arrived(&peer, 1).await;
+
+    let (emit, _events) = emit();
+    let mutation_args = json!({"value":2});
+    let read_args = json!({"value":3});
+    let mut mutation =
+        Box::pin(manager.call("fixture__mutate", &mutation_args, "alice", "", &emit, false));
+    // Polling makes the writer's place in the admission queue deterministic.
+    assert!(futures::poll!(&mut mutation).is_pending());
+    let mut later_read =
+        Box::pin(manager.call("fixture__inspect", &read_args, "alice", "", &emit, false));
+    assert!(futures::poll!(&mut later_read).is_pending());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut later_read)
+            .await
+            .is_err(),
+        "A later read must not pass an already queued mutation"
+    );
+    assert_eq!(count(&peer, "tools/call"), 1);
+
+    first_hold.add_permits(1);
+    assert!(!first.await.unwrap().is_error);
+    tokio::select! {
+        _ = &mut mutation => panic!("Mutation must remain held at the peer"),
+        _ = arrived(&peer, 2) => {},
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut later_read)
+            .await
+            .is_err(),
+        "The read must stay queued while the admitted mutation is in flight"
+    );
+    assert_eq!(count(&peer, "tools/call"), 2);
+    mutation_hold.add_permits(1);
+    assert!(!mutation.await.is_error);
+    assert!(!later_read.await.is_error);
+    assert_eq!(count(&peer, "tools/call"), 3, "Each call ran once");
+    manager.close();
+    server.abort();
+}
+
+#[tokio::test]
+async fn cancelling_a_queued_mutation_releases_admission_without_dispatch() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&overlap_config(&url, Some(3))).unwrap();
+    let read_hold = hold(&peer, 1);
+    let read = dispatch(&manager, "fixture__inspect", 1, "alice");
+    arrived(&peer, 1).await;
+
+    let (emit, _events) = emit();
+    let args = json!({"value":2});
+    let mut mutation = Box::pin(manager.call("fixture__mutate", &args, "alice", "", &emit, false));
+    assert!(futures::poll!(&mut mutation).is_pending());
+    drop(mutation);
+    // The first read is still held, so this also checks that the canceled
+    // all-permit waiter did not strand capacity or leave a blocking FIFO entry.
+    let later_read = dispatch(&manager, "fixture__inspect", 3, "alice");
+    arrived(&peer, 3).await;
+    assert!(!later_read.await.unwrap().is_error);
+    read_hold.add_permits(1);
+    assert!(!read.await.unwrap().is_error);
+    assert_eq!(count(&peer, "tools/call"), 2, "Canceled mutation never ran");
+    assert!(
+        !dispatch(&manager, "fixture__mutate", 4, "alice")
+            .await
+            .unwrap()
+            .is_error
+    );
+    manager.close();
+    server.abort();
 }
 
 #[tokio::test]

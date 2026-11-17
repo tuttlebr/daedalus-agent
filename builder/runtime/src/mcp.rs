@@ -20,7 +20,7 @@ use rmcp::{
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::{Duration, Instant},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -55,6 +55,23 @@ struct Connection {
     _capacity: OwnedSemaphorePermit,
 }
 struct CancelOnDrop(Option<RunningServiceCancellationToken>);
+/// Admission spans concurrent runs in this process, while session locks below
+/// protect each individual transport. Weak entries expire with the last caller.
+#[derive(Default)]
+struct Admission(Mutex<HashMap<String, Weak<Semaphore>>>);
+impl Admission {
+    fn get(&self, key: &str, bound: usize) -> Arc<Semaphore> {
+        let mut gates = self.0.lock().unwrap();
+        gates.retain(|_, gate| gate.strong_count() > 0);
+        if let Some(gate) = gates.get(key).and_then(Weak::upgrade) {
+            return gate;
+        }
+        let gate = Arc::new(Semaphore::new(bound));
+        gates.insert(key.into(), Arc::downgrade(&gate));
+        gate
+    }
+}
+
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
         if let Some(token) = self.0.take() {
@@ -76,6 +93,7 @@ pub struct Mcp {
     groups: Vec<String>,
     connections: Mutex<HashMap<String, Arc<Connection>>>,
     locks: Locks,
+    admission: Admission,
     capacity: Arc<Semaphore>,
     /// Sessions beyond a user's first draw on their own pool, so overlapping
     /// reads can never use up the connections first sessions need.
@@ -172,6 +190,7 @@ impl Mcp {
                 .unwrap_or_default(),
             connections: Mutex::default(),
             locks: Locks::default(),
+            admission: Admission::default(),
             capacity: Arc::new(Semaphore::new(256)),
             further_capacity: Arc::new(Semaphore::new(512)),
             oauth: GoogleOAuth::new(config)?,
@@ -436,7 +455,14 @@ impl Mcp {
         let connection = self.connection(name, &key, false, headers).await?;
         self.schemas(name, &connection)
     }
-    fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
+    /// Validate the complete exposed catalogue without cloning its input schemas.
+    /// An undocumented exposed sibling must still prevent dispatch, even when
+    /// the requested tool itself has a description.
+    fn exposed_tools<'a>(
+        &'a self,
+        name: &str,
+        connection: &'a Connection,
+    ) -> Result<Vec<(&'a Tool, &'a str)>> {
         let group = &self.config.raw["function_groups"][name];
         // Match exposure exactly as the approval policy does (trimmed and
         // casefolded), so an excluded operation cannot stay exposed because
@@ -449,13 +475,38 @@ impl Mcp {
                 .collect()
         };
         let (include, exclude) = (normalized("include"), normalized("exclude"));
-        connection.tools.iter().filter(|tool| {
-            let name = crate::authorization::fold(tool.name.trim());
-            if include.is_empty() { !exclude.contains(&name) } else { include.contains(&name) }
-        }).map(|tool|{
-            let description=group["tool_overrides"][tool.name.as_ref()]["description"].as_str().filter(|s|!s.trim().is_empty()).or(tool.description.as_deref()).filter(|s|!s.trim().is_empty()).ok_or_else(||anyhow!("MCP tool requires a description or configured override"))?;
-            Ok(json!({"name":format!("{name}__{}",tool.name),"description":description.trim(),"parameters":&*tool.input_schema}))
-        }).collect()
+        connection
+            .tools
+            .iter()
+            .filter(|tool| {
+                let name = crate::authorization::fold(tool.name.trim());
+                if include.is_empty() {
+                    !exclude.contains(&name)
+                } else {
+                    include.contains(&name)
+                }
+            })
+            .map(|tool| {
+                let description = group["tool_overrides"][tool.name.as_ref()]["description"]
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty())
+                    .or(tool.description.as_deref())
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        anyhow!("MCP tool requires a description or configured override")
+                    })?;
+                Ok((tool, description.trim()))
+            })
+            .collect()
+    }
+    fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
+        Ok(self
+            .exposed_tools(name, connection)?
+            .into_iter()
+            .map(|(tool, description)| {
+                json!({"name":format!("{name}__{}",tool.name),"description":description,"parameters":&*tool.input_schema})
+            })
+            .collect())
     }
     fn connect_schema(&self, name: &str, deferred: Option<Vec<String>>) -> Value {
         let group = &self.config.raw["function_groups"][name];
@@ -602,10 +653,25 @@ impl Mcp {
                 ..Default::default()
             });
         };
-        let (mut key, mut _session, waited) =
-            self.session(name, user, self.concurrency(full_name)).await;
-        if waited {
-            // Another call held the session; its wait may have outlived
+        let concurrency = self.concurrency(full_name);
+        let bound = self.sessions(name);
+        let gate = self.admission.get(&Self::key(name, user), bound);
+        // Taking all permits makes every non-read-only operation exclusive
+        // across runs, even when a read owns a session other than the first.
+        // FIFO acquisition also keeps later reads behind a queued writer.
+        let permits = if concurrency > 1 { 1 } else { bound as u32 };
+        let (_admission, admission_waited) = match gate.clone().try_acquire_many_owned(permits) {
+            Ok(permit) => (permit, false),
+            Err(_) => (
+                gate.acquire_many_owned(permits)
+                    .await
+                    .expect("MCP admission gate is never closed"),
+                true,
+            ),
+        };
+        let (mut key, mut _session, waited) = self.session(name, user, concurrency).await;
+        if admission_waited || waited {
+            // Another call held admission or the session; its wait may have outlived
             // this token. Read the current one without prompting again.
             headers = self
                 .headers(name, user, None)
@@ -646,8 +712,8 @@ impl Mcp {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect();
-        let schemas = self.schemas(name, &connection)?;
         if tool_name == "connect" {
+            let schemas = self.schemas(name, &connection)?;
             if args.as_object().is_none_or(|a| !a.is_empty()) {
                 bail!(FailureClass::Value);
             }
@@ -660,14 +726,12 @@ impl Mcp {
                 ..Default::default()
             });
         }
-        if !schemas.iter().any(|s| s["name"] == full_name) {
-            bail!(FailureClass::Value);
-        }
-        let tool = connection
-            .tools
-            .iter()
+        let tool = self
+            .exposed_tools(name, &connection)?
+            .into_iter()
+            .map(|(tool, _)| tool)
             .find(|tool| tool.name == tool_name)
-            .unwrap();
+            .ok_or_else(|| anyhow!(FailureClass::Value))?;
         let validator = crate::tool_contracts::validator(&json!(&*tool.input_schema))
             .map_err(|_| anyhow!(FailureClass::Schema))?;
         if !validator.is_valid(args) {
@@ -907,5 +971,22 @@ impl Mcp {
         for (_, c) in self.connections.lock().unwrap().drain() {
             c.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn idle_admission_entries_are_reclaimed_without_splitting_active_gates() {
+        let admission = Admission::default();
+        let first = admission.get("first", 3);
+        assert!(Arc::ptr_eq(&first, &admission.get("first", 3)));
+        let permit = first.try_acquire_owned().unwrap();
+        assert_eq!(admission.get("first", 3).available_permits(), 2);
+        drop(permit);
+        let _next = admission.get("next", 3);
+        assert_eq!(admission.0.lock().unwrap().len(), 1);
     }
 }

@@ -258,10 +258,15 @@ server errors are not cached. Other stateful tools
 retain their existing serialization.
 
 `function_groups.<group>.max_concurrency` (integer 1–16; 16 when unset) bounds
-how many of that MCP group's read-only calls one run overlaps. Only a tool whose
+how many of that MCP group's read-only calls overlap for one user within a backend
+process, including calls from separate runs. Only a tool whose
 `tool_overrides.<tool>.approval_policy` is exactly `read_only` overlaps; an
 auto-approved or approval-required tool and `<group>__connect` still run alone,
-after the group's earlier calls and before its later ones. Each overlapping
+after the group's earlier calls and before its later ones within a run. Across
+runs, a queued exclusive call waits for existing reads and prevents new reads
+from passing it. Other users and groups have independent admission. This gate is
+local to one backend process; it does not coordinate separate replicas, and a
+timeout or canceled transport still leaves the remote outcome uncertain. Each overlapping
 call uses its own MCP session for that user, so one call's timeout closes only
 its own session. If the server refuses a further session, the call waits for
 the first one. Further sessions draw on their own connection pool, so they

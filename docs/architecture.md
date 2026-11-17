@@ -369,7 +369,9 @@ When `parallel_tool_calls` is enabled, the runtime admits up to sixteen tool
 calls at once. Stateful calls sharing a native tool type remain serial, in the
 order the model proposed them. An MCP group overlaps its policy-marked
 read-only calls up to its `max_concurrency`; its other operations still run
-alone and in order. See
+alone and in order within a run. A shared per-user, per-group admission gate
+also keeps these exclusive operations from overlapping reads in another run
+served by the same backend process. See
 [tool concurrency](operations.md#timeouts-and-tool-concurrency).
 The shipped workflow allows sixteen independent scrapes and sixteen
 source-verifier calls. Each Python tool instance applies its own semaphore across runs, covering
