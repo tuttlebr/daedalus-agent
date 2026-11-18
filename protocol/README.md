@@ -10,20 +10,22 @@ including in stored jobs; remove or replace them before resubmission. No legacy
 profile aliases or environment variables are translated silently.
 
 An explicit level must exist in `workflow.model_routes` and remains fixed across
-skill loads. The shipped DeepSeek workflow configures four distinct Switchyard profiles:
-`instant`, `low`, `high`, and `max`. It leaves request/skill promotion unset, so
-the gateway owns automatic selection. The generic schema retains `medium` and
-`xhigh` for other providers, but they are unconfigured in the shipped workflow.
-For this workflow, migrate explicit `medium`/`xhigh` requests to `high`, or omit
-`model_profile` to use automatic routing. Replace matching custom request/skill
-mappings as well. Direct custom gateway callers must likewise replace
-`daedalus/medium` and `daedalus/xhigh` with `daedalus/high`. Deploy the matching
-agent workflow and gateway routes together; the old gateway accepts `high`, but
-its old DeepSeek default was incorrectly `low`, so do not claim the new effort
-semantics until the gateway route configuration is updated.
-An unconfigured level fails before model invocation.
-Operators may map requests/skills to configured canonical levels; omission from
-those maps preserves automatic routing. A successful mapped skill load selects
+skill loads. The full integration workflow maps `instant`, `low`, `high` and
+`max` to Switchyard aliases. The minimal local workflow has no explicit profile
+map. The generic schema also accepts `medium` and `xhigh`, but those levels need
+an intentional workflow mapping and a matching gateway alias or provider model.
+An unconfigured level fails before model invocation. Switchyard's four automatic
+classification categories and each target's native reasoning settings are
+separate from this public Agent enum.
+
+When adapting a workflow, choose an available explicit profile or omit the field
+to use its main model. Automatic routing requires that main model to resolve to
+Switchyard's `daedalus` route. Inspect the selected `routes_*.toml` composition
+before adding aliases; identical profile labels need not imply identical native
+reasoning across providers.
+
+Operators may map requests/skills to configured canonical levels. The shipped
+workflow leaves these promotions unset. A successful mapped skill load selects
 its level only while the run has no explicit or previously mapped selection.
 This field does not select helper or separately configured autonomous models.
 

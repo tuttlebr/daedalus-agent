@@ -303,8 +303,11 @@ turns. If no conversation ID is supplied, the run ID supplies that scope. The
 length-delimited hash excludes raw identities from the provider field and keeps
 different users' conversations distinct. It is a routing hint, not an
 authorization or cache-isolation boundary. Switchyard preserves this standard
-field when translating Responses to Fireworks Chat Completions; its Fireworks
-configuration must not override it with a shared static session-affinity header.
+field when translating Responses to Fireworks Chat Completions. Provider-specific
+affinity headers are configured independently by Switchyard in
+`llm_clients.*.extra_headers`. Selected profiles intentionally use a shared
+`GLOBAL_SESSION_ID`; the Agent's per-conversation `user` value does not replace
+that gateway setting. Neither value establishes user-data isolation.
 
 The Rust provider wire also sends this opaque identity in
 `x-switchyard-session-id`, separate from the provider's cache hint. The header is
@@ -315,8 +318,10 @@ every automatic request, including tool continuations, into max, high, low or
 instant. Explicit aliases bypass classification. There is no retained effort
 floor or sticky selection; fallback targets come from the selected provider's
 `routes_*.toml`. Public effort aliases and provider-native reasoning settings are
-separate contracts. Omit `model_profile` for automatic routing, and preserve
-explicit selections among the profiles configured by the workflow.
+separate contracts. Omitting `model_profile` uses the configured main model;
+automatic routing requires that model to be `daedalus` at the Switchyard
+endpoint. A direct-provider main model remains a direct-provider request.
+Explicit profiles resolve through the selected workflow's `model_routes`.
 Because a classified continuation can move the run to a provider that rejects the current
 provider's retained reasoning state, the runtime never opens a user turn for
 its own recovery guidance after tool results: argument corrections, disabled

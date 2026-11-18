@@ -168,6 +168,30 @@ Exercise each newly configured capability with a small request of its own.
 
 ## Runtime configuration
 
+### Model endpoint and routing
+
+The selected workflow reads `TOOL_CALLING_LLM_MODEL_BASE_URL`,
+`TOOL_CALLING_LLM_MODEL_MODEL` and `TOOL_CALLING_LLM_MODEL_API_KEY`. Use the
+Switchyard API root ending in `/v1` and model `daedalus` for automatic routing.
+Configure its upstream provider keys in Switchyard. The bundled gateway does
+not require a caller bearer key; a non-secret placeholder can satisfy a client
+configuration that requires a nonempty value. When calling a provider directly,
+use its actual model name and credential instead.
+
+Omitting `model_profile` selects this main model. Explicit profiles resolve
+through `workflow.model_routes`, so check that each configured alias exists in
+the selected gateway profile. The full workflow configures four aliases; the
+minimal local workflow starts with one model and no explicit profile map.
+Autonomous work can have separate model settings; configure those deliberately
+when moving an installation to a gateway.
+
+Switchyard generates SSE even if a direct caller omits `stream` or sends false.
+The backend's direct model forwarding and automation planning paths consume that
+stream. The frontend compatibility API can still return an aggregated JSON
+response for a non-streaming application client.
+
+### Context services
+
 When using Daedalus Context, run its `make render-agent-env` for the selected
 environment and reconcile the output with this application's workflow and chart.
 The generated settings do not deploy the agent or provide credentials. In
@@ -186,12 +210,42 @@ from the backend pod proves reachability and protocol acceptance; also exercise
 the agent's retrieval tool and check source citations before claiming integration
 health.
 
+| Generated Context setting       | Agent Helm destination when `retrieval.enabled` is true  |
+| ------------------------------- | -------------------------------------------------------- |
+| `MILVUS_URI`                    | `retrieval.milvus.endpoint`                              |
+| `MILVUS_DATABASE`               | `retrieval.milvus.database`                              |
+| `DAEDALUS_RAG_READINESS_MODE`   | `retrieval.readiness.mode`                               |
+| `DAEDALUS_REQUIRED_COLLECTIONS` | `retrieval.readiness.requiredCollections` as a YAML list |
+
+Keep `EMBEDDING_MODEL` and `EMBEDDING_NIM_MODEL_NAME` on the same served model:
+the upload pipeline records the latter in collection metadata. Configure
+`EMBEDDING_BASE_URL`, `RERANKER_BASE_URL`, ingestion host/port and MCP URLs in the
+backend environment consumed by the workflow. Supply the matching service
+credentials through scoped Secrets. Private upload object storage belongs to
+the Agent deployment, even if curated retrieval shares Milvus or NV-Ingest.
+
+### Sandbox services and artifact delivery
+
+For v1 command execution, set `LLM_SANDBOX_BASE_URL` and
+`LLM_SANDBOX_API_KEY`, register `llm_sandbox_tool` in the workflow and permit
+the backend-to-sandbox connection in both services' network policies. Discovery
+uses `/v1/commands`; execution uses `/v1/execute`. The server's capabilities
+describe installed commands and limits. Workspaces persist only in one pod, so
+a replacement pod cannot recover files from a prior execution.
+
+File publication also needs `DAEDALUS_ARTIFACT_PUBLISH_URL`, the internal
+frontend credential and working Agent object storage. A successful execution
+or collection does not by itself create a downloadable artifact. Check the
+published link through an authenticated frontend session.
+
 For offline experiments, provision the separate exploration service before
 enabling its workflow tool. The chart defaults `exploration.enabled` to true and
 expects the `exploration-grants` Secret in the backend namespace. Installations
 without that service should disable the chart setting and remove its workflow
 registration. See [sandbox exploration](sandbox-exploration.md) for setup,
 artifact publication, async recovery and built-image checks.
+
+### Backend process and workflow
 
 `DAEDALUS_CONFIG_FILE` replaces `NAT_CONFIG_FILE` inside the backend container.
 Helm injects its mounted configuration path and `DAEDALUS_PORT`. Compose continues

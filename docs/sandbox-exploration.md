@@ -12,8 +12,10 @@ fallback between the services.
 
 ## Enable the integration
 
-Provision the service first using the sandbox repository's `deploy/exploration.py`.
-It creates the exploration control plane and synchronizes the grant-signing
+Provision the service first from the sandbox repository with
+`make deploy COMPONENTS=v2`. This builds and publishes the selected current
+sources before calling `deploy/exploration.py` to reconcile the services.
+The bootstrap creates the exploration control plane and synchronizes the grant-signing
 Secret into the `daedalus` namespace. Its bootstrap is specific to that
 installation; adapt its namespaces, storage and policy selectors for other sites.
 

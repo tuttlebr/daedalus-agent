@@ -245,8 +245,11 @@ to `daedalus`, not direct inference.
 `GET /v1/models` advertises `daedalus` and, for OpenAI clients when enabled,
 `daedalus-model`. A vendor model name in a create
 request is accepted as an alias for the agent and reported as ignored; the
-response identifies the actual model as `daedalus`. It uses automatic model
-selection. Caller model names never select a provider or grant permissions.
+response identifies the Agent alias as `daedalus`. The run uses the backend's
+configured main model without an explicit Agent profile. With a Switchyard
+main model of `daedalus`, the gateway classifies each model request; with a
+direct-provider configuration, that configured model handles the run. Caller
+model names never select a provider or grant permissions.
 
 All documented top-level create parameters are recognized. Text, caller
 instructions, streaming, and final-answer budgets affect behavior. Other
