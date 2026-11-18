@@ -13,6 +13,7 @@ import {
   planningHttpFailure,
   type PlanningFailureCode,
 } from '@/server/autonomy/planErrors';
+import { parsePlanResponse } from '@/server/autonomy/planResponse';
 import {
   parseAutomationPlan,
   validateAutomationTools,
@@ -179,18 +180,25 @@ export default async function handler(
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
+    const streaming =
+      response.headers.get('content-type')?.startsWith('text/event-stream') ===
+      true;
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         length += value.length;
-        if (length > 64 * 1024) throw new PlanningFailure('oversized_response');
+        if (length > (streaming ? 1024 * 1024 : 64 * 1024))
+          throw new PlanningFailure('oversized_response');
         chunks.push(value);
       }
     } finally {
       await reader.cancel();
     }
-    const result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const result = parsePlanResponse(
+      Buffer.concat(chunks).toString('utf8'),
+      streaming,
+    );
     const choice = result?.choices?.[0];
     const reason = choice?.message?.refusal;
     if (

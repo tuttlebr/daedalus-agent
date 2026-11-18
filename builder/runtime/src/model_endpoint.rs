@@ -114,7 +114,7 @@ pub async fn autonomy_plan(
         Do not approximate missing capabilities or hide unsupported triggers in instructions. Never change budgets, \
         service permissions, unrelated settings, rule IDs or rule lists. Titles under eight words; plain text, no markdown.";
     let request = json!({
-        "model":"daedalus-model", "stream":false, "store":false,
+        "model":"daedalus-model", "stream":true, "store":false,
         "response_format":{"type":"json_object"},
         "messages":[
             {"role":"system","content":prompt},
@@ -239,6 +239,8 @@ async fn forward(
         &configured_name
     });
     body["store"] = json!(false);
+    // Generation always streams, including stateless forwards and planning.
+    body["stream"] = json!(true);
     let url = format!(
         "{}/{path}",
         model["base_url"]
@@ -339,6 +341,7 @@ async fn forward(
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use axum::response::IntoResponse;
     use axum::{
         Router,
         body::Body,
@@ -363,11 +366,11 @@ mod tests {
                     let body: Value = serde_json::from_slice(&bytes).unwrap();
                     let catalogue = parts.uri.path() == "/runtime/v1/catalog";
                     captured.lock().unwrap().push((parts, bytes.len(), body));
-                    axum::Json(if catalogue {
-                        json!({"feed":[{"name":"feed","description":"Fixture feed","parameters":{"type":"object","properties":{}}}]})
+                    if catalogue {
+                        axum::Json(json!({"feed":[{"name":"feed","description":"Fixture feed","parameters":{"type":"object","properties":{}}}]})).into_response()
                     } else {
-                        json!({"choices":[{"finish_reason":"stop","message":{"content":"{\"type\":\"clarify\",\"message\":\"Which feed?\"}"}}]})
-                    })
+                        ([("content-type", "text/event-stream")], "data: [DONE]\n\n").into_response()
+                    }
                 }
             });
             axum::serve(listener, service).await.unwrap()
@@ -497,7 +500,7 @@ mod tests {
                         .lock()
                         .unwrap()
                         .push(serde_json::from_slice(&bytes).unwrap());
-                    axum::Json(json!({"choices":[{"finish_reason":"stop"}]}))
+                    ([("content-type", "text/event-stream")], "data: [DONE]\n\n")
                 }
             });
             axum::serve(listener, service).await.unwrap()
@@ -533,7 +536,7 @@ mod tests {
             ),
             (
                 "/internal/model/responses",
-                json!({"model":"daedalus-model","input":"hi"}),
+                json!({"model":"daedalus-model","input":"hi","stream":false}),
             ),
         ] {
             let response = app
@@ -553,6 +556,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK, "{path}");
         }
         let payloads = bodies.lock().unwrap();
+        assert!(payloads.iter().all(|body| body["stream"] == true));
         let context: Value =
             serde_json::from_str(payloads[0]["messages"][1]["content"].as_str().unwrap()).unwrap();
         assert_eq!(context["capabilities"][0]["name"], "clock");

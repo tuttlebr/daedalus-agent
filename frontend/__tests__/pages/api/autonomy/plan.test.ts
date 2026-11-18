@@ -412,3 +412,33 @@ it('checks current service tools when saving a custom automation', async () => {
   );
   expect(saveAutomationPlan).not.toHaveBeenCalled();
 });
+
+it('reads a fragmented streaming planning response and returns the validated draft', async () => {
+  const content = JSON.stringify({ type: 'clarify', message: 'Which day? 雪' });
+  const wire =
+    'data: ' +
+    JSON.stringify({
+      choices: [{ index: 0, delta: { content }, finish_reason: 'stop' }],
+    }) +
+    '\n\ndata: [DONE]\n\n';
+  const bytes = new TextEncoder().encode(wire);
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < bytes.length; i += 3)
+            controller.enqueue(bytes.slice(i, i + 3));
+          controller.close();
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    ),
+  );
+  const { req, res } = call();
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith({
+    type: 'clarify',
+    message: 'Which day? 雪',
+  });
+});

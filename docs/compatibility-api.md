@@ -189,8 +189,11 @@ tokens. In particular, it retains:
 - inline system/developer instructions, assistant tool calls, tool-result IDs,
   tool outputs, and all supplied history facts.
 
-Provider JSON and SSE bodies pass through unchanged, including tool calls,
-structured text, usage, refusals, and token-limit termination. The response's
+Direct model generation always requests streaming, including when callers omit
+`stream` or send `false`. Clients must request `stream: true` and consume SSE;
+JSON-only SDK calls are incompatible with this endpoint. SSE bodies pass through
+unchanged, including tool calls, structured text, usage, refusals, and token-limit
+termination. The response's
 `model` identifies the upstream model. There is no agent fallback or local
 text truncation. Provider rejection is returned as an error; provider diagnostic
 bodies are sanitized. An upstream `X-Daedalus-Ignored-Parameters` header causes
@@ -201,6 +204,7 @@ forwarding alone cannot guarantee model compliance.
 ```python
 response = client.responses.create(
     model="daedalus-model",
+    stream=True,
     input="Record the verified identifier A-17.",
     tools=[{
         "type": "function", "name": "record_fact", "strict": True,
@@ -212,6 +216,8 @@ response = client.responses.create(
     tool_choice={"type": "function", "name": "record_fact"},
     max_output_tokens=128,
 )
+for event in response:
+    print(event)
 ```
 
 The client executes returned function calls and resends their outputs with the

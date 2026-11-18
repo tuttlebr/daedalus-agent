@@ -143,23 +143,30 @@ class Peers:
                     .startswith("Translate the user's automation request")
                 ):
                     peers.autonomy_plans.append(body)
-                    self.reply(
+                    assert body["stream"] is True
+                    plan = json.dumps(
                         {
-                            "choices": [
-                                {
-                                    "finish_reason": "stop",
-                                    "message": {
-                                        "content": json.dumps(
-                                            {
-                                                "type": "clarify",
-                                                "message": "Should the lights change at kickoff?",
-                                            }
-                                        )
-                                    },
-                                }
-                            ]
+                            "type": "clarify",
+                            "message": "Should the lights change at kickoff?",
                         }
                     )
+                    event = {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": plan},
+                                "finish_reason": "stop",
+                            }
+                        ]
+                    }
+                    wire = (
+                        "data: " + json.dumps(event) + "\n\ndata: [DONE]\n\n"
+                    ).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Content-Length", str(len(wire)))
+                    self.end_headers()
+                    self.wfile.write(wire)
                     return
                 if body.get("metadata", {}).get("direct_contract") == "true":
                     peers.direct_requests.append((self.path, body))
@@ -1543,12 +1550,21 @@ def check(
                         },
                     )
                     assert planned.status_code == 200, planned.text
+                    assert planned.headers["content-type"].startswith(
+                        "text/event-stream"
+                    )
+                    event = json.loads(
+                        next(
+                            line[6:]
+                            for line in planned.text.splitlines()
+                            if line.startswith("data: {")
+                        )
+                    )
                     assert (
-                        json.loads(planned.json()["choices"][0]["message"]["content"])[
-                            "type"
-                        ]
+                        json.loads(event["choices"][0]["delta"]["content"])["type"]
                         == "clarify"
                     )
+                    assert "data: [DONE]" in planned.text
                     sent = peers.autonomy_plans[-1]
                     planner_context = json.loads(sent["messages"][1]["content"])
                     capabilities = planner_context["capabilities"]
@@ -1568,7 +1584,7 @@ def check(
                     assert available.status_code == 200
                     assert "current_datetime_tool" in available.json()["tools"]
                     assert "tools" not in sent and "tool_choice" not in sent
-                    assert sent["stream"] is False and sent["store"] is False
+                    assert sent["stream"] is True and sent["store"] is False
                     assert sent["model"] == "fixture"
                     assert len(peers.calls) == before, "Preview executed a tool"
                     if autonomy_plan_only:
@@ -1695,15 +1711,17 @@ def check(
                             direct_url, headers=headers, json=direct_body
                         )
                         assert result.status_code == 200, result.text
-                        assert result.json() == {
-                            "caller_tool_call": direct_body["tools"][0]
-                        }
+                        assert result.headers["content-type"].startswith(
+                            "text/event-stream"
+                        )
+                        assert "data: [DONE]" in result.text
                         assert peers.direct_requests[-1] == (
                             "/v1/" + endpoint,
                             {
                                 **direct_body,
                                 "model": config["llms"]["main"]["model_name"],
                                 "store": False,
+                                "stream": True,
                             },
                         )
                         for rejected in (
