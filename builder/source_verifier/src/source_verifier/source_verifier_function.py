@@ -444,31 +444,31 @@ async def _call_llm(
             [
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=user_prompt),
-            ]
+            ],
+            stream=True,
         )
 
-        if hasattr(result, "content"):
-            content = result.content
-            if isinstance(content, str) and content.strip():
-                return content.strip()
-            if isinstance(content, list) and content:
-                for block in content:
-                    if isinstance(block, str) and block.strip():
-                        return block.strip()
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text = block.get("text", "")
-                        if isinstance(text, str) and text.strip():
-                            return text.strip()
-        if isinstance(result, dict):
-            content = result.get("content")
-            if isinstance(content, str) and content.strip():
-                return content.strip()
-        if isinstance(result, str) and result.strip():
-            return result.strip()
+        # Switchyard streams even when a caller requests JSON. LangChain can
+        # aggregate deltas from a failed or truncated stream, so require the
+        # provider's successful terminal metadata before accepting a verdict.
+        metadata = result.response_metadata
+        if (
+            metadata.get("status") != "completed"
+            and metadata.get("finish_reason") != "stop"
+        ):
+            raise VerificationLLMError("Verification model response did not complete")
 
-        text = str(result).strip()
-        if text:
-            return text
+        content = result.content
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, str) and block.strip():
+                    return block.strip()
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
         raise VerificationLLMError("verification LLM returned an empty response")
 
     except Exception as exc:

@@ -145,6 +145,7 @@ def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
         max_source_chars=1000,
     )
     model_response = MagicMock()
+    model_response.response_metadata = {"status": "completed"}
     model_response.content = json.dumps(
         {
             "verdict": "supported",
@@ -186,6 +187,7 @@ def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
 
     assert builder.get_llm.await_args.args[0] == "portable_verifier"
     assert llm.ainvoke.await_count == 1
+    assert llm.ainvoke.await_args.kwargs == {"stream": True}
     assert result["verdict"] == "supported"
     assert result["source_reachable"] is True
     assert result["source_truncated"] is True
@@ -207,6 +209,7 @@ def test_verify_claim_returns_a_structured_error_for_bad_model_output(monkeypatc
         llm_name="portable_verifier",
     )
     model_response = MagicMock()
+    model_response.response_metadata = {"finish_reason": "stop"}
     model_response.content = "I think the claim is true."
     llm = MagicMock()
     llm.ainvoke = AsyncMock(return_value=model_response)
@@ -232,6 +235,23 @@ def test_verify_claim_returns_a_structured_error_for_bad_model_output(monkeypatc
     assert result["verdict"] == "error"
     assert result["claim_issues"] == ["verification_response_error"]
     assert result["critic"]["status"] == "error"
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [{}, {"status": "failed"}, {"status": "incomplete"}, {"finish_reason": "length"}],
+)
+def test_verification_rejects_text_from_an_unsuccessful_stream(metadata):
+    import source_verifier.source_verifier_function as mod
+
+    response = MagicMock(
+        response_metadata=metadata,
+        content='{"verdict":"supported"}',
+    )
+    llm = MagicMock(ainvoke=AsyncMock(return_value=response))
+    registry = MagicMock(get_llm=AsyncMock(return_value=llm))
+    with pytest.raises(mod.VerificationLLMError, match="did not complete"):
+        run(mod._call_llm(registry, mod.SourceVerifierConfig(), "System", "Claim"))
 
 
 def test_verify_claim_rejects_malformed_url_before_fetching(monkeypatch):
