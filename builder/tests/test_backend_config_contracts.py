@@ -544,6 +544,8 @@ def test_runtime_locks_cover_local_sources_and_registry_hashes():
         assert Version(by_name["certifi"]["version"]) >= Version("2026.10.19")
         assert by_name["cryptography"]["version"] == "50.0.0"
         assert by_name["fastfeedparser"]["version"] == "0.5.10"
+        assert "mcp>=1.30.0,<2" in requirement_text
+        assert Version("1.30.0") <= Version(by_name["mcp"]["version"]) < Version("2")
         assert (
             Version("13.0.0") <= Version(by_name["pillow"]["version"]) < Version("14")
         )
@@ -558,7 +560,6 @@ def test_runtime_locks_cover_local_sources_and_registry_hashes():
         assert not any(name.startswith("nvidia-nat") for name in by_name)
         assert "langgraph" not in by_name
         assert "autonomous-agent" in by_name
-        assert by_name["mcp"]["version"] == "1.29.1"
         assert by_name["redis"]["version"] == "5.3.1"
         assert "nemo-agent-toolkit-redis" not in by_name
         assert "moviepy" not in by_name

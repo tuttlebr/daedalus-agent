@@ -16,6 +16,7 @@ SECURITY_DEPENDENCY_RANGES = {
     "certifi": (Version("2026.10.19"), Version("2027")),
     "cryptography": (Version("50.0.0"), Version("51")),
     "fastfeedparser": (Version("0.5.10"), Version("0.6")),
+    "mcp": (Version("1.30.0"), Version("2")),
     "pillow": (Version("13.0.0"), Version("14")),
     "pyjwt": (Version("2.14"), Version("3")),
     "pyopenssl": (Version("26.4"), Version("27")),

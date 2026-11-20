@@ -10,7 +10,8 @@
 #   --format pylock.toml --output-file pylock.runtime-linux-arm64.toml \
 #   requirements-runtime.in
 
-mcp>=1.26,<2
+# CVE-2026-115563: patched OAuth issuer validation and credential binding.
+mcp>=1.30.0,<2
 uvicorn>=0.35,<1
 jsonschema>=4.25,<5
 opentelemetry-sdk>=1.36,<2
