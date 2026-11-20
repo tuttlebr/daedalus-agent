@@ -35,6 +35,13 @@ export async function handleModelRequest(
         header,
       );
   }
+  const taskId = req.headers['x-daedalus-task-id'];
+  if (
+    taskId !== undefined &&
+    (typeof taskId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(taskId))
+  ) {
+    throw invalidRequest('Invalid routing task ID.', 'x-daedalus-task-id');
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 610_000);
   timeout.unref?.();
@@ -56,6 +63,7 @@ export async function handleModelRequest(
         headers: withInternalBackendAuth({
           'Content-Type': 'application/json',
           'x-user-id': username,
+          ...(taskId === undefined ? {} : { 'x-daedalus-task-id': taskId }),
         }),
         body: JSON.stringify(body),
         signal: controller.signal,

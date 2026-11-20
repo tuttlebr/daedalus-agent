@@ -49,7 +49,7 @@ import {
   type OAuthRequest,
   PublicJobError,
   type RunUsage,
-  StreamUserCancellationError,
+  StreamInterruptionError,
   USER_CANCELLATION_MESSAGE,
 } from './types';
 
@@ -336,8 +336,8 @@ export async function startBackgroundStreamReader(
     }
   };
   let accumulatedStepCount = 0;
-  // Every step published in this run, in order. Finalization reads the
-  // persisted list back from Redis; this copy fills in if that key was lost.
+  // Every sanitized step accepted by this reader. Keep the transcript for
+  // finalization even if the live Redis checkpoint expires during a tool wait.
   const observedSteps: any[] = [];
   let pendingSteps: any[] = [];
   let partialResponse = '';
@@ -922,11 +922,10 @@ export async function startBackgroundStreamReader(
         await clearStreamState(jobId).catch(() => {});
       } else {
         await persistPendingState().catch(() => {});
-        if (control.signal.reason instanceof StreamUserCancellationError) {
+        if (control.signal.reason instanceof StreamInterruptionError) {
           control.signal.reason.snapshot = {
             response: partialResponse,
-            pendingSteps,
-            persistedStepCount,
+            intermediateSteps: observedSteps,
           };
         }
       }
@@ -953,8 +952,7 @@ export async function startBackgroundStreamReader(
           : publicStreamErrorMessage(jobId, error),
         {
           response: partialResponse,
-          pendingSteps,
-          persistedStepCount,
+          intermediateSteps: observedSteps,
         },
       ).catch((finalizeErr) => {
         logger.error(

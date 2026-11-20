@@ -34,6 +34,7 @@ import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
   ApiRouteError,
   PublicJobError,
+  StreamInterruptionError,
   StreamUserCancellationError,
   USER_CANCELLATION_MESSAGE,
   type AsyncJobRequest,
@@ -123,7 +124,7 @@ class StreamLeaseLostError extends Error {
   }
 }
 
-export class StreamWorkerDrainError extends Error {
+export class StreamWorkerDrainError extends StreamInterruptionError {
   constructor() {
     super('Stream worker is draining');
     this.name = 'StreamWorkerDrainError';
@@ -589,7 +590,7 @@ export async function processStreamQueueEntry(
         drained
           ? STARTED_BEFORE_RECLAIM_MESSAGE
           : publicFailureMessage(entry.jobId, error),
-        ...(error instanceof StreamUserCancellationError && error.snapshot
+        ...(error instanceof StreamInterruptionError && error.snapshot
           ? [error.snapshot]
           : []),
       );

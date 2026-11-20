@@ -23,8 +23,7 @@ pub mod responses;
 /// Conversation IDs are scoped by authenticated user. Requests without a
 /// conversation use their run ID, so unrelated runs never share a fixed key.
 pub fn cache_affinity_key(user: &str, conversation: &str, run_id: &str) -> String {
-    let mut hash = Sha256::new();
-    for part in [
+    identity_digest(&[
         "daedalus-cache-v1",
         user,
         if conversation.is_empty() {
@@ -37,11 +36,115 @@ pub fn cache_affinity_key(user: &str, conversation: &str, run_id: &str) -> Strin
         } else {
             conversation
         },
-    ] {
+    ])
+}
+
+fn identity_digest(parts: &[&str]) -> String {
+    let mut hash = Sha256::new();
+    for part in parts {
         hash.update((part.len() as u64).to_be_bytes());
         hash.update(part.as_bytes());
     }
     format!("{:x}", hash.finalize())
+}
+
+/// A gateway routing task is narrower than a conversation's provider affinity.
+pub fn routing_task_id(user: &str, conversation: &str, run_id: &str) -> http::HeaderValue {
+    identity_digest(&["daedalus-routing-task-v1", user, conversation, run_id])
+        .parse()
+        .expect("SHA-256 hex is a valid header")
+}
+
+/// Direct-inference callers own their tool loop. Keep their chosen key separate
+/// from managed runs and from the same key presented by another principal.
+pub fn direct_task_id(user: &str, task: &str) -> String {
+    identity_digest(&["daedalus-direct-task-v1", user, task])
+}
+
+/// State of this agent run's automatic route. Each run attaches its own
+/// middleware to a clone of the shared HTTP connection pool.
+#[derive(Clone)]
+pub struct TaskRoute {
+    id: http::HeaderValue,
+    state: std::sync::Arc<std::sync::Mutex<RoutingState>>,
+}
+
+#[derive(Default)]
+struct RoutingState {
+    target: Option<http::HeaderValue>,
+    header_received: bool,
+}
+
+impl TaskRoute {
+    pub fn new(user: &str, conversation: &str, run_id: &str) -> Self {
+        Self {
+            id: routing_task_id(user, conversation, run_id),
+            state: Default::default(),
+        }
+    }
+
+    pub fn pinned(&self) -> bool {
+        self.state.lock().unwrap().target.is_some()
+    }
+
+    pub fn completed(&self, model: Option<&str>) {
+        self.observe(model, false);
+    }
+
+    fn observe(&self, model: Option<&str>, from_header: bool) {
+        // The inbound automatic alias is never an answering target. Ignore it
+        // and malformed metadata rather than replacing an established choice.
+        if let Some(model) = model
+            && model != "daedalus"
+            && !model.is_empty()
+            && model.len() <= 512
+            && model.bytes().all(|b| b.is_ascii_graphic())
+            && let Ok(value) = http::HeaderValue::from_str(model)
+        {
+            let mut state = self.state.lock().unwrap();
+            if from_header || !state.header_received {
+                state.target = Some(value);
+                state.header_received = from_header;
+            }
+        }
+    }
+}
+
+impl rig_core::http_client::HttpMiddleware for TaskRoute {
+    fn before_request_headers<'a>(
+        &'a self,
+        _: &'a http::Method,
+        _: &'a http::Uri,
+        headers: &'a mut http::HeaderMap,
+    ) -> rig_core::wasm_compat::WasmBoxedFuture<'a, rig_core::http_client::Result<()>> {
+        headers.insert("x-switchyard-task-id", self.id.clone());
+        let mut state = self.state.lock().unwrap();
+        state.header_received = false;
+        if let Some(target) = state.target.as_ref() {
+            headers.insert("x-switchyard-previous-target", target.clone());
+        }
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn after_response<'a>(
+        &'a self,
+        _: &'a http::Method,
+        _: &'a http::Uri,
+        status: http::StatusCode,
+        headers: &'a http::HeaderMap,
+    ) -> rig_core::wasm_compat::WasmBoxedFuture<'a, rig_core::http_client::Result<()>> {
+        // Switchyard owns this header and stamps it before the first SSE frame,
+        // including when a fallback served the request.
+        if status.is_success() {
+            self.observe(
+                headers
+                    .get("x-model-router-selected-model")
+                    .and_then(|v| v.to_str().ok()),
+                true,
+            );
+        }
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 /// Switchyard relays upstream transport failures as an SSE error inside HTTP
@@ -433,6 +536,36 @@ mod tests {
                 previous = Some(key);
             }
         }
+    }
+
+    #[test]
+    fn routing_ids_scope_tasks_and_direct_callers_independently_of_affinity() {
+        let first = routing_task_id("alice", "thread", "run-1");
+        for (user, conversation, run) in [
+            ("alice", "thread", "run-2"),
+            ("alice", "other", "run-1"),
+            ("bob", "thread", "run-1"),
+        ] {
+            assert_ne!(first, routing_task_id(user, conversation, run));
+        }
+        assert_ne!(
+            first,
+            cache_affinity_key("alice", "thread", "run-1").as_str()
+        );
+        assert_ne!(
+            routing_task_id("alice", "", "key"),
+            direct_task_id("alice", "key").as_str()
+        );
+        assert_ne!(direct_task_id("alice", "key"), direct_task_id("bob", "key"));
+        let route = TaskRoute::new("user", "thread", "run");
+        route.completed(Some("daedalus"));
+        route.completed(Some("invalid\r\nheader"));
+        assert!(!route.pinned());
+        route.completed(Some("custom/tier"));
+        assert_eq!(
+            route.state.lock().unwrap().target.as_ref().unwrap(),
+            "custom/tier"
+        );
     }
 
     #[test]

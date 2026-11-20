@@ -990,7 +990,12 @@ describe('durable stream worker entry processing', () => {
     expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
   });
 
-  function runUntilAborted(options: { start?: boolean } = {}) {
+  function runUntilAborted(
+    options: {
+      start?: boolean;
+      snapshot?: { response: string; intermediateSteps: any[] };
+    } = {},
+  ) {
     mocks.startBackgroundStreamReader.mockImplementation(
       async (_jobId: string, ...args: any[]) => {
         const control = args[3];
@@ -1001,6 +1006,7 @@ describe('durable stream worker entry processing', () => {
             once: true,
           });
         });
+        if (options.snapshot) control.signal.reason.snapshot = options.snapshot;
         throw control.signal.reason;
       },
     );
@@ -1022,7 +1028,13 @@ describe('durable stream worker entry processing', () => {
   }
 
   it('reports a started run interrupted by drain under its confirmed lease', async () => {
-    runUntilAborted();
+    const snapshot = {
+      response: 'Finished first step',
+      intermediateSteps: [
+        { payload: { UUID: 'result', event_type: 'TOOL_END' } },
+      ],
+    };
+    runUntilAborted({ snapshot });
 
     await expect(drainDuringRun('owner-drain')).resolves.toBe(
       'recovered_as_error',
@@ -1037,6 +1049,7 @@ describe('durable stream worker entry processing', () => {
       'job-1',
       expect.objectContaining({ userId: 'testuser' }),
       expect.stringContaining('not replayed'),
+      snapshot,
     );
     expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
   });

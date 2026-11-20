@@ -15,6 +15,8 @@ import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
+import type { Message } from '@/types/chat';
+
 import type { AsyncJobStatus } from '@/server/chat/types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -164,7 +166,7 @@ interface PersistedJob {
 export function findCorrelatedAssistantMessage(
   messages: unknown,
   job: Pick<PersistedJob, 'jobId' | 'turnId'>,
-): any | null {
+): Message | null {
   if (!Array.isArray(messages)) return null;
   const assistants = [...messages]
     .reverse()
@@ -185,6 +187,8 @@ export function findCorrelatedAssistantMessage(
 }
 
 interface CompletionMeta {
+  /** Canonical conversation copy used when the job status has expired. */
+  savedMessage?: Message;
   turnId?: string;
   assistantMessageId?: string;
   jobId?: string;
@@ -213,6 +217,7 @@ interface UseAsyncChatOptions {
   onError?: (
     error: string,
     context?: {
+      savedMessage?: Message;
       partialResponse?: string;
       intermediateSteps?: any[];
       jobId?: string;
@@ -1005,7 +1010,7 @@ export const useAsyncChat = (
   );
 
   const findSavedResponse = useCallback(
-    async (job: PersistedJob): Promise<any | null> => {
+    async (job: PersistedJob): Promise<Message | null | undefined> => {
       try {
         const response = await fetchWithTimeout(
           `/api/conversations/${job.conversationId}`,
@@ -1014,39 +1019,55 @@ export const useAsyncChat = (
         );
         if (!response.ok) {
           await response.body?.cancel();
-          return null;
+          // Only absence or loss of access confirms there is no owned record.
+          // Leave a transient failure to the existing bounded status poller.
+          return response.status === 404 || response.status === 403
+            ? null
+            : undefined;
         }
         const conversation = await response.json();
+        if (!Array.isArray(conversation?.messages)) return undefined;
         return findCorrelatedAssistantMessage(conversation?.messages, job);
       } catch (error) {
         logger.error(
           `Failed to check conversation for job ${job.jobId}`,
           error,
         );
-        return null;
+        return undefined;
       }
     },
     [],
   );
 
   const completeFromSavedResponse = useCallback(
-    (job: PersistedJob, saved: any) => {
+    (job: PersistedJob, saved: Message) => {
       completedJobsRef.current.add(job.jobId);
-      onComplete?.(
-        saved.content,
-        saved.intermediateSteps,
-        Date.now(),
-        job.conversationId,
-        {
-          turnId: saved.metadata?.turnId || job.turnId,
-          assistantMessageId: saved.id || job.assistantMessageId,
-          jobId: job.jobId,
-          generationDurationMs: saved.generationDurationMs,
-          persisted: true,
-        },
-      );
+      const meta = {
+        savedMessage: saved,
+        turnId: saved.metadata?.turnId || job.turnId,
+        assistantMessageId: saved.id || job.assistantMessageId,
+        jobId: job.jobId,
+        generationDurationMs: saved.generationDurationMs,
+        persisted: true,
+      };
+      if (saved.errorMessages?.message) {
+        onError?.(saved.errorMessages.message, {
+          ...meta,
+          conversationId: job.conversationId,
+          partialResponse: saved.content,
+          intermediateSteps: saved.intermediateSteps,
+        });
+      } else {
+        onComplete?.(
+          saved.content,
+          saved.intermediateSteps,
+          Date.now(),
+          job.conversationId,
+          meta,
+        );
+      }
     },
-    [onComplete],
+    [onComplete, onError],
   );
 
   // The status record no longer exists (it expires an hour after its last
@@ -1067,6 +1088,7 @@ export const useAsyncChat = (
       try {
         const saved = await findSavedResponse(job);
         if (
+          saved === undefined ||
           !isComponentMountedRef.current ||
           !activeJobsRef.current[jobId] ||
           completedJobsRef.current.has(jobId)

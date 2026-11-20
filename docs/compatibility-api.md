@@ -221,7 +221,14 @@ for event in response:
 ```
 
 The client executes returned function calls and resends their outputs with the
-inline history. Direct requests do not read or modify saved Daedalus histories
+inline history. When the configured upstream is the automatic Switchyard
+`daedalus` route, supply the same `X-Daedalus-Task-ID` on each request in
+that tool loop to keep the gateway's routing choice. Start a new task with
+a fresh ID. Valid IDs contain 1–128 ASCII letters, digits, hyphens, underscores,
+periods or colons. The backend scopes the key to the authenticated principal.
+The direct endpoint relies on Switchyard's per-replica task cache. A cold
+replica can select the route again. The header carries routing identity only.
+Direct requests do not read or modify saved Daedalus histories
 or memories, and cannot execute Daedalus's internal tools. Verify a provider
 with a named tool call, a strict JSON schema, and a small token budget for each
 API before configuring clients to depend on it.
@@ -247,8 +254,10 @@ to `daedalus`, not direct inference.
 request is accepted as an alias for the agent and reported as ignored; the
 response identifies the Agent alias as `daedalus`. The run uses the backend's
 configured main model without an explicit Agent profile. With a Switchyard
-main model of `daedalus`, the gateway classifies each model request; with a
-direct-provider configuration, that configured model handles the run. Caller
+main model of `daedalus`, the gateway chooses a target for the run. Tool
+continuations, retries and steering within that run keep its selection.
+A new run receives a fresh choice. With a direct-provider configuration the
+configured model handles the run. Caller
 model names never select a provider or grant permissions.
 
 All documented top-level create parameters are recognized. Text, caller

@@ -224,9 +224,6 @@ async fn forward(
             "Model requests do not support saved conversations or idempotency keys",
         );
     }
-    let Some(slot) = Slot::acquire(user) else {
-        return error(429, "Model request capacity reached");
-    };
     let model = config.main_model();
     let configured_name = if require_compat_enabled {
         config.variable("DAEDALUS_COMPAT_MODEL_NAME", "")
@@ -238,6 +235,20 @@ async fn forward(
     } else {
         &configured_name
     });
+    let task_id = if require_compat_enabled && let Some(id) = headers.get("x-daedalus-task-id") {
+        let Ok(id) = id.to_str() else {
+            return error(400, "Invalid routing task ID");
+        };
+        if !crate::valid_id(id) || headers.get_all("x-daedalus-task-id").iter().count() != 1 {
+            return error(400, "Invalid routing task ID");
+        }
+        (body["model"] == "daedalus").then(|| crate::provider::direct_task_id(&user, id))
+    } else {
+        None
+    };
+    let Some(slot) = Slot::acquire(user) else {
+        return error(429, "Model request capacity reached");
+    };
     body["store"] = json!(false);
     // Generation always streams, including stateless forwards and planning.
     body["stream"] = json!(true);
@@ -259,15 +270,15 @@ async fn forward(
         endpoint = path,
         streaming = body["stream"] == true,
     );
-    let upstream = match HTTP
+    let mut request = HTTP
         .post(url)
         .bearer_auth(model["api_key"].as_str().unwrap_or(""))
         .header("x-request-id", &call_id)
-        .header("x-switchyard-request-id", &call_id)
-        .json(&body)
-        .send()
-        .await
-    {
+        .header("x-switchyard-request-id", &call_id);
+    if let Some(id) = task_id {
+        request = request.header("x-switchyard-task-id", id);
+    }
+    let upstream = match request.json(&body).send().await {
         Ok(response) => response,
         Err(_) => {
             tracing::warn!(
@@ -468,7 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn forwards_carry_one_opaque_correlation_id_per_request() {
-        let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let recorder = seen.clone();
         let bodies = Arc::new(Mutex::new(Vec::<Value>::new()));
         let captured = bodies.clone();
@@ -479,20 +490,7 @@ mod tests {
                 let recorder = recorder.clone();
                 let captured = captured.clone();
                 async move {
-                    {
-                        let header = |name: &str| {
-                            request
-                                .headers()
-                                .get(name)
-                                .and_then(|value| value.to_str().ok())
-                                .unwrap_or("")
-                                .to_owned()
-                        };
-                        recorder
-                            .lock()
-                            .unwrap()
-                            .push((header("x-request-id"), header("x-switchyard-request-id")));
-                    }
+                    recorder.lock().unwrap().push(request.headers().clone());
                     let bytes = axum::body::to_bytes(request.into_body(), 1024 * 1024)
                         .await
                         .unwrap();
@@ -506,7 +504,7 @@ mod tests {
             axum::serve(listener, service).await.unwrap()
         });
         let config = crate::config::Config::new(
-            json!({"llms":{"main":{"base_url":base,"api_key":"synthetic","model_name":"fixture"}},
+            json!({"llms":{"main":{"base_url":base,"api_key":"synthetic","model_name":"daedalus"}},
                 "functions":{"clock":{"_type":"current_datetime","description":"Current time"}},
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["clock"]}}),
             [
@@ -548,6 +546,8 @@ mod tests {
                         .header("x-user-id", "synthetic-user")
                         // A caller cannot choose the upstream correlation.
                         .header("x-request-id", "caller-supplied")
+                        .header("x-daedalus-task-id", "shared-task")
+                        .header("x-switchyard-previous-target", "max")
                         .body(Body::from(body.to_string()))
                         .unwrap(),
                 )
@@ -564,13 +564,20 @@ mod tests {
         peer.abort();
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 3);
-        for (request_id, gateway_id) in seen.iter() {
-            assert_eq!(request_id, gateway_id);
+        for headers in seen.iter() {
+            let request_id = headers["x-request-id"].to_str().unwrap();
+            assert_eq!(headers["x-switchyard-request-id"], request_id);
             assert_eq!(request_id.len(), 67);
             assert!(request_id.starts_with("dc-"));
             assert!(request_id[3..].bytes().all(|b| b.is_ascii_hexdigit()));
+            assert!(!headers.contains_key("x-switchyard-previous-target"));
+            assert!(!headers.contains_key("x-daedalus-task-id"));
         }
-        assert_ne!(seen[0].0, seen[1].0);
-        assert_ne!(seen[1].0, seen[2].0);
+        assert_ne!(seen[0]["x-request-id"], seen[1]["x-request-id"]);
+        assert_ne!(seen[1]["x-request-id"], seen[2]["x-request-id"]);
+        assert!(!seen[0].contains_key("x-switchyard-task-id"));
+        let task = crate::provider::direct_task_id("synthetic-user", "shared-task");
+        assert_eq!(seen[1]["x-switchyard-task-id"], task);
+        assert_eq!(seen[2]["x-switchyard-task-id"], task);
     }
 }

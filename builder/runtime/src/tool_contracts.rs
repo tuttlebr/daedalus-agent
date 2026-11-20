@@ -237,6 +237,29 @@ impl Catalog {
         Ok(true)
     }
 
+    /// Adopt one discovery result atomically. Identical definitions may already
+    /// be available, so roll back only names introduced by this result.
+    pub fn add_discovered(
+        &mut self,
+        available: &mut Vec<ToolDefinition>,
+        discovered: Vec<ToolDefinition>,
+    ) -> Result<()> {
+        let start = available.len();
+        for tool in discovered {
+            match self.add(&tool) {
+                Ok(true) => available.push(tool),
+                Ok(false) => {}
+                Err(error) => {
+                    for added in available.drain(start..) {
+                        self.entries.remove(&added.name);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn check_batch(
         &mut self,
         calls: &[ToolCall],
@@ -424,6 +447,33 @@ mod tests {
         changed.name = "other".into();
         changed.description.clear();
         assert!(catalog.add(&changed).is_err());
+    }
+
+    #[test]
+    fn corrected_discovery_registers_rolled_back_names() {
+        let mut catalog = Catalog::default();
+        let mut offered = vec![tool()];
+        catalog.add(&offered[0]).unwrap();
+        let mut new = tool();
+        new.name = "new".into();
+        let mut conflicting = tool();
+        conflicting.description = "An incompatible definition.".into();
+        assert!(
+            catalog
+                .add_discovered(&mut offered, vec![tool(), new.clone(), conflicting])
+                .is_err()
+        );
+        assert_eq!(offered.len(), 1);
+        catalog
+            .add_discovered(&mut offered, vec![tool(), new])
+            .unwrap();
+        assert_eq!(
+            offered
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read", "new"]
+        );
     }
 
     #[test]

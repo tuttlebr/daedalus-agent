@@ -520,7 +520,9 @@ test('keeps pending OAuth visible through sibling output and preserves that outp
       response.url().endsWith('/api/chat/async'),
   );
   await sendMessage(page, 'E2E_OAUTH_SIBLING');
-  const { jobId } = await (await created).json();
+  const submission = await created;
+  const { jobId } = await submission.json();
+  const { conversationId } = submission.request().postDataJSON();
   const connect = page.getByRole('button', {
     name: 'Connect Google Workspace',
     exact: true,
@@ -537,6 +539,18 @@ test('keeps pending OAuth visible through sibling output and preserves that outp
     status: 'oauth_required',
     oauthState: 'e2e-pending',
   });
+  expect(waiting.intermediateSteps).toHaveLength(1);
+  expect(JSON.stringify(waiting.intermediateSteps)).toContain(
+    'Sibling research finished while authorization waits.',
+  );
+  // Lose the disposable live checkpoint while its stream reader still owns
+  // this run. Neither Stop nor a later reload should discard completed work.
+  const redis = new Redis(redisUrl);
+  try {
+    expect(await redis.del(`async-job-steps-v2:${jobId}`)).toBe(1);
+  } finally {
+    await redis.quit();
+  }
   await page.getByRole('button', { name: 'Stop generating' }).click();
   await expect
     .poll(
@@ -552,9 +566,16 @@ test('keeps pending OAuth visible through sibling output and preserves that outp
     (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
   );
   expect(stopped.partialResponse).toBe(answer);
+  expect(stopped.intermediateSteps).toEqual(waiting.intermediateSteps);
   await expect(connect).toBeHidden();
   await page.reload();
   await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  const saved = JSON.parse(
+    (await browserGet(page, `/api/conversations/${conversationId}`)).body,
+  );
+  expect(saved.messages.at(-1).intermediateSteps).toEqual(
+    waiting.intermediateSteps,
+  );
 });
 
 for (const hasText of [true, false]) {
@@ -623,6 +644,96 @@ for (const hasText of [true, false]) {
     ).toBeVisible();
   });
 }
+
+test('recovers a saved partial turn when its status expired during a history outage', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/chat/async'),
+  );
+  await sendMessage(page, 'E2E_LATE_ERROR');
+  const submission = await accepted;
+  const { jobId } = await submission.json();
+  const { conversationId, turnId, assistantMessageId } = submission
+    .request()
+    .postDataJSON();
+  const historyPath = `/api/conversations/${conversationId}`;
+  const alert = page.getByRole('alert').filter({
+    hasText: 'The response ended before it was complete.',
+  });
+  await expect(alert).toBeVisible();
+  await page.reload();
+  await expect(alert).toBeVisible();
+  const saved = JSON.parse((await browserGet(page, historyPath)).body);
+  const redis = new Redis(redisUrl);
+  try {
+    expect(await redis.del(`async-job-status:${jobId}`)).toBe(1);
+  } finally {
+    await redis.quit();
+  }
+
+  // Resume a tab that missed completion. Its first history read receives a
+  // transient 503. Later requests go through the real authenticated routes.
+  const counts = await page.evaluateHandle(
+    ({ historyPath, jobId, conversationId, turnId, assistantMessageId }) => {
+      const counts = { reads: 0, writes: 0 };
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (url, init) => {
+        const path = new URL(
+          url instanceof Request ? url.url : String(url),
+          location.href,
+        ).pathname;
+        if (path === historyPath && (!init?.method || init.method === 'GET')) {
+          if (++counts.reads === 1) {
+            return Promise.resolve(new Response(null, { status: 503 }));
+          }
+        }
+        if (
+          (path === historyPath && init?.method === 'PUT') ||
+          (path === '/api/chat/async' && init?.method === 'POST')
+        )
+          counts.writes++;
+        return originalFetch(url, init);
+      };
+      localStorage.setItem(
+        'asyncJobs_e2e-user',
+        JSON.stringify([
+          {
+            jobId,
+            conversationId,
+            turnId,
+            assistantMessageId,
+            userId: 'e2e-user',
+            timestamp: Date.now(),
+          },
+        ]),
+      );
+      document.dispatchEvent(new Event('visibilitychange'));
+      return counts;
+    },
+    { historyPath, jobId, conversationId, turnId, assistantMessageId },
+  );
+  await expect
+    .poll(() => counts.evaluate((v) => v.reads))
+    .toBeGreaterThanOrEqual(2);
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('asyncJobs_e2e-user')))
+    .toBe('[]');
+  await expect(alert).toBeVisible();
+  await expect(
+    page.getByText('Response interrupted', { exact: true }),
+  ).toBeAttached();
+  await expect(
+    page.getByText(saved.messages.at(-1).content, { exact: true }),
+  ).toBeVisible();
+  const recovered = JSON.parse((await browserGet(page, historyPath)).body);
+  expect(recovered.messages.at(-1)).toEqual(saved.messages.at(-1));
+  expect(await counts.evaluate((v) => v.writes)).toBe(0);
+});
 
 for (const truncated of [false, true]) {
   test(`preserves formatted output after ${

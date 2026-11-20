@@ -1200,6 +1200,13 @@ class Peers:
                         "output_tokens_details": {"reasoning_tokens": 0},
                     },
                 }
+                if scenario == "DEFERRED_DISCOVERY":
+                    # Same run with missing, explicit zero, then a cache hit.
+                    details = response["usage"]
+                    if result_count == 0:
+                        del details["input_tokens_details"]
+                    elif result_count == 2:
+                        details["input_tokens_details"]["cached_tokens"] = 1
                 self.event(
                     {
                         "type": "response.incomplete"
@@ -2811,6 +2818,24 @@ def check(
                         and record.get("span", {}).get("run_id") == "basic-run"
                         for record in records
                     ), name
+                discovery_metrics = [
+                    record["fields"]
+                    for record in records
+                    if record.get("span", {}).get("run_id") == "discovery-run"
+                ]
+                assert [
+                    event.get("cached_tokens")
+                    for event in discovery_metrics
+                    if event["event"] == "model_call_finished"
+                ] == [None, 0, 1]
+                discovery_total = next(
+                    event
+                    for event in discovery_metrics
+                    if event["event"] == "run_finished"
+                )
+                assert "cached_tokens" not in discovery_total
+                assert discovery_total["reported_cached_usage_calls"] == 2
+                assert discovery_total["reported_cached_tokens"] == 1
                 if preparation == "python":
                     assert any(
                         event.get("event") == "tool_execution_finished"

@@ -228,16 +228,9 @@ impl Agent {
         Ok(())
     }
 
-    /// Attaches runtime guidance to the transcript without opening a new user
-    /// turn. Routing gateways judge a trailing user message as a fresh user
-    /// request and may move the conversation to another provider, which can
-    /// reject the current provider's retained reasoning state. Guidance that
-    /// follows tool results therefore rides inside the last tool result and
-    /// keeps the request a tool continuation. Only a transcript that ends
-    /// without a tool result (the first round, or resumed assistant text)
-    /// falls back to a user message, where a judged turn already exists or no
-    /// other carrier is available. Steering is a real user direction and
-    /// never uses this path.
+    /// Preserve tool-result bindings by attaching recovery guidance to the last
+    /// receipt when one exists. A transcript ending in a partial assistant
+    /// answer or a first-round request needs a new user message instead.
     fn attach_guidance(history: &mut Vec<Message>, guidance: &str) {
         if let Some(Message::User { content }) = history.last_mut()
             && let Some(UserContent::ToolResult(result)) = content.last_mut()
@@ -369,6 +362,14 @@ impl Agent {
             .with_route(route)
             .client();
         let mut model_name = prepared.model.model_name.clone();
+        let task_route = crate::provider::TaskRoute::new(
+            &self.handle.user,
+            &self.handle.conversation,
+            &self.events.run_id,
+        );
+        let automatic_provider = provider
+            .clone()
+            .with_http(rig_reqwest::shared().with_middleware(task_route.clone()));
         let mut catalog = crate::tool_contracts::Catalog::default();
         for tool in &prepared.tools {
             if !catalog.add(tool)? {
@@ -591,17 +592,19 @@ impl Agent {
                 total_timeout_seconds = total_timeout,
                 final_synthesis
             );
-            let model = provider.completion(&model_name);
-            let model = rig_core::driver::Model::new(
-                crate::provider::CompatibleOpenAi::for_session(
-                    model.wire,
-                    &self.handle.user,
-                    &self.handle.conversation,
-                    &self.events.run_id,
-                )
-                .with_call_id(&correlation_id),
-                model.transport,
-            );
+            let model = if model_name == "daedalus" {
+                automatic_provider.completion(&model_name)
+            } else {
+                provider.completion(&model_name)
+            };
+            let wire = crate::provider::CompatibleOpenAi::for_session(
+                model.wire,
+                &self.handle.user,
+                &self.handle.conversation,
+                &self.events.run_id,
+            )
+            .with_call_id(&correlation_id);
+            let model = rig_core::driver::Model::new(wire, model.transport);
             let mut stream = model.stream(request).context(Phase("model_request"))?;
             let idle = tokio::time::sleep(inactivity);
             tokio::pin!(idle);
@@ -823,6 +826,11 @@ impl Agent {
                 return Err(anyhow::anyhow!("Model response did not complete")
                     .context(Phase("model_finish")));
             }
+            // A proxy can strip the HTTP route header while preserving the
+            // selected model in the successful Chat or Responses body.
+            if model_name == "daedalus" {
+                task_route.completed(completed.model.as_deref());
+            }
             let mut calls: Vec<_> = completed.tool_calls().cloned().collect();
             tracing::info!(
                 event = "model_call_finished",
@@ -832,6 +840,7 @@ impl Agent {
                 tool_calls = calls.len(),
                 usage_reported = completed.usage.is_reported(),
                 input_tokens = completed.usage.input_tokens,
+                cached_tokens = completed.usage.cached_input_tokens,
                 output_tokens = completed.usage.output_tokens
             );
             self.drain().await?;
@@ -1188,54 +1197,67 @@ impl Agent {
                         )
                         .await
                         .context(Phase("tool_request"));
-                        match &result {
-                            Ok(outcome) => tracing::info!(
-                                event = "tool_call_finished",
-                                tool_call,
-                                tool = label(&name),
-                                elapsed_ms = started.elapsed().as_millis() as u64,
-                                is_error = outcome.is_error,
-                                terminal = outcome.terminal,
-                                output_bytes = outcome.content.len(),
-                                approval_required = outcome.terminal
-                                    && outcome.terminal_reason == "mcp_approval_required"
-                            ),
-                            Err(error) => {
-                                let details = crate::logging::failure(error);
-                                tracing::warn!(
-                                    event = "tool_call_failed",
-                                    tool_call,
-                                    tool = label(&name),
-                                    elapsed_ms = started.elapsed().as_millis() as u64,
-                                    error_kind = details.kind,
-                                    http_status = details.status
-                                );
-                            }
-                        }
-                        (call, result)
+                        (
+                            call,
+                            tool_call,
+                            started.elapsed().as_millis() as u64,
+                            result,
+                        )
                     });
                 }
                 if active.is_empty() {
                     continue;
                 }
-                let (call, outcome) = tokio::select! {
+                let (call, tool_call, elapsed_ms, outcome) = tokio::select! {
                     biased;
                     Some(command) = self.inbox.recv() => { self.accept(command).await?; continue; }
                     Some(result) = active.next() => result,
                     _ = self.events.sender.closed() => bail!("Client disconnected"),
                 };
+                // A discovery call succeeds only when the returned definitions can
+                // join this run's catalog. Bind a rejected catalog to its call
+                // before acknowledging success or changing the model route.
+                let outcome = outcome.and_then(|mut outcome| {
+                    catalog
+                        .add_discovered(&mut prepared.tools, std::mem::take(&mut outcome.tools))
+                        .context(Phase("tool_discovery"))?;
+                    Ok(outcome)
+                });
                 // One call's transport or decoding failure is that call's result,
                 // not the run's: ending the run here would drop the sibling calls
                 // still in flight (their remote effects unknown) and lose results
                 // that completed but were not yet collected. Only a disconnected
                 // client ends the run.
+                let name = call.function.name.to_string();
                 let mut outcome = match outcome {
-                    Ok(outcome) => outcome,
-                    Err(error) if error.root_cause().to_string() == "Client disconnected" => {
-                        return Err(error);
+                    Ok(outcome) => {
+                        tracing::info!(
+                            event = "tool_call_finished",
+                            tool_call,
+                            tool = label(&name),
+                            elapsed_ms,
+                            is_error = outcome.is_error,
+                            terminal = outcome.terminal,
+                            output_bytes = outcome.content.len(),
+                            approval_required = outcome.terminal
+                                && outcome.terminal_reason == "mcp_approval_required"
+                        );
+                        outcome
                     }
                     Err(error) => {
                         let details = crate::logging::failure(&error);
+                        tracing::warn!(
+                            event = "tool_call_failed",
+                            tool_call,
+                            tool = label(&name),
+                            elapsed_ms,
+                            phase = details.phase,
+                            error_kind = details.kind,
+                            http_status = details.status
+                        );
+                        if error.root_cause().to_string() == "Client disconnected" {
+                            return Err(error);
+                        }
                         // Transport failures name only their kind; the runtime's
                         // own fixed messages carry no private values.
                         let reason = if details.kind == "application" {
@@ -1253,7 +1275,6 @@ impl Agent {
                         }
                     }
                 };
-                let name = call.function.name.to_string();
                 if !outcome.is_error && !outcome.terminal {
                     requirement.succeeded(&name);
                     if charter_task.is_some()
@@ -1299,7 +1320,9 @@ impl Agent {
                     {
                         executor_states.insert(group.clone(), outcome.executor_state.clone());
                     }
-                    if let Some(preparation) = &preparation {
+                    if !task_route.pinned()
+                        && let Some(preparation) = &preparation
+                    {
                         // A leaf reports successful skill loading; only Rust resolves routing policy.
                         let selection = selection.as_mut().unwrap();
                         outcome.model_profile =
@@ -1326,12 +1349,8 @@ impl Agent {
                 if outcome.terminal && terminal.is_none() {
                     terminal = Some((outcome.content.clone(), outcome.terminal_reason));
                 }
-                for tool in outcome.tools {
-                    if catalog.add(&tool)? {
-                        prepared.tools.push(tool);
-                    }
-                }
-                if let Some(profile) = &outcome.model_profile
+                if !task_route.pinned()
+                    && let Some(profile) = &outcome.model_profile
                     && !prepared.explicit_model_profile
                     && let Some(alias) = prepared.model_routes.get(profile)
                 {
@@ -1924,6 +1943,7 @@ mod tests {
     #[derive(Default)]
     struct Model {
         scripts: StdMutex<VecDeque<Option<Vec<Value>>>>,
+        headers: StdMutex<Vec<HeaderMap>>,
         requests: StdMutex<Vec<Value>>,
         tool_calls: StdMutex<Vec<Value>>,
     }
@@ -1982,6 +2002,18 @@ mod tests {
         // Like the Python service, report the state for the next call.
         let mut result = json!({"event":"result","data":{"content":format!("result for {query}"),
             "executor_state":{"last_query":query}}});
+        if matches!(query.as_str(), "invalid catalog" | "conflicting catalog") {
+            let bad = if query == "invalid catalog" {
+                json!({"name":"broken","description":"Broken schema.","parameters":{"type":7}})
+            } else {
+                json!({"name":"lookup_tool","description":"Conflicting definition.","parameters":{}})
+            };
+            result["data"]["tools"] = json!([
+                {"name":"new_tool","description":"New tool.","parameters":{"type":"object"}},
+                bad
+            ]);
+            result["data"]["content"] = json!("Discovered fixture tools.");
+        }
         if query == "artifact" {
             // A validated artifact ends the round like the Python service's
             // terminal renderer result.
@@ -1997,14 +2029,27 @@ mod tests {
 
     async fn respond(
         State(model): State<Arc<Model>>,
+        headers: HeaderMap,
         Json(body): Json<Value>,
     ) -> axum::response::Response {
+        model.headers.lock().unwrap().push(headers);
         model.requests.lock().unwrap().push(body);
         let script = model.scripts.lock().unwrap().pop_front();
         // `None` holds the response open until the client gives up.
         let Some(Some(events)) = script else {
             return std::future::pending().await;
         };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            http::HeaderValue::from_static("text/event-stream"),
+        );
+        if let Some(target) = events
+            .first()
+            .and_then(|event| event["__selected_target"].as_str())
+        {
+            headers.insert("x-model-router-selected-model", target.parse().unwrap());
+        }
         // `__pause_ms` delays the next event; `__stall` keeps the body open.
         if events
             .iter()
@@ -2023,7 +2068,7 @@ mod tests {
                 }
             });
             return (
-                [(http::header::CONTENT_TYPE, "text/event-stream")],
+                headers,
                 axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(
                     receiver,
                 )),
@@ -2034,7 +2079,7 @@ mod tests {
             .iter()
             .map(|event| format!("data: {event}\n\n"))
             .collect();
-        ([(http::header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+        (headers, body).into_response()
     }
 
     async fn catalogue() -> Json<Value> {
@@ -2115,6 +2160,7 @@ mod tests {
     }
 
     struct Outcome {
+        headers: Vec<HeaderMap>,
         requests: Vec<Value>,
         tool_calls: Vec<Value>,
         stream: String,
@@ -2259,14 +2305,107 @@ mod tests {
         }
         let stream = collector.await.unwrap();
         peer.abort();
+        let headers = model.headers.lock().unwrap().clone();
         let requests = model.requests.lock().unwrap().clone();
         let tool_calls = model.tool_calls.lock().unwrap().clone();
         Outcome {
+            headers,
             requests,
             tool_calls,
             stream,
             result,
         }
+    }
+
+    #[tokio::test]
+    async fn automatic_routing_keeps_the_served_target_through_steering_and_fallback() {
+        let lookup = |id, target| {
+            let mut events =
+                completed(vec![call(id, "lookup_tool", r#"{"query":"alpha"}"#)]).unwrap();
+            for event in &mut events {
+                if let Some(response) = event.get_mut("response") {
+                    response["model"] = json!(target);
+                }
+            }
+            Some(events)
+        };
+        let outcome = run_scripted(
+            json!({"lookup_tool":{"_type":"rss_feed"}}),
+            json!({"tools":["lookup_tool"]}),
+            "Look things up",
+            vec![
+                lookup("one", "low"),
+                None,
+                lookup("two", "high"),
+                completed(vec![text("Done.")]),
+            ],
+            json!({"model_name":"daedalus"}),
+            Some((2, "Use both results.")),
+            json!({}),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(outcome.tool_calls.len(), 2);
+        let task = crate::provider::routing_task_id(
+            "synthetic-user",
+            "synthetic-conversation",
+            "synthetic-run",
+        );
+        assert_eq!(outcome.headers.len(), 4);
+        for (headers, expected) in
+            outcome
+                .headers
+                .iter()
+                .zip([None, Some("low"), Some("low"), Some("high")])
+        {
+            assert_eq!(headers["x-switchyard-task-id"], task);
+            assert_eq!(
+                headers
+                    .get("x-switchyard-previous-target")
+                    .map(|v| v.to_str().unwrap()),
+                expected
+            );
+        }
+        assert!(
+            outcome
+                .requests
+                .iter()
+                .all(|body| body["model"] == "daedalus")
+        );
+        assert!(
+            outcome.requests[3]["input"]
+                .to_string()
+                .contains("result for alpha")
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_after_partial_first_response_reuses_gateway_header_without_executing_tools() {
+        let mut broken = paced(&["Partial."], 0, true).unwrap();
+        broken[0]["__selected_target"] = json!("custom/precision");
+        let outcome = run_scripted(
+            json!({}),
+            json!({}),
+            "Answer briefly",
+            vec![Some(broken), completed(vec![text("Done.")])],
+            json!({"model_name":"daedalus","max_retries":1,"request_timeout":1}),
+            None,
+            json!({}),
+        )
+        .await;
+        outcome.result.unwrap();
+        assert!(outcome.tool_calls.is_empty());
+        assert_eq!(outcome.headers.len(), 2);
+        assert!(!outcome.headers[0].contains_key("x-switchyard-previous-target"));
+        assert_eq!(
+            outcome.headers[1]["x-switchyard-previous-target"],
+            "custom/precision"
+        );
+        assert!(
+            outcome.requests[1]["input"]
+                .to_string()
+                .contains("Partial.")
+        );
     }
 
     fn clocks() -> Value {
@@ -2789,6 +2928,116 @@ mod tests {
         assert!(input.contains("Tool failed (http_status)"), "{input}");
         assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
         assert!(!outcome.stream.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn rejected_discovery_preserves_sibling_results_and_existing_catalog() {
+        for query in ["invalid catalog", "conflicting catalog"] {
+            let outcome = run(
+                json!({"lookup_tool":{"_type":"rss_feed"}}),
+                json!({"tools":["lookup_tool"]}),
+                "Look things up",
+                vec![
+                    completed(vec![
+                        call("before", "lookup_tool", r#"{"query":"alpha"}"#),
+                        call(
+                            "discovery",
+                            "lookup_tool",
+                            &json!({"query":query}).to_string(),
+                        ),
+                        call("after", "lookup_tool", r#"{"query":"beta"}"#),
+                    ]),
+                    completed(vec![text("Finished with both results.")]),
+                ],
+            )
+            .await;
+            outcome.result.unwrap();
+            assert_eq!(outcome.tool_calls.len(), 3);
+            assert_eq!(outcome.requests.len(), 2);
+            assert_eq!(tool_names(&outcome.requests[1]), ["lookup_tool"]);
+            let input = outcome.requests[1]["input"].as_array().unwrap();
+            let output = |id: &str| {
+                input
+                    .iter()
+                    .find(|item| item["type"] == "function_call_output" && item["call_id"] == id)
+                    .unwrap()["output"]
+                    .as_str()
+                    .unwrap()
+            };
+            assert_eq!(output("before"), "result for alpha");
+            assert_eq!(output("after"), "result for beta");
+            let failure: Value = serde_json::from_str(output("discovery")).unwrap();
+            assert_eq!(failure["status"], "error");
+            assert!(
+                failure["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Tool catalog")
+            );
+            assert!(!outcome.stream.contains("Discovered fixture tools."));
+            assert!(outcome.stream.contains("Finished with both results."));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_discovery_does_not_satisfy_required_tool() {
+        // A scoped subscriber can lose callsites that a parallel test first
+        // registers on a thread without a subscriber. Run the same scenario
+        // with the real process-wide logger so its terminal events are isolated.
+        const CHILD: &str = "DAEDALUS_TEST_DISCOVERY_LOG_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            crate::logging::init();
+            let outcome = run_scripted(
+                json!({"lookup_tool":{"_type":"rss_feed"}}),
+                json!({"tools":["lookup_tool"]}),
+                "Look it up",
+                vec![
+                    completed(vec![call(
+                        "broken",
+                        "lookup_tool",
+                        r#"{"query":"invalid catalog"}"#,
+                    )]),
+                    completed(vec![call("good", "lookup_tool", r#"{"query":"alpha"}"#)]),
+                    completed(vec![text("Done.")]),
+                ],
+                json!({}),
+                None,
+                json!({"tool_choice":"required"}),
+            )
+            .await;
+            outcome.result.unwrap();
+            assert_eq!(outcome.requests[1]["tool_choice"], "required");
+            assert_eq!(outcome.requests[2]["tool_choice"], "auto");
+            return;
+        }
+        let test = std::thread::current();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test.name().unwrap(), "--nocapture"])
+            .env(CHILD, "1")
+            .env("RUST_LOG", "daedalus_runtime::agent=info")
+            .output()
+            .unwrap();
+        let log = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            output.status.success(),
+            "{log}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let terminals: Vec<Value> = log
+            .lines()
+            .filter(|line| line.starts_with('{'))
+            .map(|line| serde_json::from_str::<Value>(line).unwrap()["fields"].clone())
+            .filter(|event| {
+                event["tool_call"] == 1
+                    && matches!(
+                        event["event"].as_str(),
+                        Some("tool_call_failed" | "tool_call_finished")
+                    )
+            })
+            .collect();
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0]["event"], "tool_call_failed");
+        assert_eq!(terminals[0]["phase"], "tool_discovery");
     }
 
     #[tokio::test]

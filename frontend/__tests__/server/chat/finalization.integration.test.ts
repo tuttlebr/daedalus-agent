@@ -1015,7 +1015,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
       }
     });
 
-    it('finalizes a turn in six serial round trips without reading back the journal or selection', async () => {
+    it('finalizes a running stream in six serial round trips without rereading its steps', async () => {
       const { recordRedisLayers } = await import('../../fixtures/redisLayers');
       const { reserveConversationForUser } = await import(
         '@/server/session/conversationStore'
@@ -1035,11 +1035,8 @@ describe.skipIf(!RUN_REAL_REDIS)(
         120,
       );
       await redis.jsonSetWithExpiry(selectedKey, { id: fastConversation }, 120);
-      await streamState.appendStreamSteps(
-        fastJob,
-        [{ id: 'step', payload: { event_type: 'TOOL_END' } }],
-        0,
-      );
+      const steps = [{ id: 'step', payload: { event_type: 'TOOL_END' } }];
+      await streamState.appendStreamSteps(fastJob, steps, 0);
       const recorder = recordRedisLayers(client);
       try {
         await expect(
@@ -1055,6 +1052,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
               assistantMessageId: 'fast-answer',
             },
             'Hello.',
+            steps,
           ),
         ).resolves.toBe(true);
       } finally {
@@ -1069,7 +1067,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
             : command.name,
         ]);
       expect([...byLayer.values()].map((layer) => layer.sort())).toEqual([
-        ['LRANGE', 'READ_JOB_STATUS_SNAPSHOT'],
+        ['READ_JOB_STATUS_SNAPSHOT'],
         // The winning claim takes the finalizer lock in the same commit.
         ['CLAIM_TERMINAL_FINALIZATION'],
         ['READ_OWNED_CONVERSATION'],

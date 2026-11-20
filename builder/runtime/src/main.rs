@@ -507,6 +507,9 @@ async fn supervise(
         model_calls = metrics["model_calls"].as_u64(),
         tool_calls = metrics["tool_calls"].as_u64(),
         input_tokens = metrics["input_tokens"].as_u64(),
+        cached_tokens = metrics["cached_tokens"].as_u64(),
+        reported_cached_tokens = metrics["reported_cached_tokens"].as_u64(),
+        reported_cached_usage_calls = metrics["reported_cached_usage_calls"].as_u64(),
         output_tokens = metrics["output_tokens"].as_u64(),
         reported_usage_calls = metrics["reported_usage_calls"].as_u64()
     );

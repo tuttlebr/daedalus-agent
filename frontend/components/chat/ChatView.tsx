@@ -570,7 +570,7 @@ export const ChatView = memo(() => {
       const targetIndex = conv.messages.indexOf(target);
 
       const nextUpdates = { ...updates };
-      if (nextUpdates.errorMessages) {
+      if (nextUpdates.errorMessages && !nextUpdates.metadata?.finalizationId) {
         if (
           typeof nextUpdates.content === 'string' &&
           isStaleCumulativeSnapshot(target.content, nextUpdates.content)
@@ -979,6 +979,7 @@ export const ChatView = memo(() => {
           _finalizedAt?: number,
           conversationId?: string,
           meta?: {
+            savedMessage?: Message;
             assistantMessageId?: string;
             jobId?: string;
             generationDurationMs?: number;
@@ -993,6 +994,7 @@ export const ChatView = memo(() => {
           const updated = updateAssistantMessage(
             convId,
             {
+              ...meta?.savedMessage,
               content: fullResponse,
               intermediateSteps,
               ...(meta?.generationDurationMs !== undefined
@@ -1006,8 +1008,12 @@ export const ChatView = memo(() => {
           // Stop streaming
           setStreaming(convId, false);
           setActivityText(convId, '');
-          setStreamAnnouncement(convId, 'Response complete');
-          finishOAuthPromptsForJob(convId, meta?.jobId, true);
+          const stopped = meta?.savedMessage?.metadata?.stopped === true;
+          setStreamAnnouncement(
+            convId,
+            stopped ? 'Response stopped' : 'Response complete',
+          );
+          finishOAuthPromptsForJob(convId, meta?.jobId, !stopped);
 
           persistFinishedTurn(
             convId,
@@ -1031,6 +1037,7 @@ export const ChatView = memo(() => {
         (
           error: string,
           context?: {
+            savedMessage?: Message;
             partialResponse?: string;
             intermediateSteps?: any[];
             jobId?: string;
@@ -1046,7 +1053,8 @@ export const ChatView = memo(() => {
 
           console.error('Chat error:', error);
 
-          const errorMessages = buildMessageError(error);
+          const errorMessages =
+            context?.savedMessage?.errorMessages ?? buildMessageError(error);
 
           const conv = useConversationStore
             .getState()
@@ -1065,6 +1073,7 @@ export const ChatView = memo(() => {
                   ? { generationDurationMs: context.generationDurationMs }
                   : {}),
                 errorMessages,
+                ...context?.savedMessage,
               },
               context?.assistantMessageId,
               context?.jobId,

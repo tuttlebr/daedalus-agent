@@ -156,8 +156,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       ]);
       await finalizeError(nextJob, request, 'Synthetic stop', {
         response: 'Second partial answer',
-        pendingSteps: [],
-        persistedStepCount: 0,
+        intermediateSteps: [],
       });
       const saved = await redis.jsonGet(
         redis.sessionKey(['conversation', conversationId]),

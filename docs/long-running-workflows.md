@@ -74,13 +74,24 @@ Read logs locally and project only content-free fields. The full log can
 contain tool validation diagnostics; do not publish it as a benchmark artifact.
 
 ```bash
-kubectl -n daedalus logs deploy/daedalus-backend-default -c backend --since=60m |
+kubectl --context "$EXPECTED_CONTEXT" -n daedalus logs deploy/daedalus-backend-default -c backend --since=60m |
   jq -R 'fromjson? | select(.fields.event == "model_call_finished" or
     .fields.event == "tool_call_finished" or .fields.event == "run_finished") |
     {event: .fields.event, elapsed_ms: .fields.elapsed_ms,
-     input_tokens: .fields.input_tokens, output_tokens: .fields.output_tokens,
+     input_tokens: .fields.input_tokens, cached_tokens: .fields.cached_tokens,
+     reported_cached_tokens: .fields.reported_cached_tokens,
+     reported_cached_usage_calls: .fields.reported_cached_usage_calls,
+     model_calls: .fields.model_calls,
+     output_tokens: .fields.output_tokens,
      tool_calls: .fields.tool_calls, tool: .fields.tool}'
+```
 
+A missing cache count means usage is unknown. On the run summary,
+`reported_cached_tokens` sums the attempts that supplied a count, and
+`reported_cached_usage_calls` gives their number. Compare it with `model_calls`
+before interpreting the sum as a complete run total.
+
+```bash
 make rust-check
 cd builder
 uv run python -m pytest tests/test_webscrape_concurrency.py \

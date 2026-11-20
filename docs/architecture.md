@@ -309,28 +309,28 @@ affinity headers are configured independently by Switchyard in
 `GLOBAL_SESSION_ID`; the Agent's per-conversation `user` value does not replace
 that gateway setting. Neither value establishes user-data isolation.
 
-The Rust provider wire also sends this opaque identity in
-`x-switchyard-session-id`, separate from the provider's cache hint. The header is
-scoped to each run's wire, so a shared HTTP client cannot mix users. It stays
-stable across tool rounds and conversation follow-ups; a run without a
-conversation gets its own identity. Current standalone Switchyard routes classify
-every automatic request, including tool continuations, into max, high, low or
-instant. Explicit aliases bypass classification. There is no retained effort
-floor or sticky selection; fallback targets come from the selected provider's
-`routes_*.toml`. Public effort aliases and provider-native reasoning settings are
-separate contracts. Omitting `model_profile` uses the configured main model;
-automatic routing requires that model to be `daedalus` at the Switchyard
-endpoint. A direct-provider main model remains a direct-provider request.
+The Rust provider wire sends the same conversation-scoped digest in
+`x-switchyard-session-id`. Automatic calls to the `daedalus` gateway route also
+carry `x-switchyard-task-id`, a separate digest of the authenticated user,
+conversation and run ID. Switchyard selects a configured target on the first
+request. The agent reads the served target from Switchyard's
+`x-model-router-selected-model` response header as soon as dispatch succeeds,
+before consuming the stream. When a proxy removes the header, a completed
+reply's `model` field supplies the target instead. Subsequent automatic
+requests send the target in `x-switchyard-previous-target`. Tool rounds, retries, steering and final synthesis retain the choice,
+including when another gateway replica handles the continuation. If a
+configured availability fallback serves a successful round, its target is
+carried forward. A new agent run in the same conversation gets its own choice.
+A retry before the agent receives any served-target metadata relies on the
+gateway's task cache. Provider affinity headers and per-attempt correlation IDs
+keep their separate scopes.
+
 Explicit profiles resolve through the selected workflow's `model_routes`.
-Because a classified continuation can move the run to a provider that rejects the current
-provider's retained reasoning state, the runtime never opens a user turn for
-its own recovery guidance after tool results: argument corrections, disabled
-tool notices, interrupted-stream and decode-retry instructions, evidence
-checks, briefing synthesis prompts and the autonomy completion request ride
-inside the last tool result. Steering, which is a real user direction, is
-added as a user message. So is the instruction to continue an interrupted
-answer whose partial text was already shown, because that text, not a tool
-result, ends the transcript.
+Direct-provider and explicit model aliases retain their configured behavior.
+Loading a skill during an automatically routed run preserves the established
+gateway selection. The runtime keeps recovery guidance inside the last tool
+result when one exists. A steering instruction is appended as a new user
+message within the same run.
 
 See [runtime logs](operations.md#runtime-logs) to correlate model attempts,
 tool calls, and terminal events with a frontend job.

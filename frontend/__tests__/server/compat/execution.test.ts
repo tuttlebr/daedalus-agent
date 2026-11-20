@@ -280,12 +280,22 @@ describe('compatibility chat execution', () => {
       vi.stubGlobal('fetch', fetchMock);
       const res = response();
       await handleCompatChat(
-        request(body, { 'x-user-id': 'mallory' }),
+        request(body, {
+          'x-user-id': 'mallory',
+          'x-daedalus-task-id': 'synthetic-tool-loop',
+          'x-switchyard-previous-target': 'max',
+        }),
         res,
         route,
       );
       expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(body);
       expect(fetchMock.mock.calls[0][1].headers['x-user-id']).toBe('alice');
+      expect(fetchMock.mock.calls[0][1].headers['x-daedalus-task-id']).toBe(
+        'synthetic-tool-loop',
+      );
+      expect(
+        fetchMock.mock.calls[0][1].headers['x-switchyard-previous-target'],
+      ).toBeUndefined();
       expect(fetchMock.mock.calls[0][1].headers.authorization).toBeUndefined();
       expect(fetchMock.mock.calls[0][0]).toContain(
         `/internal/model/${
@@ -346,6 +356,15 @@ describe('compatibility chat execution', () => {
       );
       expect(res.statusCode).toBe(400);
     }
+    const invalidTask = response();
+    await handleCompatChat(
+      request(chat({ model: 'daedalus-model' }), {
+        'x-daedalus-task-id': 'invalid task',
+      }),
+      invalidTask,
+      openaiRoute,
+    );
+    expect(invalidTask.statusCode).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.submit).not.toHaveBeenCalled();
   });

@@ -115,8 +115,7 @@ export interface BackgroundExecutionControl {
 
 export interface StreamFailureSnapshot {
   response: string;
-  pendingSteps: any[];
-  persistedStepCount: number;
+  intermediateSteps: any[];
 }
 
 /**
@@ -138,9 +137,13 @@ export class PublicJobError extends Error {
  */
 export const USER_CANCELLATION_MESSAGE = 'Job canceled by user';
 
-export class StreamUserCancellationError extends Error {
+/** When a living reader hands execution back to its worker, retain the same
+ * complete evidence used for natural stream errors. Lease loss has no handoff. */
+export abstract class StreamInterruptionError extends Error {
   snapshot?: StreamFailureSnapshot;
+}
 
+export class StreamUserCancellationError extends StreamInterruptionError {
   constructor() {
     super(USER_CANCELLATION_MESSAGE);
     this.name = 'StreamUserCancellationError';

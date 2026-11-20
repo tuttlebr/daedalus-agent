@@ -345,6 +345,32 @@ describe('ChatView with the real job lifecycle', () => {
     ).toBe(false);
   });
 
+  it('restores a saved Stop with its partial answer after a status expires', async () => {
+    await send();
+    const assistantId = messagesOf('conv-1')[1].id;
+    const saved = {
+      id: assistantId,
+      role: 'assistant',
+      metadata: { jobId: 'job-1', stopped: true, finalizationId: 'saved-stop' },
+      content: 'First result.',
+      intermediateSteps: [step('a').step],
+    };
+    mocks.apiPut.mockClear();
+    mocks.fetchWithTimeout.mockImplementation(async (url: string) =>
+      url === '/api/chat/async?jobId=job-1'
+        ? { ok: false, status: 404, body: { cancel: vi.fn() } }
+        : response({ messages: [saved] }),
+    );
+    await act(async () => {
+      emit('connected', {});
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(messagesOf('conv-1')[1]).toMatchObject(saved);
+    expect(messagesOf('conv-1')[1].errorMessages).toBeUndefined();
+    expect(document.body.textContent).toContain('Response stopped');
+    expect(conversationPuts()).toHaveLength(0);
+  });
+
   it('saves a background outcome the worker did not save without selecting it', async () => {
     await send();
     const assistantId = messagesOf('conv-1')[1].id;

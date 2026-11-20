@@ -457,26 +457,15 @@ export async function finalizeSuccess(
   jobId: string,
   jobRequest: AsyncJobRequest,
   rawOutput: string,
-  observedSteps: any[] = [],
+  observedSteps?: any[],
   options: { usage?: RunUsage } = {},
 ): Promise<boolean> {
-  // Independent reads: the steps for the journal and the live status the
-  // terminal claim compares.
-  const [storedSteps, statusSnapshot] = await Promise.all([
-    getStreamSteps(jobId),
+  // A live reader supplies its complete transcript. Callers without one
+  // recover from the durable stream checkpoint.
+  const [accumulatedSteps, statusSnapshot] = await Promise.all([
+    observedSteps ?? getStreamSteps(jobId),
     readLiveJobStatusSnapshot(jobId),
   ]);
-  // The answer text comes from the reader's memory while the steps are read
-  // back from an expiring Redis list. If that list was lost, the reader's own
-  // copy of every published step keeps the saved turn complete.
-  let accumulatedSteps = storedSteps;
-  if (observedSteps.length > storedSteps.length) {
-    logger.warn(
-      `Job ${jobId}: persisted stream steps are incomplete; finalizing from the reader's copy`,
-      { stored: storedSteps.length, observed: observedSteps.length },
-    );
-    accumulatedSteps = observedSteps;
-  }
   const outputWithArtifacts = attachSandboxArtifacts(
     rawOutput,
     sandboxArtifactsFromSteps(accumulatedSteps),
@@ -585,7 +574,7 @@ export async function finalizeError(
     ),
     readLiveJobStatusSnapshot(jobId),
     streamSnapshot ? null : getStreamResponse(jobId, ''),
-    getStreamSteps(jobId),
+    streamSnapshot ? null : getStreamSteps(jobId),
   ]);
   const currentStatus = statusSnapshot
     ? (JSON.parse(statusSnapshot) as AsyncJobStatus)
@@ -594,22 +583,11 @@ export async function finalizeError(
   const partialResponse =
     streamSnapshot?.response ??
     (storedResponse || currentStatus?.partialResponse || '');
-  let intermediateSteps = storedSteps.length
-    ? storedSteps
-    : currentStatus?.intermediateSteps || [];
-  if (streamSnapshot?.pendingSteps.length) {
-    if (intermediateSteps.length < streamSnapshot.persistedStepCount) {
-      throw new Error(
-        'Cannot finalize before persisted stream steps are available',
-      );
-    }
-    // A failed append may have committed before its reply was lost. Replace
-    // only the unacknowledged suffix instead of duplicating those events.
-    intermediateSteps = [
-      ...intermediateSteps.slice(0, streamSnapshot.persistedStepCount),
-      ...streamSnapshot.pendingSteps,
-    ];
-  }
+  const intermediateSteps =
+    streamSnapshot?.intermediateSteps ??
+    (storedSteps?.length
+      ? storedSteps
+      : currentStatus?.intermediateSteps || []);
 
   const responseWithArtifacts = attachSandboxArtifacts(
     partialResponse,
