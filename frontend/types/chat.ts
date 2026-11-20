@@ -1,6 +1,9 @@
 import type { ImageContext } from './imageBrief';
 import { IntermediateStep } from './intermediateSteps';
 
+export const EMPTY_ERROR_RESPONSE =
+  '[Error occurred before response was generated]';
+
 export interface MessageError {
   message: string;
   category?:

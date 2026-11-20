@@ -557,46 +557,72 @@ test('keeps pending OAuth visible through sibling output and preserves that outp
   await expect(page.getByText(answer, { exact: true })).toBeVisible();
 });
 
-test('preserves assistant text and research evidence after a late error and reload', async ({
-  page,
-}) => {
-  await login(page);
-  const jobCreated = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      response.url().endsWith('/api/chat/async'),
-  );
-  await sendMessage(page, 'E2E_LATE_ERROR');
-  const created = await jobCreated;
-  const { jobId } = await created.json();
-  const { conversationId } = created.request().postDataJSON();
-  await expect
-    .poll(async () => {
-      return JSON.parse(
-        (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
-      ).status;
-    })
-    .toBe('error');
+for (const hasText of [true, false]) {
+  test(`shows the saved result of a late error ${
+    hasText ? 'with' : 'without'
+  } partial text`, async ({ page }) => {
+    await login(page);
+    const jobCreated = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/chat/async'),
+    );
+    await sendMessage(
+      page,
+      hasText ? 'E2E_LATE_ERROR' : 'E2E_LATE_ERROR_WITHOUT_TEXT',
+    );
+    const created = await jobCreated;
+    const { jobId } = await created.json();
+    const { conversationId } = created.request().postDataJSON();
+    await expect
+      .poll(async () => {
+        return JSON.parse(
+          (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+        ).status;
+      })
+      .toBe('error');
 
-  const answer =
-    'Research finding preserved before failure. Additional accepted finding.';
-  await expect(page.getByText(answer, { exact: true })).toBeVisible();
-  const stored = JSON.parse(
-    (await browserGet(page, `/api/conversations/${conversationId}`)).body,
-  );
-  const assistant = stored.messages.at(-1);
-  expect(assistant.content).toBe(answer);
-  expect(JSON.stringify(assistant.intermediateSteps)).toContain(
-    'Full research evidence survives the late error.',
-  );
-  expect(assistant.errorMessages).toBeTruthy();
+    const answer =
+      'Research finding preserved before failure. Additional accepted finding.';
+    const alert = page
+      .getByRole('alert')
+      .filter({ hasText: 'The response ended before it was complete.' });
+    const responseLabel = hasText
+      ? 'Partial response below.'
+      : 'No response text to show.';
+    const renderedAnswer = page.getByText(answer, { exact: true });
+    const status = JSON.parse(
+      (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+    );
+    expect(status.partialResponse).toBe(hasText ? answer : '');
+    const stored = JSON.parse(
+      (await browserGet(page, `/api/conversations/${conversationId}`)).body,
+    );
+    const assistant = stored.messages.at(-1);
+    expect(assistant.content).toBe(
+      hasText ? answer : '[Error occurred before response was generated]',
+    );
+    expect(JSON.stringify(assistant.intermediateSteps)).toContain(
+      'Full research evidence survives the late error.',
+    );
+    expect(assistant.errorMessages?.message).toBe(status.error);
+    await expect(alert).toContainText(responseLabel);
+    if (hasText) await expect(renderedAnswer).toBeVisible();
+    else await expect(renderedAnswer).toHaveCount(0);
 
-  await page.reload();
-  await expect(page.getByText(answer, { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: /View agent activity/ }).last(),
-  ).toBeVisible();
-});
+    await page.reload();
+    await expect(alert).toContainText(responseLabel);
+    await expect(
+      page.getByText('[Error occurred before response was generated]', {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    if (hasText) await expect(renderedAnswer).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /View agent activity/ }).last(),
+    ).toBeVisible();
+  });
+}
 
 for (const truncated of [false, true]) {
   test(`preserves formatted output after ${

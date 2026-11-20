@@ -6,6 +6,7 @@ import { Logger } from '@/utils/logger';
 
 import {
   DEFAULT_CONVERSATION_TITLE,
+  EMPTY_ERROR_RESPONSE,
   type Conversation,
   type Message,
 } from '@/types/chat';
@@ -642,7 +643,7 @@ export async function finalizeError(
     ? processedContent
     : stopped
     ? ''
-    : '[Error occurred before response was generated]';
+    : EMPTY_ERROR_RESPONSE;
   const journal: NewJobFinalizationJournal = {
     version: 1,
     state: 'pending',

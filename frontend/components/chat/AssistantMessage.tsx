@@ -23,7 +23,7 @@ import {
 
 import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
 
-import { Message } from '@/types/chat';
+import { EMPTY_ERROR_RESPONSE, type Message } from '@/types/chat';
 
 import type { ActivityProgress } from '@/components/agent/IntermediateSteps';
 import { ToolbarSlotProvider } from '@/components/layout/ToolbarSlot';
@@ -49,6 +49,22 @@ const IntermediateSteps = lazy(() =>
 // Collapse only long answers, and only when doing so hides a substantial part.
 const COLLAPSED_MAX_HEIGHT = 560; // px
 const COLLAPSE_RENDERED_HEIGHT = COLLAPSED_MAX_HEIGHT + 280;
+
+// Match saved errors too, so older turns get the same display after reload.
+const INTERRUPTED_RESPONSE_MESSAGES = new Map([
+  [
+    'Backend stream failed: Agent execution failed; completed output has been preserved',
+    'The response ended before it was complete.',
+  ],
+  [
+    'Backend stream failed: Model response could not be decoded; completed output has been preserved',
+    'The model response could not be read.',
+  ],
+  [
+    'Backend stream failed: Model stream interrupted after retry limit; completed output has been preserved',
+    'The model stopped responding after several attempts.',
+  ],
+]);
 
 function formatGenerationDuration(milliseconds: number): string {
   if (milliseconds < 1000) return '<1s';
@@ -89,7 +105,16 @@ export const AssistantMessage = memo(
       (s) => s.enableIntermediateSteps,
     );
 
-    const content = typeof message.content === 'string' ? message.content : '';
+    const errorMessages = message.errorMessages;
+    const errorMessage = errorMessages?.message;
+    const interruptedMessage = INTERRUPTED_RESPONSE_MESSAGES.get(
+      errorMessage ?? '',
+    );
+    const content =
+      typeof message.content === 'string' &&
+      !(interruptedMessage && message.content === EMPTY_ERROR_RESPONSE)
+        ? message.content
+        : '';
     const hasSteps =
       message.intermediateSteps && message.intermediateSteps.length > 0;
     const isAgent = message.role === 'agent';
@@ -97,8 +122,7 @@ export const AssistantMessage = memo(
       () => parseMcpApprovalMarker(content),
       [content],
     );
-    const errorMessages = message.errorMessages;
-    const hasError = Boolean(errorMessages?.message);
+    const hasError = Boolean(errorMessage);
     const isRecoverable = errorMessages?.recoverable === true;
     const durationMs = message.generationDurationMs;
     const showDuration =
@@ -189,7 +213,16 @@ export const AssistantMessage = memo(
                 className="flex-shrink-0 text-primary"
               />
               <div className="flex-1 min-w-0">
-                <div className="font-medium">{errorMessages!.message}</div>
+                <div className="font-medium">
+                  {interruptedMessage ?? errorMessage}
+                </div>
+                {interruptedMessage && (
+                  <div className="text-[0.75rem] text-dark-text-muted mt-0.5">
+                    {content.trim()
+                      ? 'Partial response below.'
+                      : 'No response text to show.'}
+                  </div>
+                )}
                 {errorMessages!.category &&
                   errorMessages!.category !== 'unknown' && (
                     <div className="text-[0.75rem] text-dark-text-muted mt-0.5">

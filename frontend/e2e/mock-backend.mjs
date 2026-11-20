@@ -207,7 +207,8 @@ async function streamChat(req, res) {
   }
 
   if (prompt.includes('E2E_LATE_ERROR')) {
-    sendToken(res, 'Research finding preserved before failure.');
+    const hasText = !prompt.includes('WITHOUT_TEXT');
+    if (hasText) sendToken(res, 'Research finding preserved before failure.');
     res.write(
       `intermediate_data: ${JSON.stringify({
         name: 'Function Complete: <research>',
@@ -217,12 +218,13 @@ async function streamChat(req, res) {
       })}\n\n`,
     );
     await wait(1000);
-    sendToken(res, ' Additional accepted finding.');
+    if (hasText) sendToken(res, ' Additional accepted finding.');
     res.end(
       `event: error\ndata: ${JSON.stringify({
-        code: 'workflow_error',
-        message: 'Research execution interrupted',
-        details: 'IncompleteAgentRun',
+        error: {
+          message:
+            'Agent execution failed; completed output has been preserved',
+        },
       })}\n\n`,
     );
     return;
