@@ -560,7 +560,10 @@ impl Mcp {
                 if let Ok(schemas) = discover {
                     return (name.clone(), schemas);
                 }
-                tracing::warn!(event = "mcp_catalogue_unavailable");
+                tracing::warn!(
+                    event = "mcp_catalogue_unavailable",
+                    service = crate::logging::label(name)
+                );
             }
             (name.clone(), vec![self.connect_schema(name, None)])
         }))

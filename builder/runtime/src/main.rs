@@ -477,7 +477,7 @@ async fn supervise(
             _ => "failed",
         };
         if log_outcome == "failed" {
-            tracing::warn!(
+            tracing::error!(
                 event = "run_failed",
                 phase = details.phase,
                 error_kind = details.kind,
@@ -500,7 +500,8 @@ async fn supervise(
     if let Some(mut telemetry_span) = handle.telemetry.lock().await.take() {
         telemetry::finish(&mut telemetry_span, log_outcome, &metrics);
     }
-    tracing::info!(
+    logging::outcome_event!(
+        log_outcome == "failed",
         event = "run_finished",
         outcome = log_outcome,
         elapsed_ms = started.elapsed().as_millis() as u64,

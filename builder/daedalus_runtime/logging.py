@@ -79,6 +79,23 @@ class JsonFormatter(logging.Formatter):
         )
 
 
+def console_logging():
+    return os.getenv("LOG_FORMAT", "console").lower() == "console"
+
+
+class ConsoleFormatter(JsonFormatter):
+    _colors = {"DEBUG": 36, "INFO": 32, "WARNING": 33, "ERROR": 31, "CRITICAL": 31}
+
+    def format(self, record):
+        line = super().format(record)
+        level = record.levelname
+        if (color := self._colors.get(level)) is None:
+            return line
+        return line.replace(
+            f'"level":"{level}"', f'"level":"\x1b[{color}m{level}\x1b[0m"', 1
+        )
+
+
 def configure_logging(component="python_tools"):
     logger = logging.getLogger("daedalus_runtime")
     if not any(
@@ -86,7 +103,9 @@ def configure_logging(component="python_tools"):
     ):
         handler = logging.StreamHandler(sys.stdout)
         handler.daedalus_handler = True
-        handler.setFormatter(JsonFormatter())
+        handler.setFormatter(
+            ConsoleFormatter() if console_logging() else JsonFormatter()
+        )
         logger.addHandler(handler)
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logger.setLevel(

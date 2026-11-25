@@ -538,7 +538,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 )
                 log_event(
                     "tool_prepare_failed",
-                    level=logging.WARNING,
+                    level=logging.ERROR,
                     error_class=type(exc).__name__,
                     http_status=status,
                     elapsed_ms=round((time.monotonic() - started) * 1000, 1),
@@ -700,20 +700,28 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     except Exception as exc:
                         log_event(
                             "tool_execution_failed",
-                            level=logging.WARNING,
+                            level=logging.ERROR,
                             error_class=type(exc).__name__,
                         )
                         result = {
                             "content": f"Tool failed ({type(exc).__name__}). Check its arguments and service availability.",
                             "is_error": True,
                         }
+                    is_error = bool(result.get("is_error"))
+                    terminal = bool(result.get("terminal"))
+                    approval_required = (
+                        terminal
+                        and result.get("terminal_reason") == "mcp_approval_required"
+                    )
                     log_event(
                         "tool_execution_finished",
+                        level=logging.ERROR
+                        if is_error and not approval_required
+                        else logging.INFO,
                         elapsed_ms=round((time.monotonic() - started) * 1000, 1),
-                        is_error=bool(result.get("is_error")),
-                        terminal=bool(result.get("terminal")),
-                        approval_required=bool(result.get("terminal"))
-                        and result.get("terminal_reason") == "mcp_approval_required",
+                        is_error=is_error,
+                        terminal=terminal,
+                        approval_required=approval_required,
                     )
                     if explicit:
                         result.setdefault("loaded_skills", [])

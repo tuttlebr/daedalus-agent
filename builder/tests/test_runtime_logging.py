@@ -105,6 +105,36 @@ def test_levels_and_repeated_configuration_do_not_duplicate_logs(output, monkeyp
     assert records(output)[-1]["event"] == "discovery_detail"
 
 
+@pytest.mark.parametrize("setting", [None, "json"])
+def test_default_console_colors_only_the_level_and_json_stays_plain(
+    monkeypatch, capsys, setting
+):
+    logger = logging.getLogger("daedalus_runtime")
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    if setting is None:
+        monkeypatch.delenv("LOG_FORMAT", raising=False)
+    else:
+        monkeypatch.setenv("LOG_FORMAT", setting)
+    configure_logging()
+    for level, color in (
+        ("DEBUG", 36),
+        ("INFO", 32),
+        ("WARNING", 33),
+        ("ERROR", 31),
+        ("CRITICAL", 31),
+    ):
+        log_event("fixture_event", level=getattr(logging, level), reason=level)
+        line = capsys.readouterr().out.strip()
+        if setting is None:
+            decorated = f'"level":"\x1b[{color}m{level}\x1b[0m"'
+            assert line.count(decorated) == 1
+            line = line.replace(decorated, f'"level":"{level}"')
+        assert "\x1b" not in line
+        record = json.loads(line)
+        assert record["level"] == record["fields"]["reason"] == level
+
+
 def test_invalid_labels_and_values_cannot_forge_lines(output):
     log_event(
         "fixture_event",

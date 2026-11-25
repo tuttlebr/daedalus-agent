@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from daedalus_runtime.logging import configure_logging, log_event
+from daedalus_runtime.logging import configure_logging, console_logging, log_event
 
 
 def main():
@@ -59,6 +59,7 @@ def main():
                     "--port",
                     str(tools_port),
                     "--no-access-log",
+                    "--use-colors" if console_logging() else "--no-use-colors",
                     "--timeout-graceful-shutdown",
                     "25",
                 ],

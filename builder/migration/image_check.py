@@ -399,6 +399,7 @@ def environment(
                         raise
                     time.sleep(0.1)
             env = {
+                "LOG_FORMAT": "json",
                 "DAEDALUS_INTERNAL_API_TOKEN": token,
                 "DAEDALUS_PORT": str(runtime_port),
                 "DAEDALUS_TOOLS_PORT": str(free_port()),

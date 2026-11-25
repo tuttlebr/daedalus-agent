@@ -4,8 +4,66 @@ use std::fmt;
 
 use anyhow::Error;
 use rig_core::error::ProviderError;
+use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields, format::Writer};
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+
+// tracing callsites have static levels. Keep one field list for both outcomes.
+macro_rules! outcome_event {
+    ($failed:expr, $($fields:tt)*) => {
+        if $failed {
+            tracing::error!($($fields)*);
+        } else {
+            tracing::info!($($fields)*);
+        }
+    };
+}
+pub(crate) use outcome_event;
+
+struct LogFormat<F> {
+    json: F,
+    color: bool,
+}
+
+impl<S, N, F> FormatEvent<S, N> for LogFormat<F>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+    F: FormatEvent<S, N>,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> fmt::Result {
+        if !self.color {
+            return self.json.format_event(ctx, writer, event);
+        }
+        let mut line = String::new();
+        self.json.format_event(ctx, Writer::new(&mut line), event)?;
+        // The JSON formatter writes the top-level severity before all event fields.
+        let Some((before, rest)) = line.split_once("\"level\":\"") else {
+            return writer.write_str(&line);
+        };
+        let Some((level, after)) = rest.split_once('"') else {
+            return writer.write_str(&line);
+        };
+        let color = match *event.metadata().level() {
+            Level::ERROR => 31,
+            Level::WARN => 33,
+            Level::INFO => 32,
+            Level::DEBUG => 36,
+            Level::TRACE => 90,
+        };
+        write!(
+            writer,
+            "{before}\"level\":\"\x1b[{color}m{level}\x1b[0m\"{after}"
+        )
+    }
+}
 
 pub fn init() {
     let level = std::env::var("LOG_LEVEL")
@@ -16,6 +74,10 @@ pub fn init() {
         .json()
         .with_ansi(false)
         .with_span_list(false)
+        .map_event_format(|json| LogFormat {
+            json,
+            color: std::env::var("LOG_FORMAT").map_or(true, |v| v.eq_ignore_ascii_case("console")),
+        })
         .with_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| format!("daedalus_runtime={level}").into())

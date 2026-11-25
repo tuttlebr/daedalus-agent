@@ -434,13 +434,21 @@ measurement commands, see the [long-running workflow guide](long-running-workflo
 
 ## Runtime logs
 
-Backend application logs are JSON lines on stdout. They record run start/end,
+The backend writes one application event per line on stdout. Events record run start/end,
 preparation, model attempts and retries, time to the first model event, tool
 execution, steering, cancellation, approval waits, and process lifecycle. A final
 run summary includes elapsed time, model/tool call counts, and reported token
 usage. Failures include their stage, category, and HTTP status when available.
 Prompts, answers, tool arguments/results, user identities, credentials, raw
 provider errors, and OAuth URLs are excluded from these application logs.
+
+The container defaults to `LOG_FORMAT=console`. Only the severity label is
+colored, including when following a pod without a TTY. INFO is green, WARN or
+WARNING yellow, ERROR or CRITICAL red, DEBUG cyan, and Rust TRACE gray.
+Set `LOG_FORMAT=json` in the backend environment for plain JSON Lines.
+Failed tool results and failed runs emit ERROR, including tool failures a chat
+recovers from. Successful calls, pending approvals and user cancellations emit
+INFO. A scheduled model retry emits WARN.
 
 `LOG_LEVEL=INFO` is the default for both processes; `DEBUG` also logs MCP
 discovery timings, and `WARN`/`ERROR` reduce progress output. Rust additionally
@@ -459,7 +467,7 @@ To inspect one run with `jq`, filtering out non-JSON server messages:
 
 ```bash
 kubectl -n daedalus logs deployment/daedalus-backend-default -c backend --since=30m |
-  jq -R 'fromjson? | select((.span.run_id // .fields.run_id) == "RUN_ID")'
+  jq -R 'gsub("\u001b\\[[0-9;]*m"; "") | fromjson? | select((.span.run_id // .fields.run_id) == "RUN_ID")'
 ```
 
 Each model attempt logs `model_call_started` with an opaque `correlation_id` and

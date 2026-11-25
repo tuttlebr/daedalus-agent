@@ -781,7 +781,7 @@ impl Agent {
                     continue;
                 }
                 Err(None) => {
-                    tracing::warn!(
+                    tracing::error!(
                         event = "model_call_failed",
                         model_call,
                         error_kind = "inactivity_timeout",
@@ -796,7 +796,7 @@ impl Agent {
                     );
                 }
                 Err(Some(error)) => {
-                    tracing::warn!(
+                    tracing::error!(
                         event = "model_call_failed",
                         model_call,
                         error_kind = error.kind().code(),
@@ -1231,7 +1231,10 @@ impl Agent {
                 let name = call.function.name.to_string();
                 let mut outcome = match outcome {
                     Ok(outcome) => {
-                        tracing::info!(
+                        let approval_required =
+                            outcome.terminal && outcome.terminal_reason == "mcp_approval_required";
+                        crate::logging::outcome_event!(
+                            outcome.is_error && !approval_required,
                             event = "tool_call_finished",
                             tool_call,
                             tool = label(&name),
@@ -1239,14 +1242,15 @@ impl Agent {
                             is_error = outcome.is_error,
                             terminal = outcome.terminal,
                             output_bytes = outcome.content.len(),
-                            approval_required = outcome.terminal
-                                && outcome.terminal_reason == "mcp_approval_required"
+                            approval_required
                         );
                         outcome
                     }
                     Err(error) => {
                         let details = crate::logging::failure(&error);
-                        tracing::warn!(
+                        let disconnected = error.root_cause().to_string() == "Client disconnected";
+                        crate::logging::outcome_event!(
+                            !disconnected,
                             event = "tool_call_failed",
                             tool_call,
                             tool = label(&name),
@@ -1255,7 +1259,7 @@ impl Agent {
                             error_kind = details.kind,
                             http_status = details.status
                         );
-                        if error.root_cause().to_string() == "Client disconnected" {
+                        if disconnected {
                             return Err(error);
                         }
                         // Transport failures name only their kind; the runtime's
@@ -3014,6 +3018,7 @@ mod tests {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", test.name().unwrap(), "--nocapture"])
             .env(CHILD, "1")
+            .env("LOG_FORMAT", "json")
             .env("RUST_LOG", "daedalus_runtime::agent=info")
             .output()
             .unwrap();

@@ -75,7 +75,7 @@ contain tool validation diagnostics; do not publish it as a benchmark artifact.
 
 ```bash
 kubectl --context "$EXPECTED_CONTEXT" -n daedalus logs deploy/daedalus-backend-default -c backend --since=60m |
-  jq -R 'fromjson? | select(.fields.event == "model_call_finished" or
+  jq -R 'gsub("\u001b\\[[0-9;]*m"; "") | fromjson? | select(.fields.event == "model_call_finished" or
     .fields.event == "tool_call_finished" or .fields.event == "run_finished") |
     {event: .fields.event, elapsed_ms: .fields.elapsed_ms,
      input_tokens: .fields.input_tokens, cached_tokens: .fields.cached_tokens,

@@ -1416,6 +1416,9 @@ def check(
             "IMAGE_AUGMENTATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
             "C2PA_SIGNING_MODE": "off",
         }
+        # Exercise the container default and the machine-readable opt-out.
+        if preparation == "python":
+            env["LOG_FORMAT"] = "json"
         log = (root / "runtime.log").open("w+")
         try:
             if redis_image:
@@ -1501,6 +1504,7 @@ def check(
                 env.update(
                     DAEDALUS_CONFIG_FILE=str(path),
                     DAEDALUS_RUNTIME_BINARY=str(Path(binary).resolve()),
+                    LOG_FORMAT=env.get("LOG_FORMAT", "console"),
                 )
             process = subprocess.Popen(  # nosec B603 - fixed fixture argv, no shell
                 command,
@@ -2756,7 +2760,7 @@ def check(
                 for _ in range(50):
                     raw_logs = Path(log.name).read_text()
                     records = [
-                        json.loads(line)
+                        json.loads(re.sub(r"\x1b\[\d+m", "", line))
                         for line in raw_logs.splitlines()
                         if line.startswith("{")
                     ]
@@ -2767,6 +2771,22 @@ def check(
                     ):
                         break
                     time.sleep(0.02)
+                for level, color in (("INFO", 32), ("ERROR", 31), ("WARN", 33)):
+                    assert (f'"level":"\x1b[{color}m{level}\x1b[0m"' in raw_logs) == (
+                        preparation == "rust"
+                    )
+                for record in records:
+                    fields = record["fields"]
+                    event = fields.get("event")
+                    if event in {"tool_call_finished", "tool_execution_finished"}:
+                        failed = fields["is_error"] and not fields["approval_required"]
+                        assert record["level"] == ("ERROR" if failed else "INFO")
+                    elif event == "run_finished":
+                        assert record["level"] == (
+                            "ERROR" if fields["outcome"] == "failed" else "INFO"
+                        )
+                    elif event in {"run_failed", "model_call_failed"}:
+                        assert record["level"] == "ERROR"
                 events = [record.get("fields", {}) for record in records]
                 assert not any(
                     event.get("event") == "run_cleanup_failed" for event in events

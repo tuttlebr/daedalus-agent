@@ -1,6 +1,7 @@
 """Cleanup reports preserve unknown usage instead of rejecting failed runs."""
 
 import json
+import logging
 import sys
 from types import SimpleNamespace
 
@@ -105,6 +106,38 @@ def _explicit_call(monkeypatch, call, executor_state):
         return lines
 
     return asyncio.run(consume())
+
+
+@pytest.mark.parametrize(
+    "result,expected",
+    [
+        ({"is_error": False}, "INFO"),
+        ({"is_error": True}, "ERROR"),
+        (
+            {
+                "is_error": True,
+                "terminal": True,
+                "terminal_reason": "mcp_approval_required",
+            },
+            "INFO",
+        ),
+    ],
+)
+def test_tool_result_severity(monkeypatch, capsys, result, expected):
+    monkeypatch.setattr(logging.getLogger("daedalus_runtime"), "handlers", [])
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+    async def call(*_args, **_kwargs):
+        return {"content": "private result", **result}
+
+    _explicit_call(monkeypatch, call, {})
+    stdout = capsys.readouterr().out
+    assert "private result" not in stdout
+    records = [json.loads(line) for line in stdout.splitlines()]
+    assert [
+        r["level"] for r in records if r["fields"]["event"] == "tool_execution_finished"
+    ] == [expected]
 
 
 def test_null_executor_state_members_are_treated_as_empty(monkeypatch):

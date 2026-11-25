@@ -281,7 +281,7 @@ async fn forward(
     let upstream = match request.json(&body).send().await {
         Ok(response) => response,
         Err(_) => {
-            tracing::warn!(
+            tracing::error!(
                 event = "model_forward_failed",
                 correlation_id = %call_id,
                 elapsed_ms = started.elapsed().as_millis() as u64,
@@ -289,7 +289,8 @@ async fn forward(
             return error(502, "Model endpoint request failed");
         }
     };
-    tracing::info!(
+    crate::logging::outcome_event!(
+        !upstream.status().is_success(),
         event = "model_forward_responded",
         correlation_id = %call_id,
         http_status = upstream.status().as_u16(),
