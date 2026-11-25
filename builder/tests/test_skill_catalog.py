@@ -81,6 +81,23 @@ def test_daily_summary_bootstrap_contains_exact_canonical_references_once():
     assert "<!DOCTYPE html>\n<html" not in loaded
 
 
+def test_daily_summary_sports_policy_supplies_each_teams_official_schedule():
+    parser = SkillParser(str(SKILLS))
+    parser.discover_skills()
+    resource = asyncio.run(
+        _load_skill(parser, "daily-summary", "references/edition-policy.json")
+    )
+    sports = next(
+        desk for desk in json.loads(resource)["desks"] if desk["key"] == "sports"
+    )
+    assert sports["team_schedules"] == {
+        "New York Yankees": "https://www.mlb.com/yankees/schedule",
+        "Pittsburgh Steelers": "https://www.steelers.com/schedule/",
+        "Michigan State University men's basketball": "https://msuspartans.com/sports/mens-basketball/schedule",
+        "Michigan State University football": "https://msuspartans.com/sports/football/schedule",
+    }
+
+
 def test_missing_bootstrap_resource_does_not_emit_successful_load(
     tmp_path, monkeypatch
 ):

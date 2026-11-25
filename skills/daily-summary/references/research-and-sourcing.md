@@ -13,7 +13,8 @@ excludes one. Use the returned tool order as a plan, not as permission to call
 unrelated tools. Use `research_question` for the dated manifest and `depth=quick`.
 Pass the needed source IDs in `selected_sources_json`: public families
 `curated_feeds`, `perplexity_search`, and `known_url_scrape`, plus `workspace_data` and relevant
-`repository_data`. Include `fantasy_data` for the in-season Sports beat. Add
+`repository_data`. Use the public sources for team schedules and results.
+Include `fantasy_data` for in-season fantasy football. Add
 `cluster_state` or `network_state` only for an explicit check or a current
 material incident signal; do not run routine health reads. Preserve explicit source
 inclusions/exclusions and reuse the completed personal-source reads. A broad
@@ -202,6 +203,34 @@ a concrete field or post-processing problem; do not manufacture gear news.
 
 ### Sports
 
+Fetch the official pages in the Sports desk's `team_schedules` in parallel.
+Use the edition's local date and each team's own opener and season end.
+Include its regular season and any postseason it plays, including conference
+and NCAA tournaments or bowl games. Report a fresh season-ending final in the
+next edition, then omit that team until its next regular season. A bye or an
+off day still falls within the season. If a schedule shows only ticket links,
+placeholders or another season, fetch a dated official game page, such as MLB
+Gameday, or the conference schedule. An unreadable schedule leaves the team's
+season status unknown until another source confirms it.
+
+Lead each team entry with its game status on the edition date.
+
+- **Scheduled.** Give the opponent, home/away or neutral site, and the
+  confirmed date and start time in the reader's Eastern timezone. If the
+  source lists the time as TBD, write “the start time has not been announced.”
+  Report a postponement explicitly. Link the official game broadcast, such as
+  WFAN for a Yankees game, when the listing confirms it.
+- **In progress or final.** Give the opponent and score. Label a live score
+  with its inning, quarter or period and as-of time. For a final, state the
+  result from the followed team's perspective.
+- **Between games.** Give the next confirmed opponent and date, including
+  during a bye. Add the last result, a change in the standings or another
+  material team development when it adds context.
+
+Link each entry to the fetched page supporting it and verify public scores,
+dates and times under the claims rules below. Keep verified team entries
+when another schedule or the private fantasy source is unavailable.
+
 In football season load `espn-fantasy-football` and use connected ESPN evidence
 for both leagues before making personal lineup claims. Refresh scoring period,
 team/league mapping, roster availability, odd-team byes, waiver position, lineup
@@ -234,13 +263,6 @@ These are reporting fields within existing story text or tables, not new schema
 keys. Verify private league records, projections and waiver state against ESPN,
 never through public-web claim verification. Public projection/news claims still
 follow the public verification gate below.
-
-Use official league, team, conference, or broadcaster pages for scores,
-standings, and schedules. Cover the Yankees, Steelers, Michigan State men's
-football, and Michigan State men's basketball only to their current seasonal
-relevance. Prefer the last result, next game, standing or record context, and
-one material development. A WFAN listen link is optional and must be verified
-as useful for that game-day context.
 
 ### Business, World and U.S.
 

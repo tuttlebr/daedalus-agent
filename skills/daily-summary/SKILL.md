@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 5.2.0
+  version: 5.3.0
   tags:
     - daily-briefing
     - html
@@ -214,9 +214,9 @@ that are clearly permitted. Apply exclusions before scheduling reads; if source
 eligibility is unclear, wait for the plan. Use its results before adding
 conditional or ambiguous source families.
 
-Fan out independent read-only calls in the same tool round: structured weather,
-public-source discovery, in-season fantasy and relevant repository reads can
-share that permitted baseline round after personal-source authorization. Batch independent
+After personal-source authorization, fetch the Sports desk's official team
+schedules in parallel with structured weather, public-source discovery,
+in-season fantasy and relevant repository reads. Batch independent
 feed questions with `curated_feed_search_tool(mode="discover", queries=[...])`;
 use the returned snippets to select material articles, then fetch only the pages
 needed to support final claims. A discovery result is not an article verification.
@@ -272,6 +272,11 @@ and unavailable operational tools do not merit a front-page package. Leave
 Rank remaining reporting by consequence and deadline. Preserve scientific and
 technical mechanisms, source dates and comparison conditions; cut low-relevance
 items first. Keep weather, actionable mail and calendar in the personal rail.
+
+Give every team with verified in-season information its own sourced entry in
+the `sports` department titled `Sports`. Name the sport for both Michigan
+State teams. Keep fantasy football in its own story. Carry the
+same team entries and links into the text fallback.
 
 When a selected article provides a linked photo, include it beside that story.
 Supply the direct image URL, source article URL and photographer/publisher
@@ -355,7 +360,8 @@ or replace collected reporting with an error-only edition.
 ## Failure behavior
 
 - When one public or shared read source fails, mark the affected desk
-  unavailable, omit unsupported claims, and continue.
+  unavailable, omit unsupported claims, and continue. Sports stays covered
+  when another team or the fantasy beat supplies a verified entry.
 - When Gmail or Calendar requests per-user OAuth, surface the authorization
   prompt and wait. Resume from the existing inventory after authorization; do
   not invent personal data.

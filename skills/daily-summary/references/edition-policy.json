@@ -83,12 +83,19 @@
       "priority": "highest-in-football-season",
       "cadence": "in-season-and-game-day",
       "placement": "ranked",
+      "team_schedules": {
+        "New York Yankees": "https://www.mlb.com/yankees/schedule",
+        "Pittsburgh Steelers": "https://www.steelers.com/schedule/",
+        "Michigan State University men's basketball": "https://msuspartans.com/sports/mens-basketball/schedule",
+        "Michigan State University football": "https://msuspartans.com/sports/football/schedule"
+      },
       "topics": [
+        "Regular-season and postseason results, upcoming games and standings for each team in team_schedules",
         "Fantasy football: Jenkins in Fowling Friends and Triskelion Gamesters in Driveway Tailgaters; refresh league identity, scoring, standings, rosters, byes, waiver rules and deadlines from connected ESPN evidence",
-        "Practice DNP/Limited/Full by day, official game status, snap counts, routes, targets and target share, touches, coaching/usage changes and waiver-relevant breakouts",
-        "Steelers, Yankees, Michigan State football and men’s basketball by season; verified game-day listening links when useful"
+        "Practice DNP/Limited/Full by day, official game status, snap counts, routes, targets and target share, touches, coaching/usage changes and waiver-relevant breakouts"
       ],
       "rules": [
+        "Check each team's schedule every edition. Give each in-season team a sourced entry in Sports, including on off days and byes. Omit offseason teams.",
         "Load espn-fantasy-football for in-season fantasy reporting. Treat each league independently, including odd-team byes, waiver priority and lineup holes. Never suggest a player already rostered as a waiver pickup.",
         "Give the specific usage, eligibility and timing that change a lineup decision, with source dates and scoring period. A practice absence is not a game designation; an IR slot is not proof of current injury status.",
         "Refresh records, injuries, availability and alternatives every edition. The supplied October 2026 Week 4 examples are transient context, not recurring facts.",
