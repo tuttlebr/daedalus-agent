@@ -9,6 +9,7 @@ import { useInvalidateImageHistory } from '@/utils/app/queries';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { IconButton } from '@/components/primitives';
 import { ModalSurface } from '@/components/surfaces';
+import { MaterialDither } from '@/components/surfaces/MaterialDither';
 
 import { useImagePanelStore } from '@/state/imagePanelStore';
 import classNames from 'classnames';
@@ -151,15 +152,10 @@ export function HistoryDrawer() {
       onClose={() => setHistoryOpen(false)}
       position="right"
       aria-label="Session history"
-      className="h-full w-full md:w-[360px]"
+      className="app-panel-material app-chrome h-full w-full md:w-[360px]"
     >
-      <aside
-        className={classNames(
-          'h-full w-full',
-          'bg-app/95 backdrop-blur-xl border-l border-separator/70',
-          'flex flex-col',
-        )}
-      >
+      <MaterialDither kind="reflection" />
+      <aside className="flex h-full w-full flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-separator/70">
           <div>
             <div className="text-sm font-medium text-primary">History</div>

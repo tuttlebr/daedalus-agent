@@ -5,6 +5,7 @@ import React, { memo } from 'react';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 
 import { GlassOverlay } from '@/components/surfaces';
+import { MaterialDither } from '@/components/surfaces/MaterialDither';
 
 import { useUISettingsStore } from '@/state';
 import classNames from 'classnames';
@@ -33,6 +34,7 @@ export const MobileShell = memo(
           className,
         )}
       >
+        <MaterialDither kind="wash" />
         {/* Main content */}
         <div className="app-shell-content app-safe-x min-h-0 flex-1 overflow-hidden">
           {children}

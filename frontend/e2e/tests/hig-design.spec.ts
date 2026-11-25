@@ -8,7 +8,7 @@ import {
 } from '../helpers/design';
 
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import sharp from 'sharp';
@@ -294,6 +294,43 @@ test('appearance follows the system, respects an override, and persists', async 
     .toEqual(['rgb(255 255 255)', 'rgb(255 255 255)']);
 });
 
+async function expectDevicePixels(canvas: Locator) {
+  await expect
+    .poll(() =>
+      canvas.evaluate((el: HTMLCanvasElement) => {
+        const bounds = el.getBoundingClientRect();
+        return (
+          el.hasAttribute('data-ready') &&
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          el.width === Math.round(bounds.width * devicePixelRatio) &&
+          el.height === Math.round(bounds.height * devicePixelRatio)
+        );
+      }),
+    )
+    .toBe(true);
+}
+
+// Average 16-device-pixel squares along an empty strip. An undithered fade
+// across just a few RGB levels produces long plateaus and whole-level jumps.
+async function expectSmoothStrip(strip: Buffer, vertical = false) {
+  const { data, info } = await (vertical
+    ? sharp(strip).rotate(90)
+    : sharp(strip)
+  )
+    .extractChannel('green')
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const means = Array<number>(info.width / 16).fill(0);
+  for (let i = 0; i < data.length; i++) {
+    const block = Math.floor((i % info.width) / 16);
+    means[block] += data[i] / (16 * info.height);
+  }
+  expect(Math.abs(means[0] - means[means.length - 1])).toBeGreaterThan(2);
+  const steps = means.slice(1).map((value, i) => Math.abs(value - means[i]));
+  expect(Math.max(...steps)).toBeLessThan(vertical ? 0.55 : 0.3);
+}
+
 test.describe('4K canvas', () => {
   test.use({
     viewport: { width: 1920, height: 1080 },
@@ -303,33 +340,125 @@ test.describe('4K canvas', () => {
     colorScheme: 'dark',
   });
 
-  test('the dark wash fades smoothly between shades', async ({
+  test('the wash and glass stay smooth across tabs and resizes', async ({
     page,
+    browserName,
   }, testInfo) => {
     test.skip(
       !['chromium', 'tablet-webkit'].includes(testInfo.project.name),
       'One capture per engine',
     );
     await openApp(page);
-    // Sample empty canvas between the sidebar and the message column. Average
-    // 16px squares so the check measures the fade the eye sees across pixels.
-    const strip = await page.screenshot({
-      clip: { x: 400, y: 272, width: 384, height: 8 },
-      scale: 'device',
-    });
-    const { data, info } = await sharp(strip)
-      .extractChannel('green')
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const means = Array<number>(info.width / 16).fill(0);
-    for (let i = 0; i < data.length; i++) {
-      const block = Math.floor((i % info.width) / 16);
-      means[block] += data[i] / (16 * info.height);
+    await openSidebar(page);
+    await settleTransitions(page);
+    const wash = page.locator('.app-shell > canvas');
+    const sidebar = page.locator('.app-sidebar > canvas');
+    await expectDevicePixels(wash);
+    await expectDevicePixels(sidebar);
+    await expectSmoothStrip(
+      await page.screenshot({
+        clip: { x: 400, y: 272, width: 384, height: 8 },
+        scale: 'device',
+      }),
+    );
+    await expectSmoothStrip(
+      await page.screenshot({
+        clip: { x: 120, y: 232, width: 8, height: 176 },
+        scale: 'device',
+      }),
+      true,
+    );
+
+    const divider = page.getByRole('separator', { name: 'Resize sidebar' });
+    const before = await sidebar.getAttribute('width');
+    await divider.press('End');
+    await settleTransitions(page);
+    await expect(sidebar).not.toHaveAttribute('width', before!);
+    await expectDevicePixels(sidebar);
+    await divider.press('Enter');
+    await navigate(page, 'Create');
+    await expectDevicePixels(page.locator('.app-inspector > canvas'));
+    await expectSmoothStrip(
+      await page.screenshot({
+        clip: { x: 1824, y: 702, width: 8, height: 176 },
+        scale: 'device',
+      }),
+      true,
+    );
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+
+    for (const [width, height, colorScheme] of [
+      [1920, 1080, 'dark'],
+      [1375, 734, 'dark'],
+      [1375, 734, 'light'],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme });
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-theme',
+        colorScheme,
+      );
+      await expectDevicePixels(wash);
+      await expectDevicePixels(sidebar);
+      let reference: Buffer | undefined;
+      for (const view of [
+        'Chat',
+        'Create',
+        'Autonomy',
+        'Memory',
+        'Connections',
+      ]) {
+        await navigate(page, view);
+        await settleTransitions(page);
+        // The empty bottom corner used to change with each composer height.
+        const strip = await page.screenshot({
+          clip: { x: width - 76, y: height - 72, width: 32, height: 40 },
+          scale: 'device',
+        });
+        const raw = await sharp(strip).removeAlpha().raw().toBuffer();
+        reference ??= raw;
+        expect(raw.equals(reference), view).toBe(true);
+      }
     }
-    // The tint fades by several 8-bit levels, in sub-level increments.
-    expect(means[0] - means[means.length - 1]).toBeGreaterThan(2);
-    const steps = means.slice(1).map((value, i) => Math.abs(value - means[i]));
-    expect(Math.max(...steps)).toBeLessThan(0.3);
+
+    await navigate(page, 'Create');
+    await page.getByRole('button', { name: 'History', exact: true }).click();
+    await expectDevicePixels(
+      page.getByRole('dialog', { name: 'Session history' }).locator('canvas'),
+    );
+    if (browserName === 'chromium') {
+      // Change only the display scale, as when moving a window between monitors.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        ...page.viewportSize()!,
+        deviceScaleFactor: 1.25,
+        mobile: false,
+      });
+      // CDP's metrics override alone does not notify resolution media queries.
+      await cdp.send('Emulation.setEmulatedMedia', {
+        media: 'screen',
+        features: [{ name: 'prefers-color-scheme', value: 'light' }],
+      });
+      await expect(wash).toHaveAttribute(
+        'width',
+        String(Math.round(1375 * 1.25)),
+      );
+      await expectDevicePixels(sidebar);
+      await cdp.detach();
+    }
+    await page.getByRole('button', { name: 'Close history' }).click();
+    await page.setViewportSize({ width: 1100, height: 230 });
+    await expectDevicePixels(sidebar);
+    const bounds = await sidebar.boundingBox();
+    const scrolled = await page
+      .locator('.app-sidebar-header')
+      .evaluate((header) => {
+        const content = header.parentElement!;
+        content.scrollTop = content.scrollHeight;
+        return content.scrollTop;
+      });
+    expect(scrolled).toBeGreaterThan(0);
+    expect(await sidebar.boundingBox()).toEqual(bounds);
   });
 });
 
@@ -340,6 +469,7 @@ test('reduced transparency makes materials opaque and persists before hydration'
   await openApp(page);
   await openSidebar(page);
   const sidebar = page.locator('.app-sidebar');
+  await expectDevicePixels(sidebar.locator('canvas'));
   const opaque = () =>
     sidebar.evaluate((element) => {
       const channels = getComputedStyle(element)
@@ -356,6 +486,7 @@ test('reduced transparency makes materials opaque and persists before hydration'
     'reduced',
   );
   await expect.poll(opaque).toBe(true);
+  await expect(page.locator('.material-dither:visible')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
     pseudo: 'before',
   });
@@ -364,6 +495,14 @@ test('reduced transparency makes materials opaque and persists before hydration'
     'data-transparency',
     'reduced',
   );
+  const toggle = page.getByRole('switch', {
+    name: 'Reduce transparency',
+    exact: true,
+  });
+  if (!(await toggle.isVisible())) await openSidebar(page);
+  await toggle.uncheck();
+  await expectDevicePixels(sidebar.locator('canvas'));
+  await expectDevicePixels(page.locator('.app-shell > canvas'));
 });
 
 test('destinations reflow in both appearances and at twice the text size', async ({
@@ -493,6 +632,7 @@ test('glass navigation adapts to contrast and transparency preferences', async (
     expect(solid.opacity).toBe(1);
     expect(solid.filter).toBe('none');
     expect(solid.reflection).toBe('none');
+    await expect(page.locator('.material-dither:visible')).toHaveCount(0);
     await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
       pseudo: 'before',
     });
@@ -530,6 +670,7 @@ test('glass navigation adapts to contrast and transparency preferences', async (
       expect(solid.opacity).toBe(1);
       expect(solid.filter).toBe('none');
       expect(solid.reflection).toBe('none');
+      await expect(page.locator('.material-dither:visible')).toHaveCount(0);
       await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
         pseudo: 'before',
       });
@@ -547,12 +688,13 @@ test('forced colors keep navigation and toolbar groups opaque', async ({
   await openApp(page);
   await navigate(page, 'Create');
   await page.emulateMedia({ forcedColors: 'active' });
+  await expect(page.locator('.material-dither:visible')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
     pseudo: 'before',
   });
   const materials = await page
     .locator(
-      '.app-navigation-cluster, .app-bottom-nav, .app-toolbar-group, .app-view-tabs .app-segmented',
+      '.app-navigation-cluster, .app-bottom-nav, .app-toolbar-group, .app-view-tabs .app-segmented, .app-panel-material',
     )
     .evaluateAll((elements) =>
       elements

@@ -46,12 +46,8 @@
     0 2px 6px rgb(var(--palette-slate) / 0.05);
   /* A tinted fill, not white: white selection disappears on white glass. */
   --glass-selection: rgb(var(--palette-navy) / 0.08);
-  --navigation-sheen: linear-gradient(
-    135deg,
-    rgb(var(--palette-white) / 0.55),
-    rgb(var(--palette-white) / 0) 45%,
-    rgb(var(--palette-glacier) / 0.12)
-  );
+  --reflection-start-opacity: 0.55;
+  --reflection-end: var(--palette-glacier);
   --navigation-rim: rgb(var(--palette-slate) / 0.1);
   --canvas-wash: 0.22;
   /* Destructive actions only; errors keep mauve. White text measures 5.62:1. */
@@ -87,12 +83,8 @@ html.dark,
   --glass-shadow: 0 12px 36px -12px rgb(0 0 0 / 0.48),
     0 2px 8px rgb(0 0 0 / 0.15);
   --glass-selection: rgb(var(--palette-steel) / 0.38);
-  --navigation-sheen: linear-gradient(
-    135deg,
-    rgb(var(--palette-white) / 0.1),
-    rgb(var(--palette-white) / 0) 45%,
-    rgb(var(--palette-steel) / 0.12)
-  );
+  --reflection-start-opacity: 0.1;
+  --reflection-end: var(--palette-steel);
   --navigation-rim: rgb(0 0 0 / 0.2);
   --canvas-wash: 0.12;
   /* Navy text on this fill measures 8.72:1; as text on raised blue, 4.72:1. */
@@ -123,6 +115,14 @@ html.dark,
   --glass-background: rgb(var(--glass-tint));
   --glass-filter: none;
   --navigation-background: rgb(var(--glass-tint));
+  --reflection-end-opacity: 0.12;
+  --sidebar-tint-opacity: 0.9;
+  --navigation-sheen: linear-gradient(
+    135deg,
+    rgb(var(--palette-white) / var(--reflection-start-opacity)),
+    rgb(var(--palette-white) / 0) 45%,
+    rgb(var(--reflection-end) / var(--reflection-end-opacity))
+  );
   --navigation-reflection: none;
   --navigation-filter: none;
   --glass-radius: 1.75rem;
@@ -313,6 +313,7 @@ svg.tabler-icon {
 }
 .app-shell,
 .app-login {
+  --canvas-edge: 8rem;
   position: relative;
   isolation: isolate;
   background-color: var(--bg-canvas);
@@ -340,34 +341,49 @@ svg.tabler-icon {
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 8rem,
-    #000 calc(100% - 8rem),
+    #000 var(--canvas-edge),
+    #000 calc(100% - var(--canvas-edge)),
     transparent
   );
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 8rem,
-    #000 calc(100% - 8rem),
+    #000 var(--canvas-edge),
+    #000 calc(100% - var(--canvas-edge)),
     transparent
   );
 }
-/* Dark washes span only a few RGB levels. The static image blends both tints
-   and the edge fade before dithering. Stretch the middle independently so the
-   top and bottom fades still occupy 8rem as the window or text size changes. */
-:where(html.dark, html[data-theme='dark']) :is(.app-shell, .app-login)::before {
-  background: none;
-  -webkit-mask-image: none;
-  mask-image: none;
-  /* Interpolating the adjacent shades when scaling recreates the bands. */
+/* Match each backing store to its own surface. While a resize is in flight,
+   keep adjacent dithered pixels distinct until the new frame is ready. */
+.material-dither {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
   image-rendering: pixelated;
-  border-image: url('./dark-canvas.png') 128 0 fill / 8rem 0;
+  visibility: hidden;
+  display: var(--dither-display, block);
+}
+.material-dither[data-ready] {
+  visibility: visible;
+}
+.material-dither[data-material='wash'] {
+  /* Resolves the CSS edge length to pixels for the painter at any text size. */
+  font-size: var(--canvas-edge);
+}
+:is(.app-shell, .app-login):has(> .material-dither[data-ready])::before {
+  content: none;
+}
+.material-dither[data-material='reflection'] {
+  display: none;
 }
 /* One material layer for navigation and controls. Content cards stay opaque. */
 .app-chrome,
 .app-menu,
 .app-popover,
-.app-dialog-panel:not(:has(.app-sidebar)),
+.app-dialog-panel:not(:has(.app-sidebar), .app-panel-material),
 .chat-jump-latest {
   background: var(--glass-background);
   border: 1px solid var(--glass-edge);
@@ -480,19 +496,6 @@ svg.tabler-icon {
   .app-viewport[data-keyboard-open='false'] .chat-scroll-container {
     padding-bottom: var(--bottom-bar-inset, 0px);
     scroll-padding-bottom: var(--bottom-bar-inset, 0px);
-  }
-  .app-viewport[data-keyboard-open='false']
-    :is(.chat-bottom-bar, .image-bottom-bar)::before {
-    content: '';
-    position: absolute;
-    inset: -1.5rem 0 0;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(
-      to top,
-      rgb(var(--app) / var(--scroll-edge-strength)) calc(100% - 2rem),
-      rgb(var(--app) / 0)
-    );
   }
   .app-viewport[data-keyboard-open='false'] .chat-jump-latest {
     bottom: calc(var(--bottom-bar-inset, 0px) + 0.5rem);
@@ -688,15 +691,23 @@ svg.tabler-icon {
   margin: var(--app-inset) 0 var(--app-inset) var(--app-inset);
   width: calc(100% - var(--app-inset));
   height: calc(100% - 2 * var(--app-inset));
-  overflow-y: auto;
-  overscroll-behavior: contain;
   border-radius: var(--panel-radius);
+}
+.app-panel-material {
+  position: relative;
+  isolation: isolate;
 }
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   /* A denser tint protects history labels when content moves behind a drawer. */
-  .app-sidebar,
-  .app-inspector {
-    background: rgb(var(--glass-tint) / 0.9);
+  .app-panel-material {
+    background-color: rgb(var(--glass-tint) / var(--sidebar-tint-opacity));
+    background-image: var(--navigation-reflection);
+  }
+  .material-dither[data-material='reflection'] {
+    display: var(--dither-display, block);
+  }
+  .app-panel-material:where(:has(> .material-dither[data-ready])) {
+    background: transparent;
   }
 }
 /* The header row shares the toolbar's centre line: both start one inset below
@@ -873,26 +884,40 @@ body:has(dialog[open]) .app-install-prompt {
   gap: var(--app-inset);
   padding: var(--app-inset);
 }
-/* On wide windows the toolbar floats over the content, which scrolls beneath
-   it. The scroll edge fades that content into the canvas so the controls stay
-   legible; reduced transparency makes the edge opaque. */
+/* Fade only scrolling content beneath floating controls. Painting a second
+   gradient over the workspace would cut a different stripe across each tab. */
 @media (min-width: 768px) {
   .app-view-tabs {
     position: absolute;
     inset: 0 0 auto;
     z-index: 20;
   }
-  .app-view-tabs::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 -1rem;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(
+  .app-viewport[data-keyboard-open='false']
+    :is(.app-page, .chat-scroll-container) {
+    --scroll-top: rgb(0 0 0 / calc(1 - var(--scroll-edge-strength)))
+        calc(var(--app-toolbar-inset) - 0.25rem),
+      #000 calc(var(--app-toolbar-inset) + 1rem);
+  }
+  .app-viewport[data-keyboard-open='false']
+    :is(.chat-scroll-container, .image-canvas-scroll, .image-canvas-empty) {
+    --scroll-bottom: #000 calc(100% - var(--bottom-bar-inset) - 1.5rem),
+      rgb(0 0 0 / calc(1 - var(--scroll-edge-strength)))
+        calc(100% - var(--bottom-bar-inset) + 0.5rem);
+  }
+  .app-viewport[data-keyboard-open='false']
+    :is(
+      .app-page,
+      .chat-scroll-container,
+      .image-canvas-scroll,
+      .image-canvas-empty
+    ) {
+    --scroll-mask: linear-gradient(
       to bottom,
-      rgb(var(--app) / var(--scroll-edge-strength)) calc(100% - 1.25rem),
-      rgb(var(--app) / 0)
+      var(--scroll-top, #000 0%),
+      var(--scroll-bottom, #000 100%)
     );
+    -webkit-mask-image: var(--scroll-mask);
+    mask-image: var(--scroll-mask);
   }
 }
 /* Toolbar items share one height: single controls are that tall, and grouped
@@ -1142,6 +1167,7 @@ body:has(dialog[open]) .app-install-prompt {
 .chat-header-action,
 .app-view-tabs .app-segmented {
   background-color: var(--navigation-background);
+  background-image: var(--navigation-reflection);
 }
 .app-navigation-cluster,
 .app-bottom-nav,
@@ -1149,8 +1175,7 @@ body:has(dialog[open]) .app-install-prompt {
 .app-toolbar-button,
 .chat-header-action,
 .app-view-tabs .app-segmented,
-.app-sidebar {
-  background-image: var(--navigation-reflection);
+.app-panel-material {
   box-shadow: inset 0 1px 0 var(--glass-highlight),
     inset 0 -1px 0 var(--navigation-rim), var(--glass-shadow);
   -webkit-backdrop-filter: var(--navigation-filter);
@@ -1220,10 +1245,10 @@ body:has(dialog[open]) .app-install-prompt {
     --navigation-filter: none;
     --glass-selection: rgb(var(--panel));
     --canvas-content: none;
+    --dither-display: none;
     --scroll-edge-strength: 1;
   }
-  .app-sidebar,
-  .app-inspector {
+  .app-panel-material {
     background: rgb(var(--glass-tint));
   }
   *,
@@ -1241,9 +1266,10 @@ body:has(dialog[open]) .app-install-prompt {
   --navigation-filter: none;
   --glass-selection: rgb(var(--panel));
   --canvas-content: none;
+  --dither-display: none;
   --scroll-edge-strength: 1;
 }
-:root[data-transparency='reduced'] :is(.app-sidebar, .app-inspector) {
+:root[data-transparency='reduced'] .app-panel-material {
   background: rgb(var(--glass-tint));
 }
 :root[data-transparency='reduced'] *,
@@ -1297,6 +1323,7 @@ body:has(dialog[open]) .app-install-prompt {
 @media (forced-colors: active) {
   :root {
     --canvas-content: none;
+    --dither-display: none;
     --glass-filter: none;
     --navigation-background: Canvas;
     --navigation-reflection: none;

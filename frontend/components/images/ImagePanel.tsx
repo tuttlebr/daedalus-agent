@@ -39,6 +39,7 @@ import {
   ToolbarItems,
   useToolbarShown,
 } from '@/components/layout/ToolbarSlot';
+import { MaterialDither } from '@/components/surfaces/MaterialDither';
 
 import { EditAssetsPanel } from './AttachmentsPopover';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
@@ -769,10 +770,11 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           id="create-settings-sidebar"
           aria-label="Create settings and output details"
           className={classNames(
-            'app-inspector app-chrome w-[360px] flex-none flex-col',
+            'app-inspector app-panel-material app-chrome w-[360px] flex-none flex-col',
             settingsOpen ? 'hidden lg:flex' : 'hidden',
           )}
         >
+          <MaterialDither kind="reflection" />
           <div className="min-h-0 flex-1">
             <ImageSettingsPanel />
           </div>

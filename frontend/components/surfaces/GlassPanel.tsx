@@ -2,6 +2,8 @@
 
 import React, { forwardRef, memo } from 'react';
 
+import { MaterialDither } from './MaterialDither';
+
 import classNames from 'classnames';
 
 export interface GlassPanelProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -19,12 +21,15 @@ export const GlassPanel = memo(
         ref={ref}
         data-position={position}
         className={classNames(
-          'app-glass-panel app-chrome flex h-full flex-col',
+          'app-glass-panel app-panel-material app-chrome flex h-full flex-col overflow-hidden',
           className,
         )}
         {...props}
       >
-        {children}
+        <MaterialDither kind="reflection" />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          {children}
+        </div>
       </div>
     ),
   ),

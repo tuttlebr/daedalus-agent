@@ -12,6 +12,7 @@ import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
 import { Button } from '@/components/primitives';
 import { Input } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
+import { MaterialDither } from '@/components/surfaces/MaterialDither';
 
 import { useAuth } from './AuthProvider';
 
@@ -69,6 +70,7 @@ export const LoginPage: React.FC = () => {
       tabIndex={-1}
       className="app-login min-h-[100dvh] flex items-center justify-center bg-app app-safe-x safe-y py-8"
     >
+      <MaterialDither kind="wash" />
       <div className="w-full max-w-md px-4">
         <GlassCard
           variant="elevated"
