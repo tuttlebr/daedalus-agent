@@ -23,8 +23,11 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   stays there when the composer grows. A scroll edge fades content into the
   canvas under each bar. The canvas washes fade out near the top and bottom
   edges, so Safari's title bar, the toolbar edge and the composer edge meet
-  one flat canvas color. Phones and keyboard layouts keep the composer below
-  the messages.
+  one flat canvas color. Dark mode uses a lossless, dithered background to
+  smooth the two tints across large displays. Its top and bottom slices keep
+  the 8rem fade as the window resizes. After changing the palette or dark
+  wash strength, run `node scripts/generate-dark-canvas.mjs` from `frontend/`.
+  Phones and keyboard layouts keep the composer below the messages.
 - Window geometry: floating panels (the sidebar, the Create inspector and a
   fullscreen document's page) keep one 8px inset from the window. On pointer devices their corners are
   concentric with the window's (Safari web-app windows on macOS 26 round at

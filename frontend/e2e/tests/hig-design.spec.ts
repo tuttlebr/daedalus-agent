@@ -11,6 +11,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import sharp from 'sharp';
 
 test.use({ serviceWorkers: 'block' });
 
@@ -293,9 +294,49 @@ test('appearance follows the system, respects an override, and persists', async 
     .toEqual(['rgb(255 255 255)', 'rgb(255 255 255)']);
 });
 
+test.describe('4K canvas', () => {
+  test.use({
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 2,
+    isMobile: false,
+    hasTouch: false,
+    colorScheme: 'dark',
+  });
+
+  test('the dark wash fades smoothly between shades', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      !['chromium', 'tablet-webkit'].includes(testInfo.project.name),
+      'One capture per engine',
+    );
+    await openApp(page);
+    // Sample empty canvas between the sidebar and the message column. Average
+    // 16px squares so the check measures the fade the eye sees across pixels.
+    const strip = await page.screenshot({
+      clip: { x: 400, y: 272, width: 384, height: 8 },
+      scale: 'device',
+    });
+    const { data, info } = await sharp(strip)
+      .extractChannel('green')
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const means = Array<number>(info.width / 16).fill(0);
+    for (let i = 0; i < data.length; i++) {
+      const block = Math.floor((i % info.width) / 16);
+      means[block] += data[i] / (16 * info.height);
+    }
+    // The tint fades by several 8-bit levels, in sub-level increments.
+    expect(means[0] - means[means.length - 1]).toBeGreaterThan(2);
+    const steps = means.slice(1).map((value, i) => Math.abs(value - means[i]));
+    expect(Math.max(...steps)).toBeLessThan(0.3);
+  });
+});
+
 test('reduced transparency makes materials opaque and persists before hydration', async ({
   page,
 }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
   await openApp(page);
   await openSidebar(page);
   const sidebar = page.locator('.app-sidebar');
@@ -315,6 +356,9 @@ test('reduced transparency makes materials opaque and persists before hydration'
     'reduced',
   );
   await expect.poll(opaque).toBe(true);
+  await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
+    pseudo: 'before',
+  });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute(
     'data-transparency',
@@ -449,6 +493,9 @@ test('glass navigation adapts to contrast and transparency preferences', async (
     expect(solid.opacity).toBe(1);
     expect(solid.filter).toBe('none');
     expect(solid.reflection).toBe('none');
+    await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
+      pseudo: 'before',
+    });
     await navigate(page, 'Memory');
     await assertFits(page);
     expect(
@@ -483,6 +530,9 @@ test('glass navigation adapts to contrast and transparency preferences', async (
       expect(solid.opacity).toBe(1);
       expect(solid.filter).toBe('none');
       expect(solid.reflection).toBe('none');
+      await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
+        pseudo: 'before',
+      });
       await page.screenshot({
         path: testInfo.outputPath(`reduced-transparency-${colorScheme}.png`),
       });
@@ -497,6 +547,9 @@ test('forced colors keep navigation and toolbar groups opaque', async ({
   await openApp(page);
   await navigate(page, 'Create');
   await page.emulateMedia({ forcedColors: 'active' });
+  await expect(page.locator('.app-shell')).toHaveCSS('content', 'none', {
+    pseudo: 'before',
+  });
   const materials = await page
     .locator(
       '.app-navigation-cluster, .app-bottom-nav, .app-toolbar-group, .app-view-tabs .app-segmented',

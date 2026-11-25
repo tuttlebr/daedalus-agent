@@ -322,7 +322,7 @@ svg.tabler-icon {
    toolbar and composer, so neither edge shows a seam. */
 .app-shell::before,
 .app-login::before {
-  content: '';
+  content: var(--canvas-content, '');
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -351,6 +351,17 @@ svg.tabler-icon {
     #000 calc(100% - 8rem),
     transparent
   );
+}
+/* Dark washes span only a few RGB levels. The static image blends both tints
+   and the edge fade before dithering. Stretch the middle independently so the
+   top and bottom fades still occupy 8rem as the window or text size changes. */
+:where(html.dark, html[data-theme='dark']) :is(.app-shell, .app-login)::before {
+  background: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  /* Interpolating the adjacent shades when scaling recreates the bands. */
+  image-rendering: pixelated;
+  border-image: url('./dark-canvas.png') 128 0 fill / 8rem 0;
 }
 /* One material layer for navigation and controls. Content cards stay opaque. */
 .app-chrome,
@@ -1208,7 +1219,7 @@ body:has(dialog[open]) .app-install-prompt {
     --navigation-reflection: none;
     --navigation-filter: none;
     --glass-selection: rgb(var(--panel));
-    --canvas-wash: 0;
+    --canvas-content: none;
     --scroll-edge-strength: 1;
   }
   .app-sidebar,
@@ -1229,7 +1240,7 @@ body:has(dialog[open]) .app-install-prompt {
   --navigation-reflection: none;
   --navigation-filter: none;
   --glass-selection: rgb(var(--panel));
-  --canvas-wash: 0;
+  --canvas-content: none;
   --scroll-edge-strength: 1;
 }
 :root[data-transparency='reduced'] :is(.app-sidebar, .app-inspector) {
@@ -1285,6 +1296,7 @@ body:has(dialog[open]) .app-install-prompt {
 }
 @media (forced-colors: active) {
   :root {
+    --canvas-content: none;
     --glass-filter: none;
     --navigation-background: Canvas;
     --navigation-reflection: none;
