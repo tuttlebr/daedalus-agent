@@ -70,15 +70,16 @@ structured correction feedback and never execute; valid siblings execute under
 the usual authorization and approval gates. The correction guidance travels
 inside each rejected call's tool result, so the next request remains a tool
 continuation for the current provider rather than a new user turn that a
-routing gateway would classify again. Each invalid tool gets one correction;
-a second invalid proposal disables that tool for the remainder of the run while
+routing gateway would classify again. Ordinary tools get one correction.
+A second invalid proposal disables that tool for the remainder of the run while
 other tools and synthesis continue. A successful correction restores its allowance
 before disabling, but a disabled tool stays disabled until the next run.
 Unrelated successes cannot reset an invalid tool's allowance. Rejection logs
 identify only advertised tools, schema constraints and JSON types, never argument
 values. Missing facts must be resolved from supplied context, existing results or
 available memory rather than guessed. Required-tool requests still fail if the
-required capability cannot succeed.
+required capability cannot succeed. The final charter submission uses the bounded
+report repair described in [Autonomy](autonomy.md#validation).
 Executed calls have a separate loop guard. When the same tool, arguments and
 error recur `workflow.loop_guard.repeated_error_limit` times (an integer from
 0 to 100; 0 turns the guard off, and other values fail configuration validation),

@@ -8,6 +8,7 @@ import pytest
 from autonomous_agent.backend_client import (
     BackendClient,
     BackendRejectedError,
+    InvalidReportError,
     OAuthRequiredError,
     RunAbortedError,
 )
@@ -98,6 +99,20 @@ def test_backend_stream_rejects_partial_or_failed_answers(
 ):
     with pytest.raises(RunAbortedError, match=error):
         backend_stream(_PARTIAL + suffix)
+
+
+@pytest.mark.parametrize("attempted", [False, True, "false", None])
+def test_report_failure_requires_a_typed_mutation_receipt(backend_stream, attempted):
+    frame = {
+        "error": {"code": "invalid_autonomy_report", "mutation_attempted": attempted}
+    }
+    with pytest.raises(RunAbortedError) as raised:
+        backend_stream(_PARTIAL + "event: error\ndata: " + json.dumps(frame) + "\n\n")
+    if isinstance(attempted, bool):
+        assert isinstance(raised.value, InvalidReportError)
+        assert raised.value.mutation_attempted is attempted
+    else:
+        assert type(raised.value) is RunAbortedError
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 409, 429])

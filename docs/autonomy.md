@@ -105,10 +105,17 @@ Workers load humanizer before writing public notes. Publication validation limit
 outcome notes to one paragraph, three sentences, 80 words and 600 characters.
 Routine success can use one sentence; blockers should name a supported owner
 step and verification. Proposal titles allow ten words/80 characters and benefits
-35 words/240 characters. Overlong completions receive correction feedback within
-the same run; they cannot bypass validation or replay earlier mutations. The
-limits preserve partial-failure and uncertainty status. They do not establish that
-a suggested fix will work: the note must retain that uncertainty.
+35 words/240 characters. A rejected standalone charter report gets up to two
+correction attempts using only the submission tool and the evidence already
+collected. Repeating the same validation error ends the repair early. Summary,
+verification evidence and observed-state errors identify their individual fields.
+
+When report validation exhausts its allowance, the backend sends an error event
+with code `invalid_autonomy_report` and a boolean `mutation_attempted`. The
+worker saves a failed outcome if the runtime recorded no attempted mutation.
+After an attempted mutation it saves an uncertain outcome and asks the owner to
+check the affected service before another run. Older workers and untyped stream
+failures use the existing uncertain interruption record.
 
 For example, this partial upload changes only cluster-check cadence:
 
@@ -311,7 +318,10 @@ lighting, bounded calls, and upgrade/duplicate-mutation rejection. Completion
 checks use the actual worker schema and Pydantic validators, including safe
 correction of invalid fields, timestamps, source URLs, duplicate identities,
 missing evidence, event ordering and oversized observed state. Correction reuses
-completed research within the same run.
+completed research within the same run. The Docker / Compose Smoke CI job runs
+this check on the built backend with both preparation modes before release. It
+holds an interactive chat open across a failed automation and verifies the chat
+still delivers its answer.
 
 The former autonomy briefing publisher and schedule are removed. Pending legacy
 `daily_summary` jobs are cancelled without model dispatch or publication. Old

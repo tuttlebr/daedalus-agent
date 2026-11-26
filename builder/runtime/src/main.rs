@@ -450,7 +450,9 @@ async fn supervise(
         // Provider exceptions can contain full requests or credentials.
         // Only application-owned diagnostics cross the logging/UI boundary.
         let details = logging::failure(&failure);
+        let invalid_report = failure.downcast_ref::<autonomy_output::InvalidReport>();
         let message = match failure.root_cause().to_string().as_str() {
+            _ if invalid_report.is_some() => autonomy_output::INVALID_REPORT_MESSAGE,
             "Run cancelled by user" => "Run cancelled by user",
             "Agent run timed out" => "Agent run timed out",
             "Agent iteration limit reached" => "Agent iteration limit reached",
@@ -489,9 +491,12 @@ async fn supervise(
         // A stopped or disconnected consumer must not block cleanup
         // on a full output channel.
         let _ = tokio::time::timeout(Duration::from_secs(1), async {
-            let _ = events
-                .event("error", json!({"error":{"message":message}}))
-                .await;
+            let mut error = json!({"message":message});
+            if let Some(report) = invalid_report {
+                error["code"] = json!("invalid_autonomy_report");
+                error["mutation_attempted"] = json!(report.mutation_attempted);
+            }
+            let _ = events.event("error", json!({"error":error})).await;
             let _ = events.finish("error").await;
         })
         .await;

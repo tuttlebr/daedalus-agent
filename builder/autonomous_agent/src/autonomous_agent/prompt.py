@@ -297,8 +297,10 @@ def validation_problem(exc: ValidationError) -> str:
                 hint = "Use a valid ISO timestamp with an explicit UTC offset."
             elif loc[0] == "calendarEvents":
                 hint = "Use ISO dates for all-day events or explicit-offset timestamps for timed events; end must follow start."
-            elif loc[0] == "outcome":
-                hint = "Completed/partial outcomes require evidence; observedState must fit in 32768 serialized UTF-8 bytes."
+            elif loc == ("outcome", "evidence"):
+                hint = "Completed and partial outcomes require evidence from an actual verification."
+            elif loc == ("outcome", "observedState"):
+                hint = "Keep observedState within 32768 serialized UTF-8 bytes."
         hints.append(f"{path}: {hint}")
     return "Invalid charter result. " + " ".join(hints)
 

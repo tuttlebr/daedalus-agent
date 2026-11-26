@@ -4,6 +4,22 @@ use rig_core::completion::ToolDefinition;
 use serde_json::Value;
 
 pub const TOOL: &str = "submit_autonomous_result";
+pub const INVALID_REPORT_MESSAGE: &str = "The automation could not produce a valid final report";
+
+/// The runtime can attest to attempted mutations only for a tracked charter task.
+#[derive(Debug)]
+pub struct InvalidReport {
+    pub mutation_attempted: bool,
+}
+
+impl std::fmt::Display for InvalidReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(INVALID_REPORT_MESSAGE)
+    }
+}
+
+impl std::error::Error for InvalidReport {}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Validation {

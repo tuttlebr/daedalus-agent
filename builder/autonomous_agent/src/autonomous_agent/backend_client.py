@@ -19,6 +19,12 @@ class RunAbortedError(RuntimeError):
     """The in-flight backend request was stopped before it produced an answer."""
 
 
+class InvalidReportError(RunAbortedError):
+    def __init__(self, mutation_attempted: bool) -> None:
+        self.mutation_attempted = mutation_attempted
+        super().__init__("The automation could not produce a valid final report")
+
+
 class BackendRejectedError(RunAbortedError):
     """The internal backend rejected admission before opening an execution stream."""
 
@@ -201,6 +207,13 @@ class BackendClient:
                     if not isinstance(chunk, dict):
                         raise RunAbortedError("backend sent an invalid stream event")
                     if current_sse_event == "error" or chunk.get("error"):
+                        error = chunk.get("error")
+                        if (
+                            isinstance(error, dict)
+                            and error.get("code") == "invalid_autonomy_report"
+                            and isinstance(error.get("mutation_attempted"), bool)
+                        ):
+                            raise InvalidReportError(error["mutation_attempted"])
                         raise RunAbortedError("backend stream reported an error")
                     if current_sse_event == "mcp_approval_required":
                         raise ApprovalRequiredError(

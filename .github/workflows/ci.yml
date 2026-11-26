@@ -339,6 +339,18 @@ jobs:
             --redis-image docker.io/your-user/daedalus:redis-0.1.0 \
             --preparation python
 
+      - name: Check autonomous report recovery in the release candidate
+        env:
+          PYTHONPATH: builder/autonomous_agent/src:builder/nat_helpers/src
+        run: |
+          "$RUNNER_TEMP/runtime-check/bin/pip" install 'pydantic>=2,<2.14' 'redis>=4.3.6,<6'
+          for preparation in rust python; do
+            "$RUNNER_TEMP/runtime-check/bin/python" builder/migration/autonomy_http_check.py \
+              --image docker.io/your-user/daedalus:backend-0.1.0 \
+              --redis-image docker.io/your-user/daedalus:redis-0.1.0 \
+              --preparation "$preparation"
+          done
+
       - name: Export runtime image digests
         id: image_digests
         env:

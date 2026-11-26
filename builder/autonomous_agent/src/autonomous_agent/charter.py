@@ -20,6 +20,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -316,7 +317,9 @@ class ActionOutcome(Contract):
     reportVersion: Literal[1] = 1
     # The runtime overwrites this field from actual dispatch history.
     mutationAttempted: bool = False
-    evidence: list[Evidence] = Field(default_factory=list, max_length=30)
+    evidence: list[Evidence] = Field(
+        default_factory=list, max_length=30, validate_default=True
+    )
     externalId: str = Field(default="", max_length=512)
     # Captured remote state enables reconciliation while respecting user edits.
     observedState: dict = Field(default_factory=dict)
@@ -337,15 +340,21 @@ class ActionOutcome(Contract):
             )
         return value
 
-    @model_validator(mode="after")
-    def verified_completion(self) -> ActionOutcome:
-        if self.status in {"completed", "partial"} and not self.evidence:
+    @field_validator("evidence")
+    @classmethod
+    def verified_completion(
+        cls, value: list[Evidence], info: ValidationInfo
+    ) -> list[Evidence]:
+        if info.data.get("status") in {"completed", "partial"} and not value:
             raise ValueError("Completion requires verification evidence")
-        if len(json.dumps(self.observedState, ensure_ascii=False).encode()) > 32768:
-            raise ValueError(
-                "Observed state must be a bounded normalized event, not raw tool output"
-            )
-        return self
+        return value
+
+    @field_validator("observedState")
+    @classmethod
+    def bounded_state(cls, value: dict) -> dict:
+        if len(json.dumps(value, ensure_ascii=False).encode()) > 32768:
+            raise ValueError("Observed state exceeds 32768 serialized UTF-8 bytes")
+        return value
 
 
 class Proposal(Contract):

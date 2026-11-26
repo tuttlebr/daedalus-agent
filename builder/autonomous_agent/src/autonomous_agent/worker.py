@@ -9,7 +9,12 @@ import threading
 import time
 from typing import Any
 
-from .backend_client import BackendClient, BackendRejectedError, RunAbortedError
+from .backend_client import (
+    BackendClient,
+    BackendRejectedError,
+    InvalidReportError,
+    RunAbortedError,
+)
 from .charter import (
     ActionOutcome,
     CharterConfig,
@@ -112,6 +117,21 @@ def run_once(
         if abort.is_set() or store.cancel_requested(user_id, run["id"]):
             raise RunAbortedError("Execution stopped before result commit")
         output = parse_structured_output(response)
+    except InvalidReportError as exc:
+        log(
+            f"final report rejected: kind={task['kind']} mutation_attempted={exc.mutation_attempted}"
+        )
+        output = CharterOutput(
+            outcome=ActionOutcome(
+                status="uncertain" if exc.mutation_attempted else "failed",
+                mutationAttempted=exc.mutation_attempted,
+                summary=(
+                    "The automation could not produce a valid final report after attempting a change. Check the affected service before running it again."
+                    if exc.mutation_attempted
+                    else "The automation could not produce a valid final report. The runtime recorded no attempted changes."
+                ),
+            )
+        )
     except BackendRejectedError as exc:
         # The internal API returned a pre-stream admission refusal, so no tool
         # was dispatched. This can happen while the prior backend drains during

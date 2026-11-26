@@ -76,9 +76,10 @@ fn error_limit() -> usize {
     4
 }
 
-/// Model rounds reserved for serializing an autonomous result once research
-/// has finished: one submission plus its one argument correction.
+/// Reserve a submission and a follow-up when research ends at the iteration limit.
 const COMPLETION_ROUNDS: usize = 2;
+/// With field-level feedback, a charter can repair two different rejections.
+const MAX_REPORT_CORRECTIONS: usize = 2;
 
 /// Rides in the failed call's own result, like other recovery guidance.
 const REPEATED_FAILURE_GUIDANCE: &str = "This tool failed the same way repeatedly and is disabled for the rest of this run. Do not call it again. Continue with completed results and other available tools, and report the affected gap without claiming it succeeded.";
@@ -406,11 +407,11 @@ impl Agent {
         let mut response_text = ResponseText::default();
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
-        // Once research is finished, the serialization phase gets its own
-        // budget past the iteration limit: one submission and one argument
-        // correction. Retries do not spend it, so research that ends on the
-        // last allowed round can still survive a transient model failure.
+        // Model transport retries refund their iteration. After the first
+        // invalid charter report, only its bounded repair window remains.
         let mut completion_limit: Option<usize> = None;
+        let mut report_problems = Vec::new();
+        let charter_report = autonomy_output && charter_task.is_some();
         // Tools the loop guard disabled during execution. Tools disabled for
         // invalid arguments are rejected before scheduling instead, so valid
         // calls already accepted in the same batch still execute.
@@ -428,7 +429,7 @@ impl Agent {
             .unwrap_or_default();
         let initial_menu = crate::tool_contracts::initial_menu(&prepared.tools, &query);
         response_policy.observe_user(&query);
-        while iterations < prepared.max_iterations
+        while (report_problems.is_empty() && iterations < prepared.max_iterations)
             || (briefing_text_fallback && !briefing_fallback_started)
             || completion_limit.is_some_and(|limit| iterations < limit)
         {
@@ -859,6 +860,9 @@ impl Agent {
                     attempt = missing_tool_recoveries
                 );
                 if missing_tool_recoveries >= 2 {
+                    if !report_problems.is_empty() {
+                        break;
+                    }
                     bail!("Required tool did not complete successfully");
                 }
                 Self::attach_guidance(
@@ -953,17 +957,42 @@ impl Agent {
                     }
                 }
             }
+            // A standalone, advertised charter submission ends research. A newly
+            // exposed field error may use the second correction. Never reopen
+            // the research menu or spend additional rounds on the same error.
+            let repairing_report = charter_report
+                && calls.len() == 1
+                && calls[0].function.name.as_str() == crate::autonomy_output::TOOL
+                && tools
+                    .iter()
+                    .any(|tool| tool.name == crate::autonomy_output::TOOL)
+                && !problems[0].is_empty();
+            let mut report_exhausted = false;
+            if repairing_report {
+                if report_problems.is_empty() {
+                    requirement = crate::tool_contracts::Requirement::Named(
+                        crate::autonomy_output::TOOL.into(),
+                    );
+                    completion_limit = Some(iterations + MAX_REPORT_CORRECTIONS);
+                }
+                report_exhausted = report_problems.contains(&problems[0])
+                    || report_problems.len() >= MAX_REPORT_CORRECTIONS;
+                report_problems.push(problems[0].clone());
+            }
             let (counted_calls, counted_problems): (Vec<_>, Vec<_>) = calls
                 .iter()
                 .zip(&problems)
                 .zip(&ordering_only)
                 .filter(|((call, _), ordering)| {
-                    !**ordering && !menu_hidden.contains(call.function.name.as_str())
+                    let name = call.function.name.as_str();
+                    !(**ordering
+                        || menu_hidden.contains(name)
+                        || charter_report && name == crate::autonomy_output::TOOL)
                 })
                 .map(|((call, problem), _)| (call.clone(), problem.clone()))
                 .unzip();
-            let recovery_exhausted =
-                validation_recovery.exhausted(&counted_calls, &counted_problems);
+            let recovery_exhausted = report_exhausted
+                || validation_recovery.exhausted(&counted_calls, &counted_problems);
             // Every tool result must directly answer the assistant's calls.
             // Correction guidance travels inside each rejected call's result:
             // the request stays a tool continuation for the current provider
@@ -985,12 +1014,17 @@ impl Agent {
                     recovery_exhausted,
                     problems = %json!(diagnostics)
                 );
+                if report_exhausted {
+                    break;
+                }
                 let renderer_only_errors = calls
                     .iter()
                     .zip(&problems)
                     .filter(|(_, problem)| !problem.is_empty())
                     .all(|(call, _)| call.function.name.as_str() == "briefing_renderer_tool");
-                let guidance = if recovery_exhausted {
+                let guidance = if repairing_report {
+                    "Correct the reported fields and submit the full result alone with a fresh call ID. Use the existing tool results as evidence."
+                } else if recovery_exhausted {
                     if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
                         briefing_text_fallback = true;
                         tracing::info!(
@@ -1097,6 +1131,7 @@ impl Agent {
                                 "Not executed: first create and read back a cluster ConfigMap backup of this object's current configuration in the same namespace and context. A backup for another object does not authorize this patch.",
                             )
                         } else if !completion && charter_tool_calls >= task.max_tool_calls {
+                            completion_limit.get_or_insert(iterations + COMPLETION_ROUNDS);
                             requirement = crate::tool_contracts::Requirement::Named(
                                 crate::autonomy_output::TOOL.into(),
                             );
@@ -1463,6 +1498,12 @@ impl Agent {
                     .await?;
                 return Ok(());
             }
+        }
+        if !report_problems.is_empty() {
+            return Err(crate::autonomy_output::InvalidReport {
+                mutation_attempted: charter_mutated,
+            }
+            .into());
         }
         bail!("Agent iteration limit reached")
     }
@@ -2443,7 +2484,7 @@ mod tests {
         )]));
         let outcome = run_scripted(
             json!({"current_datetime_tool":{"_type":"current_datetime"}}),
-            json!({"tools":["current_datetime_tool"]}),
+            json!({"tools":["current_datetime_tool"], "max_iterations":6}),
             "Execute the charter task.", scripts, json!({}), None,
             json!({
                 "autonomy_task":{"id":"task:one","kind":"calendar_discovery","max_tool_calls":5},

@@ -90,8 +90,10 @@ note, while evidence and recovery context remain private operational records.
 `builder/autonomous_agent/src/autonomous_agent/charter.py` enforces note limits
 (one paragraph, at most three sentences, 80 words and 600 characters) plus short
 proposal titles/benefits. Preserve correction feedback and evidence requirements;
-never satisfy brevity by claiming success or replaying a mutation. The built-image
-charter check tests an overlong completion corrected without repeating research.
+never satisfy brevity by claiming success or replaying a mutation. The release CI
+charter check exercises successive field corrections with the submission tool
+alone, preserves the attempted-write receipt on exhaustion and checks an
+overlapping interactive stream. See [Autonomy](../../../../docs/autonomy.md#validation).
 Evolution still samples six actions per responsibility and respects task scope;
 feedback is preference data, never permission for self-deployment or new actions.
 

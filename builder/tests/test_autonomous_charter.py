@@ -1,5 +1,6 @@
 """Behavioral contracts for calendar dates, durable scheduling and daily reporting."""
 
+import json
 from copy import deepcopy
 from datetime import datetime
 
@@ -648,6 +649,16 @@ def test_public_notes_reject_audit_dumps_with_actionable_correction(note):
     assert "human handoff" in str(error.value)
     assert "80 words" in str(error.value)
     assert note not in str(error.value)
+
+
+@pytest.mark.parametrize("status", ["completed", "partial"])
+def test_invalid_summary_and_omitted_evidence_both_reach_the_first_correction(status):
+    report = {"outcome": {"status": status, "summary": "One. Two. Three. Four."}}
+    with pytest.raises(ValueError) as error:
+        parse_structured_output(json.dumps(report))
+    assert "/outcome/summary" in str(error.value)
+    assert "/outcome/evidence" in str(error.value)
+    assert "observedState" not in str(error.value)
 
 
 def test_handoff_keeps_owner_guidance_separate_from_operational_evidence():

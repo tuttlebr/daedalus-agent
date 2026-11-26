@@ -7,7 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from autonomous_agent.backend_client import BackendRejectedError
+from autonomous_agent.backend_client import BackendRejectedError, InvalidReportError
 from autonomous_agent.charter import CharterConfig, CharterOutput
 from autonomous_agent.scheduling import action
 from autonomous_agent.store import RedisStore, WorkerLeaseLost, key, now_ms
@@ -178,6 +178,29 @@ def test_worker_cancel_aborts_stream_and_records_uncertain_effects(store_user):
     run_once(store=store, user_id=user, task_id=item["id"], backend=Backend())
     assert started.is_set()
     assert store.get_state(user)["actions"][item["id"]]["status"] == "uncertain"
+
+
+@pytest.mark.parametrize(
+    ("attempted", "status"), [(False, "failed"), (True, "uncertain")]
+)
+def test_worker_saves_report_failure_and_never_replays_action(
+    store_user, attempted, status
+):
+    store, user = store_user
+    item = seed(store, user)
+
+    class Backend:
+        def call(self, *_args, **_kwargs):
+            raise InvalidReportError(attempted)
+
+    run_once(store=store, user_id=user, task_id=item["id"], backend=Backend())
+    state = store.get_state(user)
+    saved = state["actions"][item["id"]]
+    assert saved["status"] == status
+    assert saved["outcome"] == state["runs"][0]["outcome"]
+    assert saved["outcome"]["mutationAttempted"] is attempted
+    assert "valid final report" in saved["outcome"]["summary"]
+    assert store.claim(user, item["id"]) is None
 
 
 def test_invalid_output_never_leaks_model_text_or_publishes_success(store_user):

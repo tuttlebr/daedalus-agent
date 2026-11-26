@@ -197,6 +197,9 @@ docker: ## validate all shipped image references, build and scan runtime images
 		docker compose build --provenance=mode=max --sbom=true backend frontend redis nginx-helm; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)"; \
 		uv run --no-project --python 3.12 --with httpx --with pyyaml python builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)" --preparation python; \
+		for preparation in rust python; do \
+			PYTHONPATH=builder/autonomous_agent/src:builder/nat_helpers/src uv run --no-project --python 3.12 --with httpx --with pyyaml --with 'pydantic>=2,<2.14' --with 'redis>=4.3.6,<6' python builder/migration/autonomy_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)" --preparation "$$preparation"; \
+		done; \
 		for service in backend frontend redis nginx-helm; do \
 			image=$$(docker compose --profile release config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \

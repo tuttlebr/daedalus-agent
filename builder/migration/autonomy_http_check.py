@@ -11,8 +11,10 @@ import copy
 import hashlib
 import json
 import shlex
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from autonomous_agent.charter import AutomationRule, CharterConfig
 from autonomous_agent.prompt import (
@@ -56,6 +58,8 @@ class CharterPeers(Peers):
         self.plan = []
         self.remote = []
         self.outputs = []
+        self.chat_open = threading.Event()
+        self.finish_chat = threading.Event()
         self.backups = {}
         self.config_map = {
             "apiVersion": "v1",
@@ -179,6 +183,16 @@ class CharterPeers(Peers):
                     )
                 if self.path != "/v1/responses":
                     return self.reply({"error": "Unexpected fixture path"}, 404)
+                self.gateway = False
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                if "CONCURRENT_TEXT_ONLY" in json.dumps(body["input"]):
+                    peers.chat_open.set()
+                    require(peers.finish_chat.wait(15), "Chat control timed out")
+                    return self.model_response(body)
                 peers.requests.append(body)
                 outputs = [
                     item
@@ -200,12 +214,6 @@ class CharterPeers(Peers):
                     "arguments": json.dumps(call["arguments"]),
                     "status": "completed",
                 }
-                self.gateway = False
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.close_connection = True
                 self.event(
                     {
                         "type": "response.output_item.added",
@@ -353,7 +361,14 @@ def main(image, redis_image, preparation):
                 ),
             )
 
-        def execute(kind, plan, user="synthetic-alice", budget=40, allowed_tools=None):
+        def execute(
+            kind,
+            plan,
+            user="synthetic-alice",
+            budget=40,
+            allowed_tools=None,
+            expected_report_failure=None,
+        ):
             peers.plan, peers.remote, peers.requests = plan, [], []
             timestamp = int(time.time() * 1000)
             task = action(kind, f"fixture:{uuid.uuid4().hex}", timestamp)
@@ -402,6 +417,36 @@ def main(image, redis_image, preparation):
                     "autonomy_output_schema": output_schema(),
                 },
             )
+            if expected_report_failure is not None:
+                require(
+                    result["done"]
+                    and result["terminal"] == "error"
+                    and not result["answer"],
+                    "Invalid report published content or lost its terminal error",
+                )
+                require(len(result["errors"]) == 1, "Expected a single terminal error")
+                error = result["errors"][0]["error"]
+                require(
+                    error.get("code") == "invalid_autonomy_report"
+                    and error.get("mutation_attempted") is expected_report_failure,
+                    "Missing report failure or incorrect mutation receipt",
+                )
+                require(
+                    len(peers.requests) == len(plan),
+                    "Unexpected number of publication attempts",
+                )
+                first_submission = next(
+                    i
+                    for i, proposal in enumerate(plan)
+                    if proposal["name"] == "submit_autonomous_result"
+                )
+                for request in peers.requests[first_submission + 1 :]:
+                    require(
+                        [tool["name"] for tool in request["tools"]]
+                        == ["submit_autonomous_result"],
+                        "Report repair reopened the research menu",
+                    )
+                return
             require(
                 result["done"] and not result["errors"],
                 f"Charter request failed: {result}",
@@ -527,6 +572,85 @@ def main(image, redis_image, preparation):
                 "PRIVATE" not in feedback and "private-extra-key" not in feedback,
                 "Correction leaked private argument values or keys",
             )
+
+        # At the tool budget, keep only the publisher available. The first
+        # rejection exposes both fields. Fixing just the summary leaves a
+        # different diagnostic, which still needs a correction of its own.
+        invalid_summary = completion(summary="One. Two. Three. Four.", evidence=[])
+        missing_evidence = completion(evidence=[])
+        reads = [
+            call("calendar_mcp_server__connect"),
+            *[call("calendar_mcp_server__list_events") for _ in range(5)],
+        ]
+        result = execute(
+            "calendar_discovery",
+            [*reads, invalid_summary, missing_evidence, valid],
+            budget=5,
+        )
+        require(
+            result["outcome"]["status"] == "completed" and result["games"] == [game],
+            "Corrected report lost its findings",
+        )
+        require(
+            len(peers.requests) == 9, "Repair replayed research or exceeded its budget"
+        )
+        require(
+            [item["name"] for item in peers.remote] == ["list_events"] * 4,
+            "The rejected read or a replay reached the calendar",
+        )
+        for request in peers.requests[-3:]:
+            require(
+                [tool["name"] for tool in request["tools"]]
+                == ["submit_autonomous_result"],
+                "Report repair offered action tools",
+            )
+        feedback = [item["output"] for item in peers.outputs[-2:]]
+        require(
+            "/outcome/summary" in feedback[0] and "/outcome/evidence" in feedback[0],
+            "Independent publication errors were hidden",
+        )
+        require(
+            "/outcome/evidence" in feedback[1]
+            and "/outcome/summary" not in feedback[1],
+            "Corrected summary was still rejected",
+        )
+
+        # Repeating an unresolved failure stops early. Even changing errors
+        # may spend at most two corrections. Keep the attempted-write receipt.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            chat = pool.submit(measure, fixture, message="CONCURRENT_TEXT_ONLY")
+            try:
+                require(peers.chat_open.wait(15), "Interactive stream did not open")
+                execute(
+                    "calendar_discovery",
+                    [call("current_datetime_tool"), missing_evidence, missing_evidence],
+                    expected_report_failure=False,
+                )
+            finally:
+                peers.finish_chat.set()
+            answer = chat.result(timeout=15)
+            require(
+                answer["terminal"] == "stop"
+                and answer["done"]
+                and not answer["errors"]
+                and answer["answer"] == "Synthetic text response 雪🌲.",
+                "Charter failure interrupted the interactive answer",
+            )
+        execute(
+            "calendar_event",
+            [
+                call("calendar_mcp_server__connect"),
+                call("calendar_mcp_server__create_event", id="once"),
+                invalid_summary,
+                missing_evidence,
+                completion(observedState={"fixture": "x" * 32768}),
+            ],
+            expected_report_failure=True,
+        )
+        require(
+            [item["name"] for item in peers.remote] == ["create_event"],
+            "Repair replayed the calendar write",
+        )
 
         for user in ("synthetic-alice", "synthetic-bob"):
             start, end = {"date": "2026-11-09"}, {"date": "2026-11-14"}
@@ -731,6 +855,8 @@ def main(image, redis_image, preparation):
                     "cluster_backup_before_patch": True,
                     "application_probe": True,
                     "budget_enforced": True,
+                    "report_recovery": True,
+                    "concurrent_chat_completed": True,
                 }
             )
         )
