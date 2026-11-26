@@ -465,6 +465,9 @@ async fn supervise(
             "Model response did not complete" => "Model response did not complete",
             "Model request timed out" => "Model request timed out",
             "Client disconnected" => "Client disconnected",
+            _ if details.kind == "context_length_exceeded" => {
+                "The conversation exceeded the model’s context limit."
+            }
             _ if details.phase == "model_stream" && details.kind == "json" => {
                 "Model response could not be decoded; completed output has been preserved"
             }

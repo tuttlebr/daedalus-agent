@@ -120,11 +120,7 @@ pub fn failure(error: &Error) -> Failure {
         retryable: false,
     };
     if let Some(error) = error.downcast_ref::<ProviderError>() {
-        result.kind = if crate::provider::is_gateway_transport_error(error) {
-            "upstream_transport"
-        } else {
-            error.kind().code()
-        };
+        result.kind = crate::provider::error_kind(error);
         result.status = error
             .provider_response_status()
             .map(|status| status.as_u16());

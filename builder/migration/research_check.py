@@ -32,6 +32,7 @@ class ResearchPeers(Peers):
         self.retrieve_only = False
         self.results = []
         self.round_sizes = []
+        self.input_limit = None
 
     def handler(self):
         peers = self
@@ -60,6 +61,21 @@ class ResearchPeers(Peers):
                     for item in body["input"]
                     if item.get("type") == "function_call_output"
                 ]
+                if peers.input_limit and peers.round_sizes[-1] > peers.input_limit:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    self.close_connection = True
+                    self.gateway = False
+                    self.event(
+                        {
+                            "type": "error",
+                            "sequence_number": 0,
+                            "message": f"The decoder prompt (length {peers.round_sizes[-1]}) is longer than the maximum model length of {peers.input_limit}.",
+                        }
+                    )
+                    return
                 if not outputs:
                     name = (
                         "tool_output_retriever_tool"
@@ -113,7 +129,11 @@ class ResearchPeers(Peers):
                     {
                         "type": "response.output_item.added",
                         "output_index": 0,
-                        "item": {**item, "status": "in_progress"},
+                        "item": {
+                            **item,
+                            "status": "in_progress",
+                            **({"content": []} if item["type"] == "message" else {}),
+                        },
                     }
                 )
                 if item["type"] == "message":
@@ -368,6 +388,31 @@ def check(image, redis_image):
                     "cross_user_retrieval": "denied",
                 }
             )
+            # Reject the full continuation at the same SSE boundary as the
+            # local model. The retry must recover the omitted middle of the
+            # article from storage and keep the original tool call binding.
+            peers.retrieve_only = False
+            peers.mode = "full"
+            peers.input_limit = 16_000
+            peers.round_sizes.clear()
+            peers.results.clear()
+            recovered = measure(env)
+            sizes = peers.round_sizes.copy()
+            require(
+                recovered["terminal"] == "stop"
+                and recovered["answer"] == MARKER
+                and not recovered["errors"]
+                and [e["name"] for e in recovered["starts"]]
+                == [
+                    "Function Start: webscrape_tool",
+                    "Function Start: tool_output_retriever_tool",
+                ]
+                and len(sizes) == 4
+                and sizes[1] > peers.input_limit >= max(sizes[2:])
+                and MARKER not in peers.results[0],
+                f"Overflow recovery failed in {preparation} preparation, inputs {sizes}",
+            )
+            report[-1]["overflow_input_chars"] = sizes
         peers = ResearchPeers()
         with fixture(image, redis_image, peers, preparation=preparation) as env:
             env["redis"].execute_command("ACL", "SETUSER", "backend", "-set")
@@ -379,6 +424,16 @@ def check(image, redis_image):
                 "Archive failure discarded evidence",
             )
             report[-1]["archive_failure"] = "full_source_preserved"
+            peers.mode = "full"
+            peers.input_limit = 16_000
+            peers.round_sizes.clear()
+            failed = measure(env)
+            require(
+                bool(failed["errors"])
+                and len(failed["starts"]) == 1
+                and len(peers.round_sizes) == 2,
+                "An unavailable archive must not retry the same rejected prompt",
+            )
     return report
 
 

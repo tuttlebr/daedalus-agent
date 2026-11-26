@@ -170,6 +170,46 @@ pub fn retryable(error: &ProviderError) -> bool {
     error.is_retryable() || is_gateway_transport_error(error)
 }
 
+/// Chat wraps the validation error in `error`; a Responses SSE error can put
+/// the same message at the top level. Never log or match the request body.
+pub fn context_length_exceeded(error: &ProviderError) -> bool {
+    let Ok(Some(body)) = error.provider_response_json() else {
+        return false;
+    };
+    if error
+        .provider_response_status()
+        .is_some_and(|status| !status.is_success() && !matches!(status.as_u16(), 400 | 413 | 422))
+    {
+        return false;
+    }
+    let detail = body
+        .pointer("/response/error")
+        .or_else(|| body.get("error"))
+        .unwrap_or(&body);
+    if detail["code"] == "context_length_exceeded" || detail["type"] == "context_length_exceeded" {
+        return true;
+    }
+    static DECODER_LIMIT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"^The decoder prompt \(length \d+\) is longer than the maximum model length of \d+\.",
+        )
+        .unwrap()
+    });
+    detail["message"]
+        .as_str()
+        .is_some_and(|message| DECODER_LIMIT.is_match(message))
+}
+
+pub fn error_kind(error: &ProviderError) -> &'static str {
+    if context_length_exceeded(error) {
+        "context_length_exceeded"
+    } else if is_gateway_transport_error(error) {
+        "upstream_transport"
+    } else {
+        error.kind().code()
+    }
+}
+
 /// A rejected model response is safe to regenerate before any of its tools
 /// execute. Keep this separate from transport retries: one decode recovery is
 /// allowed for the entire run, within the configured model retry budget.
@@ -574,6 +614,28 @@ mod tests {
         assert_ne!(model_call_id("one", 1), model_call_id("two", 1));
         assert_eq!(model_call_id("one", 1), model_call_id("one", 1));
         assert_eq!(model_call_id("private\nrun", 1).len(), 67);
+    }
+
+    #[test]
+    fn context_limit_errors_require_a_provider_code_or_the_decoder_limit_diagnostic() {
+        let message =
+            "The decoder prompt (length 281343) is longer than the maximum model length of 262144.";
+        for body in [
+            json!({"type":"error","message":message}),
+            json!({"error":{"message":message,"type":"invalid_request_error","code":400}}),
+            json!({"type":"response.failed","response":{"error":{"code":"context_length_exceeded"}}}),
+        ] {
+            let error = ProviderError::from_provider_body(body.to_string());
+            assert_eq!(error_kind(&error), "context_length_exceeded");
+            assert!(!retryable(&error));
+        }
+        for error in [
+            ProviderError::from_http_response(http::StatusCode::FORBIDDEN, json!({"error":{"message":message}}).to_string()),
+            ProviderError::from_provider_body(json!({"error":{"code":"invalid_request_error","message":"other validation error"}}).to_string()),
+            ProviderError::from_provider_body(json!({"error":{"message":format!("the input mentions: {message}")}}).to_string()),
+        ] {
+            assert!(!context_length_exceeded(&error));
+        }
     }
 
     #[test]

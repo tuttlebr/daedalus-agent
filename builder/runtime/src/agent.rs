@@ -247,6 +247,89 @@ impl Agent {
         history.push(Message::user(guidance));
     }
 
+    async fn compact_rejected_history(
+        &self,
+        history: &mut [Message],
+        receipts: &HashMap<usize, usize>,
+        tools: &[ToolDefinition],
+    ) -> usize {
+        if receipts.is_empty() || self.handle.user.is_empty() {
+            return 0;
+        }
+        // Python preparation uses the same user-scoped Redis format. Read its
+        // configured policy only on recovery, keeping startup independent.
+        let legacy;
+        let (config, outputs) = if let Some(p) = &self.preparation {
+            (&p.config, &p.outputs)
+        } else {
+            let path = std::env::var("DAEDALUS_CONFIG_FILE")
+                .unwrap_or_else(|_| "/workspace/config.yaml".into());
+            let Ok(config) = crate::config::Config::from_path(std::path::Path::new(&path)) else {
+                return 0;
+            };
+            let Ok(outputs) = crate::output::OutputStore::new(&config) else {
+                return 0;
+            };
+            legacy = (config, outputs);
+            (&legacy.0, &legacy.1)
+        };
+        let kind = |name: &str| config.raw["functions"][name]["_type"].as_str();
+        let Some(retriever) = tools
+            .iter()
+            .find(|t| kind(&t.name) == Some("tool_output_retriever"))
+        else {
+            return 0;
+        };
+        let mut candidates = Vec::new();
+        for (index, message) in history.iter_mut().enumerate() {
+            let Some(original_bytes) = receipts.get(&index) else {
+                continue;
+            };
+            let Message::User { content } = message else {
+                continue;
+            };
+            let [UserContent::ToolResult(result)] = content.as_mut_slice() else {
+                continue;
+            };
+            let [ToolResultContent::Text(text)] = result.content.as_mut_slice() else {
+                continue;
+            };
+            // Keep instructions, retrieved pages and any receipt augmented
+            // with control guidance inline. Errors and approvals never enter
+            // the successful receipt index.
+            if text.text.len() == *original_bytes
+                && text.text.len() >= outputs.settings.min_chars
+                && !matches!(
+                    kind(result.name.as_str()),
+                    Some("agent_skills" | "tool_output_retriever")
+                )
+            {
+                candidates.push(&mut text.text);
+            }
+        }
+        // Preserve recent evidence where possible. Halve the large receipts
+        // to leave room for retrieval without guessing the model's tokenizer.
+        let target = candidates
+            .iter()
+            .map(|s| s.len())
+            .sum::<usize>()
+            .div_ceil(2);
+        let mut saved = 0;
+        for text in candidates {
+            if let Some(preview) = outputs
+                .archive_for_context(&self.handle.user, text, &retriever.name)
+                .await
+            {
+                saved += text.len() - preview.len();
+                *text = preview;
+                if saved >= target {
+                    break;
+                }
+            }
+        }
+        saved
+    }
+
     pub async fn run(mut self, body: Value) -> Result<()> {
         let mut requirement = crate::tool_contracts::Requirement::parse(&body)?;
         let mut response_policy = crate::response_policy::ResponsePolicy::parse(&body)?;
@@ -401,6 +484,8 @@ impl Agent {
         let mut validation_recovery = crate::tool_contracts::Recovery::default();
         let mut iterations = 0;
         let mut retry_attempt = 0;
+        let mut context_compacted = false;
+        let mut successful_receipts = HashMap::new();
         let mut decode_recoveries = 0;
         let mut retrying_decode = false;
         let mut resume_text = false;
@@ -722,6 +807,29 @@ impl Agent {
                 }
                 None => stream.finish().await.map_err(Some),
             };
+            if let Err(Some(error)) = &completion
+                && crate::provider::context_length_exceeded(error)
+                && !context_compacted
+                && !briefing_text_fallback
+                && partial.is_empty()
+                && retry_attempt < prepared.model.max_retries
+            {
+                let saved_bytes = self
+                    .compact_rejected_history(&mut history, &successful_receipts, &tools)
+                    .await;
+                if saved_bytes > 0 {
+                    context_compacted = true;
+                    retry_attempt += 1;
+                    iterations -= 1;
+                    tracing::warn!(
+                        event = "model_context_compacted",
+                        model_call,
+                        retry_attempt,
+                        saved_bytes
+                    );
+                    continue;
+                }
+            }
             let completed = match completion {
                 Ok(completed) => completed,
                 Err(error)
@@ -800,7 +908,7 @@ impl Agent {
                     tracing::error!(
                         event = "model_call_failed",
                         model_call,
-                        error_kind = error.kind().code(),
+                        error_kind = crate::provider::error_kind(&error),
                         retry_attempt,
                         decode_recoveries,
                         elapsed_ms = model_started.elapsed().as_millis() as u64,
@@ -811,6 +919,7 @@ impl Agent {
                 }
             };
             retry_attempt = 0;
+            context_compacted = false;
             retrying_decode = false;
             // The interrupted attempt's text is already visible; an empty
             // continuation completes that answer rather than replacing it.
@@ -1438,6 +1547,9 @@ impl Agent {
                         reason = "repeated_identical_failure",
                         failures = repeated_errors
                     );
+                }
+                if !outcome.is_error && !outcome.terminal && outcome.loaded_skills.is_empty() {
+                    successful_receipts.insert(history.len(), outcome.content.len());
                 }
                 history.push(Message::tool_result(
                     call.id,

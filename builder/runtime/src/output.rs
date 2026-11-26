@@ -224,37 +224,7 @@ impl OutputStore {
         let Some(compacted) = reversible else {
             return lossless;
         };
-        if user.is_empty()
-            || self
-                .disabled_until
-                .lock()
-                .await
-                .is_some_and(|t| t > Instant::now())
-        {
-            return lossless;
-        }
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(3));
-        if encoder.write_all(content.as_bytes()).is_err() {
-            return lossless;
-        }
-        let Ok(compressed) = encoder.finish() else {
-            return lossless;
-        };
-        let mut payload = b"z1".to_vec();
-        payload.extend(compressed);
-        let result: Result<()> = self
-            .store
-            .command(
-                redis::cmd("SET")
-                    .arg(key(user, &reference(content)))
-                    .arg(payload)
-                    .arg("EX")
-                    .arg(self.settings.ttl),
-            )
-            .await;
-        if result.is_err() {
-            *self.disabled_until.lock().await = Some(Instant::now() + Duration::from_secs(30));
-            tracing::warn!(event = "tool_output_cache_unavailable");
+        if !self.persist(user, content, &reference(content)).await {
             return lossless;
         }
         tracing::info!(
@@ -263,6 +233,76 @@ impl OutputStore {
             compacted_chars = chars(&compacted)
         );
         compacted
+    }
+
+    async fn persist(&self, user: &str, content: &str, reference: &str) -> bool {
+        if user.is_empty()
+            || self
+                .disabled_until
+                .lock()
+                .await
+                .is_some_and(|t| t > Instant::now())
+        {
+            return false;
+        }
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(3));
+        if encoder.write_all(content.as_bytes()).is_err() {
+            return false;
+        }
+        let Ok(compressed) = encoder.finish() else {
+            return false;
+        };
+        let mut payload = b"z1".to_vec();
+        payload.extend(compressed);
+        let result: Result<()> = self
+            .store
+            .command(
+                redis::cmd("SET")
+                    .arg(key(user, reference))
+                    .arg(payload)
+                    .arg("EX")
+                    .arg(self.settings.ttl),
+            )
+            .await;
+        if result.is_err() {
+            *self.disabled_until.lock().await = Some(Instant::now() + Duration::from_secs(30));
+            tracing::warn!(event = "tool_output_cache_unavailable");
+            return false;
+        }
+        true
+    }
+
+    /// A rejected continuation may contain unstructured text or a result that
+    /// was deliberately delivered in full. Keep an exact, searchable copy.
+    pub async fn archive_for_context(
+        &self,
+        user: &str,
+        content: &str,
+        retriever: &str,
+    ) -> Option<String> {
+        let settings = &self.settings;
+        if !settings.enabled || content.len() < settings.min_chars || content.contains(MARKER) {
+            return None;
+        }
+        let length = chars(content);
+        if length < settings.min_chars || length > settings.max_original {
+            return None;
+        }
+        let reference = reference(content);
+        let preview = json!({
+            MARKER: {"reference": reference, "original_chars": length,
+                "retrieval": format!("Search or page the complete result with {retriever} before using details outside this excerpt.")},
+            "excerpt": clip(content, 1024)
+        }).to_string();
+        let preview_chars = chars(&preview);
+        if preview.len() >= content.len()
+            || length.saturating_sub(preview_chars) < settings.min_savings
+            || preview_chars as f64 > settings.ratio * length as f64
+            || !self.persist(user, content, &reference).await
+        {
+            return None;
+        }
+        Some(preview)
     }
 }
 
