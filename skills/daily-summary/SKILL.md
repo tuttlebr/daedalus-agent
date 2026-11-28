@@ -16,6 +16,11 @@ metadata:
 
 # Daily Summary
 
+## Reasoning Effort
+
+Requires exceptional reasoning as this is a long running task with
+multiple concurrent tool calls and lookups.
+
 ## Purpose
 
 Produce one truthful, current edition of **The Daily Daedalus**: a daily
