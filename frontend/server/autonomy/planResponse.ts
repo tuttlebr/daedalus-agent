@@ -11,8 +11,8 @@ export function parsePlanResponse(raw: string, streaming: boolean) {
   let done = false;
   let tools = false;
   for (const frame of raw.replace(/\r\n/g, '\n').split('\n\n')) {
-    const data = frame
-      .split('\n')
+    const lines = frame.split('\n');
+    const data = lines
       .filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).replace(/^ /, ''))
       .join('\n');
@@ -25,8 +25,25 @@ export function parsePlanResponse(raw: string, streaming: boolean) {
     const event = JSON.parse(data);
     if (event.error || event.type === 'error')
       throw new PlanningFailure('invalid_response');
-    if (!Array.isArray(event.choices))
+    if (!Array.isArray(event.choices)) {
+      // Dynamo emits a separate reasoning_dispatch before the answer. Switchyard
+      // forwards its payload without the SSE name and adds the selected model.
+      const name = lines
+        .findLast((line) => line.startsWith('event:'))
+        ?.slice(6)
+        .trim();
+      if (
+        (!name || name === 'reasoning_dispatch' || name === 'message') &&
+        event.index === 0 &&
+        typeof event.reasoning_content === 'string' &&
+        (event.model === undefined || typeof event.model === 'string') &&
+        Object.keys(event).every((key) =>
+          ['index', 'reasoning_content', 'model'].includes(key),
+        )
+      )
+        continue;
       throw new PlanningFailure('invalid_response');
+    }
     for (const choice of event.choices) {
       if (choice.index !== undefined && choice.index !== 0)
         throw new PlanningFailure('invalid_response');
