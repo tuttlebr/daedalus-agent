@@ -237,13 +237,11 @@ class ToolService:
                             os.getenv("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS", "2.5")
                         ),
                     )
-                    context = await asyncio.wait_for(
-                        build_automatic_memory_context(
-                            client_from_env(),
-                            user_id=user,
-                            conversation_id=request.headers.get("x-conversation-id"),
-                            query=query,
-                        ),
+                    context = await build_automatic_memory_context(
+                        client_from_env(),
+                        user_id=user,
+                        conversation_id=request.headers.get("x-conversation-id"),
+                        query=query,
                         timeout=budget,
                     )
                     if context:

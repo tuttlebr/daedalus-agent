@@ -9,7 +9,8 @@ import logging
 import re
 import secrets
 import time
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, TypeVar
 
 from nat_helpers.communication_style import SOURCE_SUMMARY_GUIDANCE
 from nat_helpers.hindsight_client import HindsightClient, derive_bank_id
@@ -402,27 +403,34 @@ async def clear_user_memory_caches(user_id: str) -> None:
         await close_redis_client(redis)
 
 
+_T = TypeVar("_T")
+
+
+async def _read_until(deadline: float | None, read: Awaitable[_T]) -> _T:
+    async with asyncio.timeout_at(deadline):
+        return await read
+
+
 async def _relevant_pages(
     client: HindsightClient,
     *,
     user_id: str,
     query: str,
+    deadline: float | None,
 ) -> list[dict[str, str]]:
-    matches = await client.search_knowledge_pages(
-        user_id=user_id,
-        query=query,
-        limit=2,
+    matches = await _read_until(
+        deadline, client.search_knowledge_pages(user_id=user_id, query=query, limit=2)
     )
     page_ids = [
         str(item.get("id") or "")
         for item in matches
         if str(item.get("id") or "").strip()
-    ]
-    if not page_ids:
-        return []
+    ][:2]
     details = await asyncio.gather(
         *(
-            client.get_knowledge_page(user_id=user_id, page_id=page_id)
+            _read_until(
+                deadline, client.get_knowledge_page(user_id=user_id, page_id=page_id)
+            )
             for page_id in page_ids
         ),
         return_exceptions=True,
@@ -551,6 +559,7 @@ async def build_automatic_memory_context(
     user_id: str,
     conversation_id: str | None,
     query: str,
+    timeout: float | None = None,
 ) -> str:
     """Build bounded untrusted memory context for one interactive request."""
 
@@ -560,44 +569,68 @@ async def build_automatic_memory_context(
     normalized_query = re.sub(r"[\s.!?]+", " ", clean_query.casefold()).strip()
     if normalized_query in _CONTEXT_FREE_QUERIES:
         return ""
-    await ensure_bank_initialized(client, user_id)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout if timeout is not None else None
+    await _read_until(deadline, ensure_bank_initialized(client, user_id))
 
-    brief_result, pages_result = await asyncio.gather(
-        _session_brief(
-            client,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            query=clean_query,
-        ),
-        _relevant_pages(client, user_id=user_id, query=clean_query),
-        return_exceptions=True,
-    )
-    brief = brief_result if isinstance(brief_result, str) else ""
-    pages = pages_result if isinstance(pages_result, list) else []
-
-    facts: list[dict[str, Any]] = []
-    if not pages or _PAST_LOOKUP_QUERY.search(clean_query):
+    async def read_pages():
         try:
-            recalled = await client.recall(
-                user_id=user_id,
-                query=clean_query,
-                budget="low",
-                max_tokens=600,
+            return await _relevant_pages(
+                client, user_id=user_id, query=clean_query, deadline=deadline
             )
-            facts = [
-                {
-                    "text": str(item.get("text") or "")[:1000],
-                    "type": item.get("type"),
-                    "mentioned_at": item.get("mentioned_at"),
-                }
-                for item in recalled[:6]
-                if str(item.get("text") or "").strip()
-            ]
+        except Exception:
+            return []
+
+    async def read_facts():
+        try:
+            recalled = await _read_until(
+                deadline,
+                client.recall(
+                    user_id=user_id, query=clean_query, budget="low", max_tokens=600
+                ),
+            )
         except Exception:
             logger.debug("Automatic raw recall unavailable", exc_info=True)
+            return []
+        return [
+            {
+                "text": str(item.get("text") or "")[:1000],
+                "type": item.get("type"),
+                "mentioned_at": item.get("mentioned_at"),
+            }
+            for item in recalled[:6]
+            if str(item.get("text") or "").strip()
+        ]
 
+    async def evidence():
+        if _PAST_LOOKUP_QUERY.search(clean_query):
+            return await asyncio.gather(read_pages(), read_facts())
+        pages = await read_pages()
+        if pages or (deadline is not None and loop.time() >= deadline):
+            return pages, []
+        return pages, await read_facts()
+
+    async def read_brief():
+        try:
+            return await _read_until(
+                deadline,
+                _session_brief(
+                    client,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    query=clean_query,
+                ),
+            )
+        except Exception:
+            return ""
+
+    brief, (pages, facts) = await asyncio.gather(read_brief(), evidence())
     if not brief and not pages and not facts:
+        if deadline is not None and loop.time() >= deadline:
+            raise TimeoutError("Automatic memory context deadline elapsed")
         return ""
+    if deadline is not None and loop.time() >= deadline:
+        logger.warning("memory_context_partial")
     serialized = _bounded_context_payload(brief=brief, pages=pages, facts=facts)
     return (
         "[MEMORY_CONTEXT]\n"

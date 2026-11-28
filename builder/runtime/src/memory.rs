@@ -320,7 +320,7 @@ impl Memory {
             cached_text
         }
     }
-    async fn pages(&self, user: &str, query: &str) -> Result<Vec<Value>> {
+    async fn pages(&self, user: &str, query: &str, pages: &mut Vec<Option<Value>>) -> Result<()> {
         // Bound the URL while preserving the full query for POST recall.
         let hint = clip(query, 3000);
         let response = self
@@ -338,29 +338,43 @@ impl Memory {
             .flatten()
             .filter_map(|v| v["id"].as_str())
             .filter(|s| !s.trim().is_empty())
+            .take(2)
             .collect();
-        let details = join_all(ids.iter().map(|id| async move {
-            let encoded: String = reqwest::Url::parse("http://fixture.invalid/")
-                .unwrap()
-                .join("v1")
-                .map(|mut u| {
-                    u.path_segments_mut().unwrap().clear().push(id);
-                    u.path().trim_start_matches('/').to_string()
-                })
-                .unwrap();
-            self.request(
-                reqwest::Method::GET,
-                user,
-                &format!("knowledge-base/pages/{encoded}"),
-                None,
-                &[],
-            )
-            .await
-        }))
+        // Each completed detail survives cancellation, in search relevance order.
+        pages.resize(ids.len(), None);
+        join_all(
+            ids.into_iter()
+                .zip(pages.iter_mut())
+                .map(|(id, page)| async move {
+                    let mut url = reqwest::Url::parse("http://fixture.invalid/").unwrap();
+                    url.path_segments_mut().unwrap().clear().push(id);
+                    let path = format!("knowledge-base/pages{}", url.path());
+                    let Ok(detail) = self
+                        .request(reqwest::Method::GET, user, &path, None, &[])
+                        .await
+                    else {
+                        return;
+                    };
+                    let body = detail["body"].as_str().unwrap_or("").trim();
+                    if !body.is_empty() && body != "Generating content..." {
+                        let name = detail["name"]
+                            .as_str()
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or("Knowledge Page");
+                        *page = Some(json!({"name":clip(name,200), "body":clip(body,1800)}));
+                    }
+                }),
+        )
         .await;
-        Ok(details.into_iter().filter_map(|r|r.ok()).filter_map(|v|{let body=v["body"].as_str().unwrap_or("").trim();if body.is_empty()||body=="Generating content..."{None}else{Some(json!({"name":clip(v["name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Knowledge Page"),200),"body":clip(body,1800)}))}}).collect())
+        Ok(())
     }
-    pub async fn context(&self, user: &str, conversation: &str, query: &str) -> Result<String> {
+    pub async fn context(
+        &self,
+        user: &str,
+        conversation: &str,
+        query: &str,
+        budget: Duration,
+    ) -> Result<String> {
         if !self.enabled || query.trim().is_empty() {
             return Ok(String::new());
         }
@@ -380,29 +394,66 @@ impl Memory {
         if user.is_empty() {
             return Err(anyhow!("Authenticated user required"));
         }
-        self.initialize(user).await?;
-        let recall = || {
-            self.request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[])
+        let mut brief = String::new();
+        let mut pages = Vec::new();
+        let mut recalled = None;
+        let reads = async {
+            self.initialize(user).await?;
+            let recall = async {
+                let request = json!({
+                    "query": query, "budget": "low", "max_tokens": 600,
+                    "types": ["world", "experience", "observation"], "prefer_observations": true,
+                    "include": {"entities": null, "chunks": null, "source_facts": null}, "trace": false
+                });
+                recalled = self
+                    .request(
+                        reqwest::Method::POST,
+                        user,
+                        "memories/recall",
+                        Some(request),
+                        &[],
+                    )
+                    .await
+                    .ok();
+            };
+            let evidence = async {
+                let load_pages = self.pages(user, query, &mut pages);
+                if PAST_LOOKUP.is_match(query) {
+                    let _ = tokio::join!(load_pages, recall);
+                } else {
+                    let _ = load_pages.await;
+                    if pages.iter().all(Option::is_none) {
+                        recall.await;
+                    }
+                }
+            };
+            tokio::join!(
+                async { brief = self.session_brief(user, conversation, query).await },
+                evidence
+            );
+            Ok::<(), anyhow::Error>(())
         };
-        // A past-lookup query always recalls raw facts, so that read need not
-        // wait for page search. Otherwise recall remains a fallback for no pages.
-        let lookup = PAST_LOOKUP.is_match(query);
-        let (brief, pages, early) = tokio::join!(
-            self.session_brief(user, conversation, query),
-            self.pages(user, query),
-            async { if lookup { Some(recall().await) } else { None } }
-        );
-        let pages = pages.unwrap_or_default();
-        let recalled = match early {
-            Some(result) => Some(result),
-            None if pages.is_empty() => Some(recall().await),
-            None => None,
-        };
+        // Dropping the unfinished futures cancels their reads. Completed branches
+        // have already written their evidence into this request's local variables.
+        let completion = tokio::time::timeout(budget, reads).await;
+        let pages: Vec<_> = pages.into_iter().flatten().collect();
         let mut facts = Vec::new();
-        if let Some(Ok(response)) = recalled {
-            facts=response["results"].as_array().into_iter().flatten().filter(|v|v.is_object()).take(6).filter(|v|!v["text"].as_str().unwrap_or("").trim().is_empty()).map(|v|json!({"text":clip(v["text"].as_str().unwrap(),1000),"type":v["type"],"mentioned_at":v["mentioned_at"]})).collect();
+        if let Some(response) = recalled {
+            facts = response["results"].as_array().into_iter().flatten()
+                .filter(|v| v.is_object()).take(6)
+                .filter_map(|v| {
+                    let text = v["text"].as_str()?;
+                    if text.trim().is_empty() { return None; }
+                    Some(json!({"text":clip(text,1000), "type":v["type"], "mentioned_at":v["mentioned_at"]}))
+                }).collect();
         }
-        if brief.is_empty() && pages.is_empty() && facts.is_empty() {
+        let empty = brief.is_empty() && pages.is_empty() && facts.is_empty();
+        match completion {
+            Ok(result) => result?,
+            Err(timeout) if empty => return Err(timeout.into()),
+            Err(_) => tracing::warn!(event = "memory_context_partial"),
+        }
+        if empty {
             return Ok(String::new());
         }
         Ok(format!(
@@ -492,15 +543,19 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Barrier;
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct Peer {
         rendezvous: Option<Arc<Barrier>>,
-        pages: bool,
+        pages: &'static [&'static str],
+        stalled: &'static [&'static str],
         calls: Arc<Mutex<Vec<String>>>,
     }
     async fn reply(State(peer): State<Peer>, uri: Uri) -> Json<Value> {
         let path = uri.path().to_owned();
         peer.calls.lock().await.push(path.clone());
+        if peer.stalled.iter().any(|suffix| path.ends_with(suffix)) {
+            std::future::pending::<()>().await;
+        }
         let search = path.ends_with("/knowledge-base/search");
         if (search || path.ends_with("/memories/recall"))
             && let Some(barrier) = &peer.rendezvous
@@ -508,7 +563,7 @@ mod tests {
             barrier.wait().await;
         }
         Json(if search {
-            json!({"results": if peer.pages {json!([{"id":"page-1"}])} else {json!([])}})
+            json!({"results": peer.pages.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()})
         } else if path.ends_with("/knowledge-base/pages/page-1") {
             json!({"name":"Synthetic page","body":"Synthetic page body"})
         } else if path.ends_with("/memories/recall") {
@@ -517,7 +572,7 @@ mod tests {
             json!({})
         })
     }
-    async fn context(peer: Peer, query: &str) -> (Result<String>, Vec<String>) {
+    async fn context(peer: Peer, query: &str, budget: Duration) -> (Result<String>, Vec<String>) {
         let calls = peer.calls.clone();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -537,7 +592,7 @@ mod tests {
         let memory = Memory::new(&config).unwrap();
         let result = tokio::time::timeout(
             Duration::from_secs(5),
-            memory.context("synthetic-alice", "", query),
+            memory.context("synthetic-alice", "", query, budget),
         )
         .await
         .expect("a past-lookup recall must not wait for page search");
@@ -552,10 +607,11 @@ mod tests {
         // after page search completes cannot pass it.
         let peer = Peer {
             rendezvous: Some(Arc::new(Barrier::new(2))),
-            pages: true,
-            calls: Arc::default(),
+            pages: &["page-1"],
+            ..Peer::default()
         };
-        let (result, calls) = context(peer, "What did I decide earlier?").await;
+        let (result, calls) =
+            context(peer, "What did I decide earlier?", Duration::from_secs(4)).await;
         let result = result.unwrap();
         assert!(result.contains("Synthetic page body"), "{result}");
         assert!(result.contains("Synthetic fact"), "{result}");
@@ -570,11 +626,15 @@ mod tests {
         // Ordinary queries recall only after finding no relevant page.
         for (pages, expected) in [(true, 0), (false, 1)] {
             let peer = Peer {
-                rendezvous: None,
-                pages,
-                calls: Arc::default(),
+                pages: if pages { &["page-1"] } else { &[] },
+                ..Peer::default()
             };
-            let (result, calls) = context(peer, "Review my project preferences").await;
+            let (result, calls) = context(
+                peer,
+                "Review my project preferences",
+                Duration::from_secs(4),
+            )
+            .await;
             let result = result.unwrap();
             assert_eq!(result.contains("Synthetic fact"), expected == 1, "{result}");
             assert_eq!(recalls(&calls), expected, "{calls:?}");
@@ -583,6 +643,39 @@ mod tests {
                 .position(|c| c.ends_with("/knowledge-base/search"));
             let recall = calls.iter().position(|c| c.ends_with("/memories/recall"));
             assert!(recall.is_none() || search < recall, "{calls:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_deadline_preserves_completed_pages_and_facts() {
+        for (stalled, want_page, want_fact) in [
+            (&["/knowledge-base/search"][..], false, true),
+            (&["/memories/recall"][..], true, false),
+            (&["/pages/page-2"][..], true, true),
+            (
+                &["/knowledge-base/search", "/memories/recall"][..],
+                false,
+                false,
+            ),
+        ] {
+            let peer = Peer {
+                pages: &["page-2", "page-1"],
+                stalled,
+                ..Peer::default()
+            };
+            let (result, _) = context(
+                peer,
+                "What did I decide earlier?",
+                Duration::from_millis(400),
+            )
+            .await;
+            if want_page || want_fact {
+                let content = result.unwrap();
+                assert_eq!(content.contains("Synthetic page body"), want_page);
+                assert_eq!(content.contains("Synthetic fact"), want_fact);
+            } else {
+                assert!(result.unwrap_err().is::<tokio::time::error::Elapsed>());
+            }
         }
     }
 
@@ -620,7 +713,10 @@ mod tests {
         );
         for query in ["What did I decide earlier?", long.as_str()] {
             calls.lock().await.clear();
-            memory.context("synthetic-alice", "", query).await.unwrap();
+            memory
+                .context("synthetic-alice", "", query, Duration::from_secs(5))
+                .await
+                .unwrap();
             let captured = calls.lock().await;
             let search = captured
                 .iter()

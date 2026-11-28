@@ -624,17 +624,19 @@ impl Preparation {
                 .max(0.1);
             let user = header(headers, "x-user-id");
             let conversation = header(headers, "x-conversation-id");
-            match tokio::time::timeout(
-                Duration::from_secs_f64(budget.min(3600.)),
-                self.memory.context(user, conversation, query),
-            )
-            .await
+            match self
+                .memory
+                .context(
+                    user,
+                    conversation,
+                    query,
+                    Duration::from_secs_f64(budget.min(3600.)),
+                )
+                .await
             {
-                Ok(Ok(context)) if !context.is_empty() => {
-                    return Ok(Some(context));
-                }
-                Ok(Ok(_)) => {}
-                _ => tracing::warn!(event = "memory_context_unavailable"),
+                Ok(context) if !context.is_empty() => return Ok(Some(context)),
+                Ok(_) => {}
+                Err(_) => tracing::warn!(event = "memory_context_unavailable"),
             }
         }
         Ok(None)

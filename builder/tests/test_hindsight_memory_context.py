@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import nat_helpers.hindsight_memory_context as context
+import pytest
 from nat_helpers.communication_style import SOURCE_SUMMARY_GUIDANCE
 
 
@@ -172,6 +173,62 @@ def test_large_context_stays_valid_and_preserves_precise_facts(monkeypatch):
         fact["text"].startswith(f"Precise fact {index}: ")
         for index, fact in enumerate(payload["precise_facts"], start=1)
     )
+
+
+@pytest.mark.parametrize(
+    ("stalled", "want_page", "want_fact"),
+    [
+        ({"search"}, False, True),
+        ({"recall"}, True, False),
+        ({"page-1"}, True, True),
+        ({"search", "recall"}, False, False),
+    ],
+)
+def test_deadline_keeps_completed_reads_and_cancels_pending_ones(
+    monkeypatch, stalled, want_page, want_fact
+):
+    cancelled = set()
+
+    async def complete(name, value):
+        if name in stalled:
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.add(name)
+        return value
+
+    class Client:
+        async def recall(self, **kwargs):
+            return await complete("recall", [{"text": "fixture fact"}])
+
+        async def search_knowledge_pages(self, **kwargs):
+            return await complete("search", [{"id": "page-1"}, {"id": "page-2"}])
+
+        async def get_knowledge_page(self, *, page_id, **kwargs):
+            return await complete(page_id, {"name": page_id, "body": "fixture page"})
+
+    async def initialized(*args):
+        pass
+
+    monkeypatch.setattr(context, "ensure_bank_initialized", initialized)
+    read = context.build_automatic_memory_context(
+        Client(),
+        user_id="alice",
+        conversation_id=None,
+        query="What did I decide earlier?",
+        timeout=0.05,
+    )
+    if want_page or want_fact:
+        content = run(read)
+        assert ("fixture page" in content) == want_page
+        assert ("fixture fact" in content) == want_fact
+        if "page-1" in stalled:
+            assert "page-1" not in content
+            assert "page-2" in content
+    else:
+        with pytest.raises(TimeoutError):
+            run(read)
+    assert cancelled == stalled
 
 
 def test_context_free_greeting_skips_memory_io(monkeypatch):

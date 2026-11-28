@@ -23,13 +23,13 @@ images:
   # before Helm runs.
   backend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: backend-autonomy-contract-20261104
-    digest: 'sha256:021419f1eb29a28807bfb3955bcc266835945ebc0b1875bb877eda83c25c6778'
+    tag: backend-memory-a9b5f740-25bd218f7f08
+    digest: 'sha256:a42ea8c42095aee443a7848a83f8b526d28de279d123e6754e11cd649c8f82e4'
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
     tag: frontend-liquid-glass-277b5189
-    digest: 'sha256:3d25a07e5d144fc91c5993a12d524f3d9ae24be0cf4d15b7becdb84b5966e6db'
+    digest: 'sha256:713ef6cb8b5d2b5e82517fc79dd86f477d6f5281ef01ce60663aa35fd735dde7'
     pullPolicy: Always
   nginx:
     # Repository-owned rebuild of the upstream unprivileged nginx slim image

@@ -139,7 +139,10 @@ provider directly and does not require all four services.
 Hindsight is an externally owned memory service integrated by context operations;
 its implementation is not part of Daedalus Context. Agent-private document uploads
 retain the agent's authenticated user scope and lifecycle even when they share
-context's ingestion, embedding and storage services.
+context's ingestion, embedding and storage services. Interactive preparation shares one deadline across
+the session brief, page reads and raw recall. Completed evidence from the authenticated user
+reaches the next model call when a sibling read times out. Past-lookups start raw recall
+alongside page search. Other queries recall only when the pages supply no usable evidence.
 
 A curated search resolves a domain to a collection alias, embeds the query with
 the query role, searches Milvus, optionally reranks, and returns passages and
