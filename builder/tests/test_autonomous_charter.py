@@ -631,23 +631,28 @@ def test_briefings_are_retired_even_with_old_settings_and_pending_work(when):
 
 
 @pytest.mark.parametrize(
-    "note",
+    ("note", "limits"),
     [
-        "word " * 81,
-        "x" * 601,
-        "Blocked.\nLogs follow.",
-        "Blocked. Still blocked. No changes. Same logs. Nothing else.",
+        ("word " * 81, {"80 words"}),
+        ("x" * 601, {"600 characters"}),
+        ("Blocked.\nLogs follow.", {"one line"}),
+        ("First. Second. Third. Fourth.", {"three sentences"}),
+        (
+            "First.\r\nSecond. Third. Fourth. " + "word " * 81,
+            {"one line", "80 words", "three sentences"},
+        ),
     ],
 )
-def test_public_notes_reject_audit_dumps_with_actionable_correction(note):
+def test_public_notes_report_only_violated_limits(note, limits):
     with pytest.raises(ValueError) as error:
         parse_structured_output(
-            __import__("json").dumps(
-                {"outcome": {"status": "deferred", "summary": note}}
-            )
+            json.dumps({"outcome": {"status": "deferred", "summary": note}})
         )
-    assert "human handoff" in str(error.value)
-    assert "80 words" in str(error.value)
+    assert {
+        rule
+        for rule in ("one line", "80 words", "three sentences", "600 characters")
+        if rule in str(error.value)
+    } == limits
     assert note not in str(error.value)
 
 

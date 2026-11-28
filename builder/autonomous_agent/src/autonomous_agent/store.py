@@ -79,7 +79,8 @@ class RedisStore:
                     pipe.watch(state_key, config_key, lease_key)
                     if pipe.get(lease_key) != token:
                         raise WorkerLeaseLost("Worker lease expired or transferred")
-                    state = self._decode_state(pipe.get(state_key))
+                    raw_state = pipe.get(state_key)
+                    state = self._decode_state(raw_state)
                     raw_config = pipe.get(config_key)
                     config = (
                         CharterConfig.model_validate_json(raw_config)
@@ -87,8 +88,11 @@ class RedisStore:
                         else CharterConfig()
                     )
                     result = mutate(state, config)
+                    encoded_state = json.dumps(state, separators=(",", ":"))
                     pipe.multi()
-                    pipe.set(state_key, json.dumps(state, separators=(",", ":")))
+                    if encoded_state != raw_state:
+                        pipe.set(state_key, encoded_state)
+                    # Even an idle poll must EXEC to check all three watches.
                     pipe.execute()
                     return result
                 except redis.WatchError:

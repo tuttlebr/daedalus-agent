@@ -551,10 +551,13 @@ def main(image, redis_image, preparation):
         invalid = copy.deepcopy(valid)
         invalid["arguments"]["outcome"]["observedState"] = {"fixture": "x" * 32768}
         variants.append((invalid, "32768 serialized UTF-8 bytes"))
-        for note in ["word " * 81, "One. Two. Three. Four."]:
+        for note, hint in [
+            ("word " * 81, "80 words"),
+            ("One. Two. Three. Four.", "three sentences"),
+        ]:
             invalid = copy.deepcopy(valid)
             invalid["arguments"]["outcome"]["summary"] = note
-            variants.append((invalid, "human handoff"))
+            variants.append((invalid, hint))
         for invalid, hint in variants:
             result = execute(
                 "sports_discovery",
@@ -572,6 +575,40 @@ def main(image, redis_image, preparation):
                 "PRIVATE" not in feedback and "private-extra-key" not in feedback,
                 "Correction leaked private argument values or keys",
             )
+
+        # Correcting the paragraph still leaves a sentence-count error. It is
+        # progress on the same field, so the remaining correction is available.
+        two_limits = copy.deepcopy(valid)
+        two_limits["arguments"]["outcome"]["summary"] = "One.\nTwo. Three. Four."
+        sentences = copy.deepcopy(valid)
+        sentences["arguments"]["outcome"]["summary"] = "One. Two. Three. Four."
+        result = execute(
+            "sports_discovery",
+            [call("current_datetime_tool"), two_limits, sentences, valid],
+        )
+        require(
+            result["games"] == [game] and len(peers.requests) == 4,
+            "Summary repair lost the observations or repeated the source read",
+        )
+        feedback = [item["output"] for item in peers.outputs[-2:]]
+        require(
+            all("three sentences" in message for message in feedback)
+            and "one line" in feedback[0]
+            and "one line" not in feedback[1],
+            "The model could not distinguish the remaining summary limit",
+        )
+        for request in peers.requests[-2:]:
+            require(
+                [tool["name"] for tool in request["tools"]]
+                == ["submit_autonomous_result"],
+                "Summary repair offered action tools",
+            )
+        still_too_many = completion(summary="First. Second. Third. Fourth. Fifth.")
+        execute(
+            "sports_discovery",
+            [sentences, still_too_many],
+            expected_report_failure=False,
+        )
 
         # At the tool budget, keep only the publisher available. The first
         # rejection exposes both fields. Fixing just the summary leaves a

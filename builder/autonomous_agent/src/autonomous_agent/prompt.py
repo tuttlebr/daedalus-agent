@@ -8,7 +8,14 @@ from datetime import datetime
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from pydantic import ValidationError
 
-from .charter import EASTERN, CharterConfig, CharterOutput, task_note_key, task_settings
+from .charter import (
+    EASTERN,
+    CharterConfig,
+    CharterOutput,
+    SummaryFormatError,
+    task_note_key,
+    task_settings,
+)
 from .scheduling import available_action_slots
 
 
@@ -258,7 +265,7 @@ def output_schema() -> dict:
 
 
 def validation_problem(exc: ValidationError) -> str:
-    """Safe correction guidance: never echo inputs, arbitrary keys or exception text."""
+    """Only emit known field names and correction text owned by the charter."""
     hints = []
     fields = {
         "title",
@@ -277,7 +284,7 @@ def validation_problem(exc: ValidationError) -> str:
         "evidence",
         "observedState",
     }
-    for error in exc.errors(include_input=False, include_context=False)[:4]:
+    for error in exc.errors(include_input=False)[:4]:
         loc = error["loc"]
         path = "/" + "/".join(
             str(part) if isinstance(part, int) or part in fields else "*"
@@ -285,7 +292,13 @@ def validation_problem(exc: ValidationError) -> str:
         )
         hint = "Use only declared fields and their schema types and bounds."
         if loc == ("outcome", "summary"):
-            hint = "Write only the human handoff in one paragraph, at most three sentences, 80 words and 600 characters. Include the blocker, supported owner step and verification; keep diagnostics in evidence/notes."
+            cause = error.get("ctx", {}).get("error")
+            if isinstance(cause, SummaryFormatError):
+                hint = f"{cause} Keep diagnostic details in evidence or notes."
+            elif error["type"] == "string_too_long":
+                hint = "Shorten the handoff to at most 600 characters."
+            else:
+                hint = "Supply a nonempty text handoff of at most 600 characters."
         elif loc and loc[0] == "proposals" and loc[-1] in {"title", "benefit"}:
             hint = "Use a title of at most 10 words/80 characters and a one-sentence benefit of at most 35 words/240 characters."
         elif error["type"] == "value_error":

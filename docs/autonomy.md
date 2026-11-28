@@ -109,6 +109,8 @@ step and verification. Proposal titles allow ten words/80 characters and benefit
 correction attempts using only the submission tool and the evidence already
 collected. Repeating the same validation error ends the repair early. Summary,
 verification evidence and observed-state errors identify their individual fields.
+Summary feedback names each violated limit. If a correction fixes the line breaks
+and still exceeds three sentences, the remaining correction can address sentence count.
 
 When report validation exhausts its allowance, the backend sends an error event
 with code `invalid_autonomy_report` and a boolean `mutation_attempted`. The
@@ -216,6 +218,10 @@ calendar records, notes, proposals, daily reports and reporting fingerprints.
 transactional and fenced by the per-user lease; claiming an action also watches
 configuration so a racing pause is rechecked before dispatch. The frontend uses
 compare-and-set writes against the same state.
+
+An idle worker poll checks the state, configuration and lease at commit time.
+It skips the state write when the serialized contents already match Redis.
+Recovery and expiry still persist on polls that find no due action.
 
 The worker records intent before contacting the backend. A restarted worker
 marks interrupted dispatched work uncertain. Lighting is not replayed after an

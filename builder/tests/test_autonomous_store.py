@@ -71,6 +71,51 @@ def test_charter_ignores_retired_configuration_and_pending_research(store_user):
     assert "PRIVATE_RETIRED_TASK" not in json.dumps(store.get_state(user))
 
 
+def test_idle_poll_preserves_state_key_and_writes_recovery_without_due_work(store_user):
+    store, user = store_user
+    state_key = key(user, "state")
+    store.redis.set(key(user, "config"), CharterConfig(enabled=False).model_dump_json())
+    assert store.prepare(user) is None
+    assert store.redis.exists(state_key)
+    # A frontend transaction watching the state should survive an idle poll.
+    with store.redis.pipeline() as observer:
+        observer.watch(state_key)
+        assert store.prepare(user) is None
+        observer.multi()
+        observer.ping()
+        assert observer.execute() == [True]
+
+    retired = action("daily_summary", "legacy", now_ms())
+    store.update(
+        user, lambda state, _: state["actions"].update({retired["id"]: retired})
+    )
+    assert store.prepare(user) is None
+    assert store.get_state(user)["actions"][retired["id"]]["status"] == "cancelled"
+
+
+def test_read_only_selection_rechecks_config_and_lease_before_returning(store_user):
+    store, user = store_user
+    seed(store, user)
+    seen = []
+
+    def pause(state, config):
+        seen.append(config.enabled)
+        if config.enabled:
+            store.redis.set(
+                key(user, "config"), CharterConfig(enabled=False).model_dump_json()
+            )
+        return config.enabled
+
+    assert store.update(user, pause) is False
+    assert seen == [True, False]
+
+    def transfer(state, config):
+        store.redis.set(key(user, "lease"), "successor")
+
+    with pytest.raises(WorkerLeaseLost):
+        store.update(user, transfer)
+
+
 def test_lost_lease_cannot_claim_or_persist_over_successor(store_user):
     store, user = store_user
     item = seed(store, user)

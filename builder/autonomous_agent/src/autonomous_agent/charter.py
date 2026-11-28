@@ -307,6 +307,10 @@ class Evidence(Contract):
     reference: str = Field(default="", max_length=2048)
 
 
+class SummaryFormatError(ValueError):
+    """Correction text built exclusively from the violated rules' fixed hints."""
+
+
 class ActionOutcome(Contract):
     status: OutcomeStatus
     summary: Annotated[
@@ -329,15 +333,17 @@ class ActionOutcome(Contract):
     @field_validator("summary")
     @classmethod
     def concise_summary(cls, value: str) -> str:
-        if (
-            len(value.split()) > 80
-            or "\n" in value
-            or "\r" in value
-            or len(re.findall(r"[.!?](?:\s+|$)", value)) > 3
-        ):
-            raise ValueError(
-                "Write one paragraph of at most three sentences and 80 words"
-            )
+        # The runtime compares diagnostics to detect a repeated failed repair.
+        # Keep one stable hint per violated rule, independent of the input text.
+        hints = []
+        if "\n" in value or "\r" in value:
+            hints.append("Put the handoff on one line.")
+        if len(value.split()) > 80:
+            hints.append("Shorten the handoff to at most 80 words.")
+        if len(re.findall(r"[.!?](?:\s+|$)", value)) > 3:
+            hints.append("Use at most three sentences.")
+        if hints:
+            raise SummaryFormatError(" ".join(hints))
         return value
 
     @field_validator("evidence")
